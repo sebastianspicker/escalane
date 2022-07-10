@@ -2,7 +2,7 @@
 
 
 ## Context
-This page tracks bootstrap decisions for readme during bootstrap push work.
+This page tracks bootstrap decisions for readme during revival work.
 
 ## Development
 - Reduced surprise in the docker release checks.
@@ -11,4 +11,7 @@ This page tracks bootstrap decisions for readme during bootstrap push work.
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Usage
-- Merged scattered docker guidance into the docs.
+- Rewrote the core explanation around the maintained behavior.
+
+## Caveats
+Some setup details still depend on the current local workflow and may change again.
