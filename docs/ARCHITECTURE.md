@@ -2,12 +2,14 @@
 
 
 ## Context
-This page tracks exploration decisions for architecture during steady build work.
+This page keeps the current architecture guidance concise after earlier rough notes.
 
 ## Usage
-- Rewrote the dispatch explanation around the maintained behavior.
+- Made the core assumptions easier to check later.
 
-## Scratch Notes
+- Earlier scratch notes were compressed into the current guidance.
+
+## Notes Folded Into Current Flow
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Caveats
