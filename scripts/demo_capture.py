@@ -16,3 +16,9 @@ def dispatch_task() -> dict[str, str]:
 # current lane: state
 def state_pipeline() -> dict[str, str]:
     return {"scope": "state", "status": "ready"}
+
+# current lane: api
+def api_pipeline() -> dict[str, str]:
+    return {"scope": "api", "status": "ready"}
+
+# forced-api-6
