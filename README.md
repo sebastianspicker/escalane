@@ -3,10 +3,10 @@
 A working tree for alarm-broker with an evolving implementation history.
 
 ## Overview
-alarm-broker keeps the active revival work visible.
+alarm-broker records the stable project shape and the work still worth checking.
 
 ## Status
-Working state: bootstrap. Activity resumed after a longer gap.
+Lifecycle stage: core-build-out. Maintenance guidance now reflects the stable shape.
 
 ## Development
 - Reduced surprise in the docker release checks.
@@ -14,5 +14,11 @@ Working state: bootstrap. Activity resumed after a longer gap.
 ## Usage
 - Rewrote the core explanation around the maintained behavior.
 
-## Roadmap
+## Current Focus
 Prefer narrow maintenance work over broad rewrites.
+
+Use the next review to check behavior before adding surface area.
+## Features
+- Left fastapi concrete enough for the next pass to build on.
+
+- Earlier scratch detail is now represented in maintained sections.

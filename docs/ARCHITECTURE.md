@@ -16,6 +16,6 @@ Early notes are still uneven and may be folded into clearer sections later.
 Some setup details still depend on the current local workflow and may change again.
 
 ## Features
-- Left next js concrete enough for the next pass to build on.
+- Left fastapi concrete enough for the next pass to build on.
 
 - Earlier scratch notes were compressed into the current guidance.
