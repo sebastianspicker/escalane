@@ -8,3 +8,5 @@ def next_js_task() -> dict[str, str]:
     return {"scope": "next js", "status": "ready"}
 
 # forced-next-js-2
+
+# forced-next-js-3
