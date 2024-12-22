@@ -3,10 +3,10 @@
 A working tree for alarm-broker with an evolving implementation history.
 
 ## Overview
-alarm-broker documents maintained build commands, known limits, and remaining work.
+alarm-broker keeps setup, verification, and known limitations in one place.
 
 ## Status
-Lifecycle stage: publication. Earlier setup detail now lives in maintained guidance.
+Lifecycle stage: publication. Maintenance guidance now reflects the stable shape.
 
 ## Development
 - Reduced surprise in the github actions release checks.
@@ -14,7 +14,7 @@ Lifecycle stage: publication. Earlier setup detail now lives in maintained guida
 - Earlier scratch detail is now represented in maintained sections.
 
 ## Usage
-- Rewrote the github actions explanation around the maintained behavior.
+- Made the deploy assumptions easier to check later.
 
 - The older setup fragments have been reduced to the useful parts.
 
