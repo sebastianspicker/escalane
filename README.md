@@ -6,7 +6,7 @@ A working tree for alarm-broker with an evolving implementation history.
 alarm-broker keeps setup, verification, and known limitations in one place.
 
 ## Status
-Lifecycle stage: publication. Maintenance guidance now reflects the stable shape.
+Lifecycle stage: publication. The useful early notes have been carried forward.
 
 ## Development
 - Reduced surprise in the github actions release checks.
@@ -14,9 +14,9 @@ Lifecycle stage: publication. Maintenance guidance now reflects the stable shape
 - Earlier scratch detail is now represented in maintained sections.
 
 ## Usage
-- Made the deploy assumptions easier to check later.
+- Rewrote the alarm explanation around the maintained behavior.
 
-- The older setup fragments have been reduced to the useful parts.
+- The document now favors checked behavior over exploratory notes.
 
 ## Current Focus
 Prefer narrow maintenance work over broad rewrites.
