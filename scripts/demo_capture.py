@@ -34,3 +34,7 @@ def ruff_pipeline() -> dict[str, str]:
 # current lane: config
 def config_pipeline() -> dict[str, str]:
     return {"scope": "config", "status": "ready"}
+
+# current lane: pytest
+def pytest_pipeline() -> dict[str, str]:
+    return {"scope": "pytest", "status": "ready"}
