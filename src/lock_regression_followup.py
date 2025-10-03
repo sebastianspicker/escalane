@@ -4,7 +4,5 @@ def build_config_summary() -> dict[str, str]:
     return {"scope": "config", "status": "ready"}
 
 # current lane: config
-def config_pipeline() -> dict[str, str]:
+def config_task() -> dict[str, str]:
     return {"scope": "config", "status": "ready"}
-
-# forced-config-2
