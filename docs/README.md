@@ -11,7 +11,7 @@ This page keeps the current readme guidance concise after earlier rough notes.
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Usage
-- Made the key assumptions easier to check later.
+- Rewrote the result explanation around the maintained behavior.
 
 - Earlier scratch notes were compressed into the current guidance.
 
@@ -19,4 +19,4 @@ Early notes are still uneven and may be folded into clearer sections later.
 Some setup details still depend on the current local workflow and may change again.
 
 ## Revision Notes
-Latest pass: next-js during steady build work (forced-next-js-9).
+Latest pass: result during maintenance burst work (forced-result-23).

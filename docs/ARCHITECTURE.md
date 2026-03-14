@@ -5,7 +5,7 @@
 This page keeps the current architecture guidance concise after earlier rough notes.
 
 ## Usage
-- Made the key assumptions easier to check later.
+- Rewrote the result explanation around the maintained behavior.
 
 - Earlier scratch notes were compressed into the current guidance.
 
@@ -29,3 +29,6 @@ Some setup details still depend on the current local workflow and may change aga
 - Simplified the next maintenance pass through pytest.
 
 - Earlier scratch notes were compressed into the current guidance.
+
+## Revision Notes
+Latest pass: result during maintenance burst work (forced-result-19).
