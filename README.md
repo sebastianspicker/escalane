@@ -1,29 +1,279 @@
-# alarm-broker
+# alarm-broker (Release Candidate)
 
-A working tree for alarm-broker with an evolving implementation history.
+[![CI](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml)
 
-## Overview
-alarm-broker records the stable project shape and the work still worth checking.
+> **NOTICE (Release Candidate)** -- This project is a **release candidate** and not yet validated for safety-critical, security-critical, or compliance-critical environments.
+> It is an open-source reference implementation intended to explore architecture patterns, integration flows, and an MVP workflow.
+> No warranty is provided; you are responsible for risk assessment, hardening, monitoring, redundancy, and operational procedures before any production deployment.
 
-## Status
-Lifecycle stage: publication. Maintenance guidance now reflects the stable shape.
-
-## Development
-- Reduced surprise in the url release checks.
-
-- The older setup fragments have been reduced to the useful parts.
-
-## Usage
-- Made the key assumptions easier to check later.
-
-- The document now favors checked behavior over exploratory notes.
-
-## Current Focus
-Prefer narrow maintenance work over broad rewrites.
-
-Use the next review to check behavior before adding surface area.
-Keep the next pass focused on verification and smaller changes.
 ## Features
-- Left fastapi concrete enough for the next pass to build on.
 
-- Earlier scratch detail is now represented in maintained sections.
+- **Silent/panic alarm trigger** -- Receives HTTP triggers from Yealink emergency keys (or any HTTP client)
+- **Multi-channel fan-out** -- Notifies via Zammad (ticketing), SMS (generic HTTP connector), and Signal (signal-cli-rest-api)
+- **Capability-link ACK** -- Responders acknowledge alarms via a mobile-friendly `/a/{ack_token}` page (no login required)
+- **Escalation engine** -- Configurable escalation schedule with delayed Redis-backed jobs
+- **Admin dashboard** -- Real-time alarm overview with search, quick-ack, and detail modal (`/admin`)
+- **Full audit trail** -- Every alarm state change and notification is persisted in PostgreSQL
+- **Prometheus metrics** -- Admin-protected `/metrics` endpoint for monitoring and alerting
+- **Idempotency & rate limiting** -- Deduplicates rapid triggers; prevents abuse
+- **Simulation mode** -- Demo mode with mock connectors for testing without live integrations
+
+## Flow diagrams (Mermaid)
+
+The diagrams below reflect the flow as implemented in this repository.
+
+### 1) System overview (runtime components)
+
+```mermaid
+flowchart LR
+  %% External trigger/source
+  Y["Yealink phone<br/>(Emergency key)"] -->|"HTTP GET /v1/yealink/alarm?token=..."| API["Alarm Broker API<br/>(FastAPI)"]
+
+  %% Core state & job infrastructure
+  API -->|"INSERT/UPDATE"| PG["PostgreSQL<br/>(alarms, mapping, audit)"]
+  API -->|"SET idempotency key (NX, EX)"| R["Redis<br/>(idempotency, rate limit, jobs)"]
+  API -->|"INCR rate-limit key"| R
+  API -->|"enqueue_job('alarm_created')"| R
+
+  %% Worker fan-out & escalation
+  R -->|"arq jobs"| W["Alarm Worker<br/>(arq)"]
+  W -->|"SELECT alarm + enrichment"| PG
+  W -->|"INSERT audit rows"| PG
+  W -->|"enqueue_job('escalate', _defer_by=...)"| R
+
+  %% Downstream connectors (best effort)
+  W -->|"create ticket / add note"| Z["Zammad API"]
+  W -->|"send message"| SMS["SMS provider<br/>(generic HTTP connector)"]
+  W -->|"send message"| SIG["Signal endpoint<br/>(signal-cli-rest-api)"]
+  W -->|"POST state-change event (HMAC-signed)"| WH["Webhook endpoint<br/>(WEBHOOK_URL, optional)"]
+
+  %% Responder acknowledgement flow
+  RESP["Responder<br/>(web browser)"] -->|"GET/POST /a/{ack_token}"| API
+  API -->|"enqueue_job('alarm_acked')"| R
+  W -->|"Zammad internal note (ACK)"| Z
+
+  %% Admin flow (seeding/mapping + dashboard)
+  ADMIN["Admin (operator)"] -->|"X-Admin-Key /v1/admin/seed"| API
+  ADMIN -->|"X-Admin-Key /v1/admin/devices"| API
+  ADMIN -->|"X-Admin-Key /v1/admin/escalation-policy"| API
+  ADMIN -->|"POST /admin/login → session cookie"| API
+  ADMIN -->|"session cookie GET /admin (dashboard)"| API
+```
+
+### 2) Trigger flow (Yealink → API → DB → worker)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Y as Yealink phone
+  participant API as Alarm Broker API (FastAPI)
+  participant R as Redis
+  participant PG as PostgreSQL
+  participant W as Alarm Worker (arq)
+  participant Z as Zammad
+  participant SMS as SMS provider
+  participant SIG as Signal endpoint
+
+  Y->>API: GET /v1/yealink/alarm?token=DEVICE_TOKEN
+  API->>R: GET idemp:sha256(token:bucket_10s)
+  alt idempotency key exists
+    R-->>API: alarm_id (existing)
+    API->>PG: SELECT alarms.id (by alarm_id)
+    API-->>Y: 200 {alarm_id, status}
+  else first request in bucket
+    API->>R: SET idemp:* = alarm_uuid NX EX 30
+    API->>R: INCR rl:token:minute_bucket (+ EXPIRE)
+    alt rate limit exceeded
+      API->>R: DEL idemp:*
+      API-->>Y: 429 Rate limit exceeded
+    else allowed
+      API->>PG: SELECT devices by device_token
+      alt unknown token
+        API->>R: DEL idemp:*
+        API-->>Y: 404 Unknown token
+      else mapping incomplete
+        API->>R: DEL idemp:*
+        API-->>Y: 409 Mapping incomplete
+      else ok
+        API->>PG: INSERT alarms(status=triggered, ack_token, meta, ...)
+        API->>PG: UPDATE devices.last_seen_at
+        API->>R: enqueue_job("alarm_created", alarm_id)
+        API-->>Y: 200 {alarm_id, status:"triggered"}
+      end
+    end
+  end
+
+  %% async fan-out
+  R-->>W: alarm_created(alarm_id)
+  W->>PG: SELECT alarm + enrichment (person/room/site)
+  W->>Z: POST /api/v1/tickets (best effort)
+  W->>SMS: send message (best effort)
+  W->>SIG: send message (best effort)
+  W->>PG: INSERT alarm_notifications (audit)
+  W->>R: enqueue_job("escalate", alarm_id, step_no, _defer_by=after_seconds)
+```
+
+### 3) Escalation loop (delayed jobs)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant R as Redis
+  participant W as Alarm Worker (arq)
+  participant PG as PostgreSQL
+  participant SMS as SMS provider
+  participant SIG as Signal endpoint
+
+  R-->>W: escalate(alarm_id, step_no) after delay
+  W->>PG: SELECT alarms.status
+  alt status != triggered
+    W-->>R: (no-op)
+  else status == triggered
+    W->>PG: SELECT escalation_steps(step_no) + targets
+    W->>SMS: send message (best effort)
+    W->>SIG: send message (best effort)
+    W->>PG: INSERT alarm_notifications (audit)
+  end
+```
+
+### 4) ACK flow (capability link)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Responder (browser)
+  participant API as Alarm Broker API (FastAPI)
+  participant PG as PostgreSQL
+  participant R as Redis
+  participant W as Alarm Worker (arq)
+  participant Z as Zammad
+
+  U->>API: GET /a/{ack_token}
+  API->>PG: SELECT alarms by ack_token
+  API-->>U: HTML page ("Acknowledge" button)
+
+  U->>API: POST /a/{ack_token} (acked_by?, note?)
+  API->>PG: UPDATE alarms.status=acknowledged, acked_at, acked_by, meta.ack_note
+  API->>R: enqueue_job("alarm_acked", alarm_id, acked_by, note)
+  API-->>U: HTML page (already acknowledged)
+
+  R-->>W: alarm_acked(alarm_id, acked_by, note)
+  W->>PG: SELECT alarms.zammad_ticket_id
+  W->>Z: PUT /api/v1/tickets/{id} (internal note, best effort)
+  W->>PG: INSERT alarm_notifications (audit)
+```
+
+### 5) Alarm lifecycle (current implementation)
+
+```mermaid
+stateDiagram-v2
+  [*] --> triggered
+  triggered --> acknowledged: ACK (/a/{ack_token} or admin API)
+  triggered --> resolved: Resolve API
+  triggered --> cancelled: Cancel API
+  acknowledged --> resolved: Resolve API
+  acknowledged --> cancelled: Cancel API
+  resolved --> [*]
+  cancelled --> [*]
+```
+
+## Repository layout
+
+- `docs/` – concepts and specifications (English)
+- `services/alarm_broker/` – FastAPI API + arq worker + Alembic migrations
+- `deploy/` – Docker Compose + example seed file
+
+Main docs:
+- [docs/SETUP.md](docs/SETUP.md) — installation, configuration reference, dev workflow
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — monitoring, backups, troubleshooting
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data model, flows, lifecycle
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Yealink/Zammad templates and connector notes
+- [docs/ROADMAP.md](docs/ROADMAP.md) — implementation backlog
+
+## Additional Resources
+
+- `SECURITY.md` - Security policy and best practices
+- `CHANGELOG.md` - Version history
+
+## Requirements
+
+- Docker Desktop
+- Python 3.12+ (optional for local dev; Docker is enough to run)
+
+## Quickstart
+
+```bash
+# 1. Configure environment
+cp .env.example .env
+
+# 2. Start all services (API + PostgreSQL + Redis + Worker)
+docker compose -f deploy/docker-compose.yml up -d --build
+
+# 3. Run database migrations
+docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
+
+# 4. Load example seed data (devices, persons, rooms, escalation policy)
+curl -sS -X POST "http://localhost:8080/v1/admin/seed" \
+  -H "X-Admin-Key: change-me-admin-key" \
+  -H "Content-Type: application/x-yaml" \
+  --data-binary @deploy/seed.example.yaml
+
+# 5. Trigger a test alarm
+curl -sS "http://localhost:8080/v1/yealink/alarm?token=YLK_T54W_3F9A" | jq .
+
+# 6. Check readiness
+curl -sS "http://localhost:8080/readyz" | jq .
+```
+
+Open the **admin dashboard**: <http://localhost:8080/admin/login>
+
+Local development note: on plain `http://localhost:8080`, the admin session cookie and ACK CSRF cookie are intentionally emitted without the `Secure` flag so browser flows work locally. On HTTPS, or behind a trusted proxy forwarding `X-Forwarded-Proto: https`, those cookies are marked `Secure`.
+
+Metrics note: `/metrics` requires the `X-Admin-Key` header. For Prometheus, expose it through a trusted reverse proxy or scrape via a sidecar that injects the header.
+
+To test the **ACK page**, fetch alarm details with the admin key, then open `/a/<ack_token>` in a browser:
+
+```bash
+curl -sS "http://localhost:8080/v1/alarms/<alarm_id>" \
+  -H "X-Admin-Key: change-me-admin-key" | jq .ack_token
+```
+
+## Screenshots
+
+> Mock university campus demo with simulated alarm data.
+
+| View | Screenshot |
+|------|-----------|
+| Admin Overview | ![Admin Overview](docs/assets/screenshots/01-admin-overview.png) |
+| Triggered Alarm | ![Triggered Alarm](docs/assets/screenshots/02-admin-triggered-alarm.png) |
+| Search & Filter | ![Search Filter](docs/assets/screenshots/03-admin-search-filter.png) |
+| Alarm Detail Modal | ![Detail Modal](docs/assets/screenshots/04-admin-detail-modal.png) |
+| Acknowledged State | ![Acknowledged](docs/assets/screenshots/05-admin-quick-acknowledged.png) |
+| ACK Page -- Triggered (mobile) | ![ACK Triggered](docs/assets/screenshots/06-ack-page-triggered-mobile.png) |
+| ACK Page -- Acknowledged (mobile) | ![ACK Acknowledged](docs/assets/screenshots/07-ack-page-acknowledged-mobile.png) |
+| Resolved State | ![Resolved](docs/assets/screenshots/08-admin-resolved-state.png) |
+| Simulation Feed | ![Simulation](docs/assets/screenshots/09-simulation-feed.png) |
+
+## Configuration
+
+See `.env.example` for available variables (Zammad, SMS, Signal, escalation).
+
+Notes:
+- The SMS connector is intentionally generic and expects an HTTP endpoint (see `SENDXMS_*` variables).
+- Signal expects a `signal-cli-rest-api` compatible endpoint.
+
+## Developer workflow (local)
+
+```bash
+make lint       # ruff format + check
+make test       # pytest with coverage (threshold: 93%)
+make audit      # ruff + bandit + pip-audit
+```
+
+**Quality gates** (all enforced in CI):
+- ruff format + lint
+- mypy strict type checking
+- bandit security scanning
+- pytest with 93% coverage threshold
+- wheel packaging smoke import
+- PostgreSQL + Alembic smoke path

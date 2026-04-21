@@ -1,0 +1,60 @@
+sites:
+  - id: bg
+    name: Site BG
+
+rooms:
+  - id: bg-1.23
+    site_id: bg
+    label: Room 1.23
+    floor: "1"
+
+persons:
+  - id: ma-012
+    display_name: Person X
+    role: Staff
+    phone_mobile: "+491700000000"
+    phone_ext: "10023"
+    active: true
+
+devices:
+  - id: ylk-t5-10023
+    vendor: yealink
+    model_family: T5
+    account_ext: "10023"
+    device_token: YLK_T54W_3F9A
+    person_id: ma-012
+    room_id: bg-1.23
+
+escalation_policy:
+  id: default
+  name: Default
+
+escalation_targets:
+  - id: notfallstelle-signal
+    label: Primary responders (Signal)
+    channel: signal
+    address: ${SIGNAL_TARGET_GROUP_ID}
+    enabled: true
+  - id: notfallstelle-sms
+    label: Primary responders (SMS)
+    channel: sms
+    address: "+491711111111"
+    enabled: true
+
+escalation_steps:
+  - policy_id: default
+    step_no: 0
+    after_seconds: 0
+    target_ids: [notfallstelle-signal, notfallstelle-sms]
+  - policy_id: default
+    step_no: 1
+    after_seconds: ${ESCALATE_T1}
+    target_ids: [notfallstelle-signal, notfallstelle-sms]
+  - policy_id: default
+    step_no: 2
+    after_seconds: ${ESCALATE_T2}
+    target_ids: [notfallstelle-signal, notfallstelle-sms]
+  - policy_id: default
+    step_no: 3
+    after_seconds: ${ESCALATE_T3}
+    target_ids: [notfallstelle-signal, notfallstelle-sms]

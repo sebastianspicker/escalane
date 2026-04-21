@@ -1,14 +1,26 @@
-# Bug_Report
+---
+name: Bug report
+about: Something isn't working
+labels: bug
+---
 
+**What happened?**
 
-## Context
-This page tracks publication decisions for bug_report during steady build work.
+**What did you expect?**
 
-## Usage
-- Rewrote the the main flow explanation around the maintained behavior.
+**Steps to reproduce**
 
-## Scratch Notes
-Early notes are still uneven and may be folded into clearer sections later.
+1.
+2.
+3.
 
-## Caveats
-Some setup details still depend on the current local workflow and may change again.
+**Environment**
+- alarm-broker version:
+- Python:
+- Deployment (Docker / bare metal / other):
+
+**Logs / error output**
+
+```
+paste here
+```

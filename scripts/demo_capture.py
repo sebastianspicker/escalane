@@ -1,40 +1,484 @@
+#!/usr/bin/env python3
+"""Capture deterministic local demo screenshots for Mock University."""
+
 from __future__ import annotations
 
-def build_core_summary() -> dict[str, str]:
-    return {"scope": "core", "status": "ready"}
+import argparse
+import base64
+import json
+import os
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+from urllib import error, parse, request
 
-# current lane: core
-def core_task() -> dict[str, str]:
-    return {"scope": "core", "status": "ready"}
+try:
+    from scripts.demo_prepare import DemoPrepareError, run_prepare
+except ModuleNotFoundError:  # pragma: no cover - direct script execution fallback
+    from demo_prepare import DemoPrepareError, run_prepare
 
-# current lane: dispatch
-def dispatch_task() -> dict[str, str]:
-    return {"scope": "dispatch", "status": "ready"}
+SHOT_FILENAMES: list[str] = [
+    "01-admin-overview.png",
+    "02-admin-triggered-alarm.png",
+    "03-admin-search-filter.png",
+    "04-admin-detail-modal.png",
+    "05-admin-quick-acknowledged.png",
+    "06-ack-page-triggered-mobile.png",
+    "07-ack-page-acknowledged-mobile.png",
+    "08-admin-resolved-state.png",
+    "09-simulation-feed.png",
+    "10-simulation-feed-after-clear.png",
+]
 
-# forced-dispatch-3
+DEMO_TOKENS: dict[str, str] = {
+    "primary": "MU_YLK_NORTH_LIB_2002",
+    "secondary": "MU_YLK_MED_OR_2004",
+}
 
-# current lane: state
-def state_pipeline() -> dict[str, str]:
-    return {"scope": "state", "status": "ready"}
+_ONE_PIXEL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Qn7B8gAAAAASUVORK5CYII="
+)
 
-# current lane: api
-def api_pipeline() -> dict[str, str]:
-    return {"scope": "api", "status": "ready"}
 
-# forced-api-6
+class DemoCaptureError(RuntimeError):
+    """Typed error for demo capture failures."""
 
-# current lane: python
-def python_pipeline() -> dict[str, str]:
-    return {"scope": "python", "status": "ready"}
 
-# current lane: ruff
-def ruff_pipeline() -> dict[str, str]:
-    return {"scope": "ruff", "status": "ready"}
+@dataclass(frozen=True)
+class CaptureConfig:
+    base_url: str
+    admin_key: str
+    output_dir: Path
+    seed_file: Path
+    timeout_seconds: float
+    wait_seconds: float
+    headless: bool
+    skip_prepare: bool
+    mock_screens: bool
 
-# current lane: config
-def config_pipeline() -> dict[str, str]:
-    return {"scope": "config", "status": "ready"}
 
-# current lane: pytest
-def pytest_pipeline() -> dict[str, str]:
-    return {"scope": "pytest", "status": "ready"}
+@dataclass(frozen=True)
+class HttpResult:
+    status_code: int
+    body: str
+    json_body: dict[str, Any] | list[Any] | None
+
+
+def _normalize_base_url(base_url: str) -> str:
+    return base_url.rstrip("/")
+
+
+def _resolve_admin_key(cli_value: str | None) -> str:
+    key = (cli_value or os.getenv("ADMIN_API_KEY") or "").strip()
+    if not key:
+        raise DemoCaptureError(
+            "Missing admin key. Set ADMIN_API_KEY in environment or pass --admin-key."
+        )
+    return key
+
+
+def _http_json(
+    method: str,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+    timeout: float = 10.0,
+) -> HttpResult:
+    req = request.Request(
+        url=url, data=body, method=method.upper(), headers=headers or {}
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:  # noqa: S310
+            raw = response.read().decode("utf-8")
+            payload: dict[str, Any] | list[Any] | None = None
+            if raw.strip():
+                try:
+                    payload = json.loads(raw)
+                except json.JSONDecodeError:
+                    payload = None
+            return HttpResult(response.status, raw, payload)
+    except error.HTTPError as exc:
+        raw = exc.read().decode("utf-8")
+        payload: dict[str, Any] | list[Any] | None = None
+        if raw.strip():
+            try:
+                payload = json.loads(raw)
+            except json.JSONDecodeError:
+                payload = None
+        return HttpResult(exc.code, raw, payload)
+    except error.URLError as exc:
+        raise DemoCaptureError(f"Request failed for {url}: {exc.reason}") from exc
+
+
+def _extract_detail(payload: dict[str, Any] | list[Any] | None) -> str | None:
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str):
+            return detail
+    return None
+
+
+def _ensure_output_dir(output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _create_placeholder_screens(output_dir: Path) -> list[Path]:
+    _ensure_output_dir(output_dir)
+    created: list[Path] = []
+    for filename in SHOT_FILENAMES:
+        path = output_dir / filename
+        path.write_bytes(_ONE_PIXEL_PNG)
+        created.append(path)
+    return created
+
+
+def _admin_headers(admin_key: str) -> dict[str, str]:
+    return {"X-Admin-Key": admin_key, "Content-Type": "application/json"}
+
+
+def _login_admin_ui(page: Any, base_url: str, admin_key: str) -> None:
+    page.goto(f"{base_url}/admin/login", wait_until="networkidle")
+    page.fill("#admin_key", admin_key)
+    page.click("button[type='submit']")
+    page.wait_for_url(f"{base_url}/admin*")
+    page.wait_for_selector("#alarm-search")
+
+
+def _require_ok(result: HttpResult, message: str) -> None:
+    if result.status_code >= 400:
+        detail = _extract_detail(result.json_body) or result.body
+        raise DemoCaptureError(f"{message} (HTTP {result.status_code}): {detail}")
+
+
+def _trigger_alarm(base_url: str, token: str, timeout: float) -> str:
+    query = parse.urlencode({"token": token})
+    result = _http_json("GET", f"{base_url}/v1/yealink/alarm?{query}", timeout=timeout)
+    _require_ok(result, "Trigger request failed")
+    if not isinstance(result.json_body, dict) or "alarm_id" not in result.json_body:
+        raise DemoCaptureError("Trigger response did not contain alarm_id.")
+    return str(result.json_body["alarm_id"])
+
+
+def _get_alarm(
+    base_url: str, admin_key: str, alarm_id: str, timeout: float
+) -> dict[str, Any]:
+    result = _http_json(
+        "GET",
+        f"{base_url}/v1/alarms/{alarm_id}",
+        headers=_admin_headers(admin_key),
+        timeout=timeout,
+    )
+    _require_ok(result, f"Failed to fetch alarm {alarm_id}")
+    if not isinstance(result.json_body, dict):
+        raise DemoCaptureError(
+            f"Alarm details for {alarm_id} not in JSON object format."
+        )
+    return result.json_body
+
+
+def _resolve_alarm(
+    base_url: str, admin_key: str, alarm_id: str, timeout: float
+) -> None:
+    payload = {
+        "actor": "Demo Script",
+        "note": "Screenshot flow resolve",
+    }
+    result = _http_json(
+        "POST",
+        f"{base_url}/v1/alarms/{alarm_id}/resolve",
+        headers=_admin_headers(admin_key),
+        body=json.dumps(payload).encode("utf-8"),
+        timeout=timeout,
+    )
+    if result.status_code not in (200, 204):
+        detail = _extract_detail(result.json_body) or result.body
+        raise DemoCaptureError(
+            f"Resolve for alarm {alarm_id} failed (HTTP {result.status_code}): {detail}"
+        )
+
+
+def _ack_alarm(base_url: str, admin_key: str, alarm_id: str, timeout: float) -> None:
+    payload = {
+        "acked_by": "Demo Operator",
+        "note": "Screenshot flow acknowledgment",
+    }
+    result = _http_json(
+        "POST",
+        f"{base_url}/v1/alarms/{alarm_id}/ack",
+        headers=_admin_headers(admin_key),
+        body=json.dumps(payload).encode("utf-8"),
+        timeout=timeout,
+    )
+    if result.status_code not in (200, 204):
+        detail = _extract_detail(result.json_body) or result.body
+        raise DemoCaptureError(
+            f"Acknowledge for alarm {alarm_id} failed (HTTP {result.status_code}): {detail}"
+        )
+
+
+def _resolve_all_triggered(base_url: str, admin_key: str, timeout: float) -> None:
+    result = _http_json(
+        "GET",
+        f"{base_url}/v1/alarms?status=triggered&limit=200",
+        headers=_admin_headers(admin_key),
+        timeout=timeout,
+    )
+    _require_ok(result, "Failed to list triggered alarms for baseline cleanup")
+    if not isinstance(result.json_body, list):
+        return
+    alarm_ids = [
+        item.get("id")
+        for item in result.json_body
+        if isinstance(item, dict) and item.get("id")
+    ]
+    if not alarm_ids:
+        return
+    payload = {
+        "alarm_ids": alarm_ids,
+        "actor": "Demo Baseline Reset",
+        "note": "Resolve pre-existing triggered alarms before screenshot run.",
+    }
+    resolve_result = _http_json(
+        "POST",
+        f"{base_url}/v1/alarms/bulk/resolve",
+        headers=_admin_headers(admin_key),
+        body=json.dumps(payload).encode("utf-8"),
+        timeout=timeout,
+    )
+    _require_ok(resolve_result, "Failed to bulk-resolve baseline triggered alarms")
+
+
+def _wait_for_simulation_notifications(
+    base_url: str,
+    admin_key: str,
+    timeout_seconds: float,
+    poll_interval: float = 0.5,
+) -> int:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        result = _http_json(
+            "GET",
+            f"{base_url}/v1/simulation/status",
+            headers=_admin_headers(admin_key),
+            timeout=max(2.0, poll_interval + 1),
+        )
+        _require_ok(result, "Failed to query simulation status")
+        if isinstance(result.json_body, dict):
+            total = int(result.json_body.get("total_notifications", 0))
+            if total > 0:
+                return total
+        time.sleep(poll_interval)
+    raise DemoCaptureError(
+        "No simulation notifications observed within timeout. "
+        "Ensure worker is running and SIMULATION_ENABLED=true."
+    )
+
+
+def _capture_real_screens(config: CaptureConfig) -> list[Path]:
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise DemoCaptureError(
+            "Playwright is not installed. Install with `pip install playwright` and "
+            "`playwright install chromium`."
+        ) from exc
+
+    base_url = _normalize_base_url(config.base_url)
+    _ensure_output_dir(config.output_dir)
+
+    if not config.skip_prepare:
+        try:
+            run_prepare(
+                base_url=base_url,
+                admin_key=config.admin_key,
+                seed_file=config.seed_file,
+                timeout_seconds=config.timeout_seconds,
+            )
+        except DemoPrepareError as exc:
+            raise DemoCaptureError(str(exc)) from exc
+
+    _resolve_all_triggered(base_url, config.admin_key, config.timeout_seconds)
+
+    output_paths = [config.output_dir / filename for filename in SHOT_FILENAMES]
+    admin_url = f"{base_url}/admin?refresh=120"
+
+    alarm_primary = _trigger_alarm(
+        base_url, DEMO_TOKENS["primary"], config.timeout_seconds
+    )
+    alarm_secondary = _trigger_alarm(
+        base_url, DEMO_TOKENS["secondary"], config.timeout_seconds
+    )
+    alarm_secondary_data = _get_alarm(
+        base_url,
+        config.admin_key,
+        alarm_secondary,
+        config.timeout_seconds,
+    )
+    ack_token_secondary = alarm_secondary_data.get("ack_token")
+    if not isinstance(ack_token_secondary, str) or not ack_token_secondary:
+        raise DemoCaptureError(f"Missing ack_token for alarm {alarm_secondary}.")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=config.headless)
+
+        desktop = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = desktop.new_page()
+        _login_admin_ui(page, base_url, config.admin_key)
+
+        page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
+        page.wait_for_selector("#alarm-search")
+        page.screenshot(path=str(output_paths[0]), full_page=True)
+
+        page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
+        page.wait_for_selector("tr.alarm-row")
+        page.screenshot(path=str(output_paths[1]), full_page=True)
+
+        page.fill("#alarm-search", "library")
+        page.wait_for_timeout(250)
+        page.screenshot(path=str(output_paths[2]), full_page=True)
+
+        if page.locator("tr.alarm-row").count() == 0:
+            raise DemoCaptureError("No alarm rows found to open detail modal.")
+        # Set modal state directly from row dataset to avoid UI click flakiness.
+        page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('tr.alarm-row');
+              if (!row) {
+                throw new Error('No alarm row found');
+              }
+              const modal = document.getElementById('alarm-detail-modal');
+              const subtitle = document.getElementById('detail-modal-subtitle');
+              const pairs = [
+                ['detail-alarm-id', row.dataset.alarmId],
+                ['detail-status', row.dataset.status],
+                ['detail-created', row.dataset.created],
+                ['detail-person', row.dataset.person],
+                ['detail-room', row.dataset.room],
+                ['detail-source', row.dataset.source],
+                ['detail-severity', row.dataset.severity],
+                ['detail-acked-by', row.dataset.ackedBy],
+              ];
+              if (!modal || !subtitle) {
+                throw new Error('Modal structure not found');
+              }
+              for (const [id, value] of pairs) {
+                const el = document.getElementById(id);
+                if (el) {
+                  el.textContent = value || '-';
+                }
+              }
+              subtitle.textContent = 'Alarm ' + (row.dataset.shortId || row.dataset.alarmId || '-');
+              modal.hidden = false;
+              modal.setAttribute('aria-hidden', 'false');
+            }
+            """
+        )
+        page.wait_for_selector("#alarm-detail-modal:not([hidden])")
+        page.screenshot(path=str(output_paths[3]), full_page=True)
+
+        _ack_alarm(base_url, config.admin_key, alarm_primary, config.timeout_seconds)
+        page.goto(f"{admin_url}&status=acknowledged", wait_until="networkidle")
+        page.wait_for_selector("tr.alarm-row")
+        page.screenshot(path=str(output_paths[4]), full_page=True)
+
+        mobile = browser.new_context(viewport={"width": 390, "height": 844})
+        ack_page = mobile.new_page()
+        ack_page.goto(f"{base_url}/a/{ack_token_secondary}", wait_until="networkidle")
+        ack_page.wait_for_selector("form")
+        ack_page.screenshot(path=str(output_paths[5]), full_page=True)
+
+        ack_page.fill("#acked_by", "Demo Nurse")
+        ack_page.fill("#note", "Taking over response.")
+        ack_page.click("button[type='submit']")
+        ack_page.wait_for_load_state("networkidle")
+        ack_page.wait_for_selector(".status-badge.acknowledged")
+        ack_page.screenshot(path=str(output_paths[6]), full_page=True)
+
+        _resolve_alarm(
+            base_url, config.admin_key, alarm_secondary, config.timeout_seconds
+        )
+        page.goto(f"{admin_url}&status=resolved", wait_until="networkidle")
+        page.wait_for_selector("tr.alarm-row")
+        page.screenshot(path=str(output_paths[7]), full_page=True)
+
+        _wait_for_simulation_notifications(
+            base_url, config.admin_key, config.wait_seconds
+        )
+        page.goto(admin_url, wait_until="networkidle")
+        page.wait_for_selector("#simulation-panel[data-enabled='true']")
+        page.screenshot(path=str(output_paths[8]), full_page=True)
+
+        clear_result = _http_json(
+            "POST",
+            f"{base_url}/v1/simulation/notifications/clear",
+            headers=_admin_headers(config.admin_key),
+            body=b"{}",
+            timeout=config.timeout_seconds,
+        )
+        _require_ok(clear_result, "Failed to clear simulation notifications")
+
+        page.goto(admin_url, wait_until="networkidle")
+        page.wait_for_selector("#simulation-panel[data-enabled='true']")
+        page.screenshot(path=str(output_paths[9]), full_page=True)
+
+        mobile.close()
+        desktop.close()
+        browser.close()
+
+    return output_paths
+
+
+def run_capture(config: CaptureConfig) -> list[Path]:
+    if config.mock_screens:
+        return _create_placeholder_screens(config.output_dir)
+    return _capture_real_screens(config)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Capture local Mock University demo screenshots."
+    )
+    parser.add_argument("--base-url", default="http://localhost:8080")
+    parser.add_argument("--admin-key", default=None)
+    parser.add_argument("--output-dir", default="docs/assets/screenshots")
+    parser.add_argument("--seed-file", default="deploy/simulation_seed.yaml")
+    parser.add_argument("--timeout-seconds", type=float, default=10.0)
+    parser.add_argument("--wait-seconds", type=float, default=20.0)
+    parser.add_argument("--headed", action="store_true")
+    parser.add_argument("--skip-prepare", action="store_true")
+    parser.add_argument("--mock-screens", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+
+    try:
+        created = run_capture(
+            CaptureConfig(
+                base_url=args.base_url,
+                admin_key=_resolve_admin_key(args.admin_key),
+                output_dir=Path(args.output_dir),
+                seed_file=Path(args.seed_file),
+                timeout_seconds=args.timeout_seconds,
+                wait_seconds=args.wait_seconds,
+                headless=not args.headed,
+                skip_prepare=args.skip_prepare,
+                mock_screens=args.mock_screens,
+            )
+        )
+    except DemoCaptureError as exc:
+        print(f"[demo-capture] ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    print("[demo-capture] Screenshots created:")
+    for path in created:
+        print(f"  - {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

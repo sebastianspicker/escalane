@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+  <meta http-equiv="refresh" content="${refresh_seconds}">
+  <meta name="theme-color" content="#020617">
+  <meta name="color-scheme" content="dark">
+  <title>Mission Control - Alarm Broker</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+    :root {
+      --bg-base: #020617;
+      --bg-surface: #0f172a;
+      --bg-panel: rgba(15, 23, 42, 0.7);
+      --bg-panel-hover: rgba(30, 41, 59, 0.8);
+
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+
+      --border-light: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(56, 189, 248, 0.3);
+
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.15);
+
+      --alert: #ef4444;
+      --alert-glow: rgba(239, 68, 68, 0.2);
+
+      --ok: #10b981;
+      --ok-glow: rgba(16, 185, 129, 0.15);
+
+      --radius-lg: 16px;
+      --radius-md: 12px;
+      --radius-sm: 8px;
+
+      --font-ui: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text-main);
+      background-color: var(--bg-base);
+      background-image:
+        radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.1), transparent 50%),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 100% 100%, 40px 40px, 40px 40px;
+      font-family: var(--font-ui);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg-base);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    .shell {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      gap: 20px;
+    }
+
+    .panel {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      background: var(--bg-panel);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .title {
+      margin: 0 0 8px;
+      font-weight: 700;
+      font-size: 1.8rem;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fff 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .title::before {
+      content: '';
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse-cyan 3s infinite;
+    }
+
+    @keyframes pulse-cyan {
+
+      0%,
+      100% {
+        box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+      }
+
+      50% {
+        box-shadow: 0 0 16px rgba(56, 189, 248, 1), 0 0 4px #fff;
+      }
+    }
+
+    .meta {
+      margin: 0;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .meta span {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border-light);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.02);
+      padding: 20px;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .card.active {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.08);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .card h3 {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .card.active h3 {
+      color: var(--accent);
+    }
+
+    .card p {
+      margin: 12px 0 0;
+      font-size: 2rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      text-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+    }
+
+    .sim-panel {
+      border: 1px solid var(--border-accent);
+      border-radius: var(--radius-md);
+      background: rgba(15, 23, 42, 0.8);
+      box-shadow: inset 0 0 20px rgba(56, 189, 248, 0.05);
+      padding: 16px 20px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .sim-head h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sim-head p {
+      margin: 6px 0 0;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-family: var(--font-mono);
+    }
+
+    .sim-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      background: var(--bg-panel);
+      padding: 16px;
+      flex-wrap: wrap;
+      backdrop-filter: blur(12px);
+    }
+
+    .search-input {
+      flex: 1;
+      min-width: 260px;
+      max-width: 480px;
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      padding: 10px 16px;
+      background: rgba(0, 0, 0, 0.4);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 0.95rem;
+      transition: all 0.3s;
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      background: rgba(0, 0, 0, 0.6);
+    }
+
+    .search-input::placeholder {
+      color: #475569;
+    }
+
+    .hint {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-family: var(--font-mono);
+    }
+
+    .error-banner {
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      background: rgba(239, 68, 68, 0.1);
+      color: #fca5a5;
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .error-banner::before {
+      content: '\26A0\FE0F';
+    }
+
+    #success-toast::before {
+      content: '\2705';
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      background: var(--bg-surface);
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+      overflow-x: auto;
+      max-height: 800px;
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 1080px;
+      font-size: 0.9rem;
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-light);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      background: rgba(15, 23, 42, 0.95);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.75rem;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 1px 0 var(--border-light);
+    }
+
+    tbody tr {
+      transition: background 0.2s ease;
+    }
+
+    tbody tr:hover {
+      background: var(--bg-panel-hover);
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: #e2e8f0;
+    }
+
+    .severity {
+      display: inline-flex;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .state {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 4px 12px;
+      font-weight: 600;
+      font-size: 0.75rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      position: relative;
+    }
+
+    .state.triggered {
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .state.acknowledged {
+      background: rgba(56, 189, 248, 0.15);
+      color: #bae6fd;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .state.resolved {
+      background: rgba(16, 185, 129, 0.15);
+      color: #a7f3d0;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .state.cancelled {
+      background: rgba(148, 163, 184, 0.15);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-main);
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      font-family: var(--font-ui);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.4;
+    }
+
+    .btn.btn-ack {
+      border-color: rgba(56, 189, 248, 0.4);
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    .btn.btn-ack:hover:not(:disabled) {
+      background: rgba(56, 189, 248, 0.2);
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.3);
+    }
+
+    .btn.btn-resolve {
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #10b981;
+      background: rgba(16, 185, 129, 0.1);
+    }
+
+    .btn.btn-resolve:hover:not(:disabled) {
+      background: rgba(16, 185, 129, 0.2);
+      box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+    }
+
+    .row-hidden {
+      display: none;
+    }
+
+    /* Modal */
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      z-index: 100;
+      padding: 16px;
+    }
+
+    .modal[hidden] {
+      display: none !important;
+    }
+
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.8);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .modal-panel {
+      position: relative;
+      z-index: 101;
+      width: min(720px, 100%);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-lg);
+      background: #0f172a;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 30px 60px rgba(0, 0, 0, 0.6);
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      animation: modalSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .modal-panel::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    @keyframes modalSlideIn {
+      from {
+        opacity: 0;
+        transform: translateY(20px) scale(0.98);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border-light);
+      padding-bottom: 16px;
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .modal-header .muted {
+      margin-top: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+    }
+
+    .close-btn {
+      min-width: 36px;
+      min-height: 36px;
+      border-radius: 50%;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      font-size: 1.2rem;
+    }
+
+    .detail-grid {
+      margin: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px 24px;
+    }
+
+    .detail-grid dt {
+      margin: 0 0 4px 0;
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .detail-grid dd {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: 1rem;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 12px;
+      border-radius: 8px;
+      word-break: break-all;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    .modal-actions .btn {
+      padding: 10px 20px;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .muted {
+      color: var(--text-muted);
+    }
+
+    /* Skip-to-content link for keyboard/screen reader users */
+    .skip-link {
+      position: absolute;
+      top: -100%;
+      left: 0;
+      background: var(--accent);
+      color: #000;
+      padding: 8px 16px;
+      z-index: 200;
+      font-weight: 600;
+      border-radius: 0 0 8px 0;
+    }
+    .skip-link:focus {
+      top: 0;
+    }
+
+    /* Focus indicators for keyboard navigation */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Mobile responsiveness */
+    @media (max-width: 768px) {
+      body { padding: 12px; }
+
+      .hero { flex-direction: column; gap: 8px; }
+      .title { font-size: 1.3rem; }
+      .meta { font-size: 0.75rem; gap: 8px; }
+
+      .cards { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+      .card { padding: 14px; }
+      .card p { font-size: 1.5rem; }
+      .card h3 { font-size: 0.7rem; }
+
+      .toolbar { flex-direction: column; gap: 10px; }
+      .search-input { min-width: unset; max-width: 100%; width: 100%; }
+
+      .table-wrap { max-height: 60vh; }
+      table { min-width: 800px; font-size: 0.8rem; }
+      th, td { padding: 10px 8px; }
+
+      .modal-panel { padding: 20px; }
+      .detail-grid { grid-template-columns: 1fr; gap: 10px; }
+      .modal-actions { flex-direction: column; }
+      .modal-actions .btn { width: 100%; }
+    }
+
+    @media (max-width: 480px) {
+      .cards { grid-template-columns: 1fr 1fr; }
+    }
+
+    /* High contrast mode support */
+    @media (forced-colors: active) {
+      .state, .status-badge { border: 2px solid; }
+      .btn { border: 1px solid; }
+    }
+
+    /* Reduce motion for users who prefer it */
+    @media (prefers-reduced-motion: reduce) {
+      .title::before { animation: none; }
+      .card { transition: none; }
+      tbody tr { transition: none; }
+      .btn { transition: none; }
+      @keyframes modalSlideIn { from { opacity: 1; transform: none; } }
+    }
+  </style>
+</head>
+
+<body>
+  <a href="#alarm-table" class="skip-link">Skip to alarm table</a>
+  <main class="shell" role="main" aria-label="Alarm dashboard">
+    <section class="panel hero">
+      <div>
+        <h1 class="title">Mission Control</h1>
+        <p class="meta">
+          <span>⟳ ${refresh_seconds}s</span>
+          <span>Rows: ${row_count}</span>
+          <span>Updated: ${generated_at}</span>
+        </p>
+      </div>
+    </section>
+
+    <section class="cards" aria-label="Alarm status counts" aria-live="polite">
+      ${status_cards}
+    </section>
+
+    ${simulation_panel}
+
+    <section class="toolbar">
+      <input id="alarm-search" class="search-input" type="search" placeholder="Search ID, person, room, source..."
+        aria-label="Search alarms">
+      <span id="search-hint" class="hint">Type to filter</span>
+    </section>
+
+    <div id="error-banner" class="error-banner" role="alert" hidden></div>
+
+    <section id="alarm-table" class="table-wrap" tabindex="-1">
+      <table role="grid" aria-label="Alarm list">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Alarm ID</th>
+            <th>Created</th>
+            <th>Person</th>
+            <th>Room</th>
+            <th>Source</th>
+            <th>Severity</th>
+            <th>Ack</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <div id="alarm-detail-modal" class="modal" aria-hidden="true" hidden>
+    <div class="modal-backdrop" data-close-modal="true"></div>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+      <header class="modal-header">
+        <div>
+          <h2 id="detail-modal-title" class="modal-title">Alarm Intelligence</h2>
+          <p id="detail-modal-subtitle" class="muted">No alarm selected</p>
+        </div>
+        <button type="button" class="btn close-btn" data-close-modal="true" aria-label="Close details">×</button>
+      </header>
+      <dl class="detail-grid">
+        <dt>Alarm ID</dt>
+        <dd id="detail-alarm-id">-</dd>
+        <dt>Status</dt>
+        <dd id="detail-status">-</dd>
+        <dt>Created</dt>
+        <dd id="detail-created">-</dd>
+        <dt>Person</dt>
+        <dd id="detail-person">-</dd>
+        <dt>Room</dt>
+        <dd id="detail-room">-</dd>
+        <dt>Source</dt>
+        <dd id="detail-source">-</dd>
+        <dt>Severity</dt>
+        <dd id="detail-severity">-</dd>
+        <dt>Acked By</dt>
+        <dd id="detail-acked-by">-</dd>
+      </dl>
+      <div class="modal-actions">
+        <button id="detail-ack-btn" type="button" class="btn btn-ack">Engage (Ack)</button>
+        <button id="detail-resolve-btn" type="button" class="btn btn-resolve">Mark Resolved</button>
+        <button type="button" class="btn" data-close-modal="true">Close</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Confirmation Modal (replaces window.prompt) -->
+  <div id="confirm-modal" class="modal-overlay" hidden aria-hidden="true">
+    <section class="modal-card" style="max-width:420px">
+      <header class="modal-header">
+        <h2 id="confirm-modal-title" class="modal-title">Confirm Action</h2>
+      </header>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <label style="font-size:0.85rem;color:var(--text-muted);font-weight:500">
+          Operator Identity
+          <input id="confirm-name-input" type="text" class="search-input" value="Admin UI"
+                 style="margin-top:6px;width:100%">
+        </label>
+        <label style="font-size:0.85rem;color:var(--text-muted);font-weight:500">
+          Note (optional)
+          <input id="confirm-note-input" type="text" class="search-input" placeholder="Optional note"
+                 style="margin-top:6px;width:100%">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button id="confirm-ok-btn" type="button" class="btn btn-ack">Confirm</button>
+        <button id="confirm-cancel-btn" type="button" class="btn" data-close-confirm="true">Cancel</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Success toast -->
+  <div id="success-toast" class="error-banner" role="status" hidden
+       style="position:fixed;bottom:24px;right:24px;z-index:200;border-color:rgba(16,185,129,0.3);background:rgba(16,185,129,0.15);color:#a7f3d0;max-width:360px">
+  </div>
+
+  <script>
+    const ADMIN_API_KEY = ${admin_key_json};
+    const modalElement = document.getElementById('alarm-detail-modal');
+    const errorElement = document.getElementById('error-banner');
+    const searchInput = document.getElementById('alarm-search');
+    const searchHint = document.getElementById('search-hint');
+    const simulationPanel = document.getElementById('simulation-panel');
+    const simulationStatus = document.getElementById('sim-status');
+    const simulationCount = document.getElementById('sim-count');
+    const simulationRefreshBtn = document.getElementById('sim-refresh-btn');
+    const simulationClearBtn = document.getElementById('sim-clear-btn');
+    const simulationSeedBtn = document.getElementById('sim-seed-btn');
+    const modalSubtitle = document.getElementById('detail-modal-subtitle');
+    const detailAckBtn = document.getElementById('detail-ack-btn');
+    const detailResolveBtn = document.getElementById('detail-resolve-btn');
+    const modalState = { alarmId: null };
+
+    const confirmModal = document.getElementById('confirm-modal');
+    const confirmNameInput = document.getElementById('confirm-name-input');
+    const confirmNoteInput = document.getElementById('confirm-note-input');
+    const confirmOkBtn = document.getElementById('confirm-ok-btn');
+    const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+    const confirmTitle = document.getElementById('confirm-modal-title');
+    const successToast = document.getElementById('success-toast');
+    let confirmResolve = null;
+
+    function showConfirmModal(title) {
+      confirmTitle.textContent = title || 'Confirm Action';
+      confirmNameInput.value = 'Admin UI';
+      confirmNoteInput.value = '';
+      confirmModal.hidden = false;
+      confirmModal.setAttribute('aria-hidden', 'false');
+      confirmNameInput.focus();
+      return new Promise(function(resolve) {
+        confirmResolve = resolve;
+      });
+    }
+
+    function closeConfirmModal(result) {
+      confirmModal.hidden = true;
+      confirmModal.setAttribute('aria-hidden', 'true');
+      if (confirmResolve) {
+        confirmResolve(result);
+        confirmResolve = null;
+      }
+    }
+
+    confirmOkBtn.addEventListener('click', function() {
+      closeConfirmModal({ name: confirmNameInput.value || 'Admin UI', note: confirmNoteInput.value || null });
+    });
+    confirmCancelBtn.addEventListener('click', function() { closeConfirmModal(null); });
+    confirmNameInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); confirmOkBtn.click(); }
+    });
+
+    function showError(message) {
+      errorElement.textContent = message;
+      errorElement.hidden = false;
+      window.clearTimeout(showError.timeoutId);
+      showError.timeoutId = window.setTimeout(() => {
+        errorElement.hidden = true;
+      }, 6000);
+    }
+
+    function showSuccess(message) {
+      successToast.textContent = message;
+      successToast.hidden = false;
+      window.clearTimeout(showSuccess.timeoutId);
+      showSuccess.timeoutId = window.setTimeout(() => {
+        successToast.hidden = true;
+        window.location.reload();
+      }, 1500);
+    }
+
+    function setDetailField(id, value) {
+      const target = document.getElementById(id);
+      target.textContent = value || '-';
+    }
+
+    function setButtonStateFromRow(row) {
+      const canAck = row.dataset.canAck === 'true';
+      const canResolve = row.dataset.canResolve === 'true';
+      detailAckBtn.disabled = !canAck;
+      detailResolveBtn.disabled = !canResolve;
+    }
+
+    function openDetailModal(row) {
+      modalState.alarmId = row.dataset.alarmId || null;
+      modalSubtitle.textContent = 'ALRM-' + (row.dataset.shortId || row.dataset.alarmId || '-');
+      setDetailField('detail-alarm-id', row.dataset.alarmId);
+      setDetailField('detail-status', row.dataset.status);
+      setDetailField('detail-created', row.dataset.created);
+      setDetailField('detail-person', row.dataset.person);
+      setDetailField('detail-room', row.dataset.room);
+      setDetailField('detail-source', row.dataset.source);
+      setDetailField('detail-severity', row.dataset.severity);
+      setDetailField('detail-acked-by', row.dataset.ackedBy);
+      setButtonStateFromRow(row);
+      modalElement.hidden = false;
+      modalElement.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDetailModal() {
+      modalState.alarmId = null;
+      modalElement.hidden = true;
+      modalElement.setAttribute('aria-hidden', 'true');
+    }
+
+    async function postAction(path, payload) {
+      const headers = { 'Content-Type': 'application/json' };
+      const response = await fetch(path, {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        let detail = 'Unexpected request error';
+        try {
+          const data = await response.json();
+          if (data && typeof data.detail === 'string') {
+            detail = data.detail;
+          }
+        } catch (ignore) { }
+        throw new Error(detail + ' (HTTP ' + response.status + ')');
+      }
+    }
+
+    async function fetchSimulation(path, options) {
+      const headers = { 'Content-Type': 'application/json' };
+      const response = await fetch(path, Object.assign({ headers, credentials: 'same-origin' }, options || {}));
+      if (!response.ok) {
+        throw new Error('Simulation request failed (HTTP ' + response.status + ')');
+      }
+      return await response.json();
+    }
+
+    function setSimulationBusy(isBusy) {
+      if (!simulationRefreshBtn || !simulationClearBtn || !simulationSeedBtn) {
+        return;
+      }
+      simulationRefreshBtn.disabled = isBusy;
+      simulationClearBtn.disabled = isBusy;
+      simulationSeedBtn.disabled = isBusy;
+    }
+
+    async function refreshSimulationStatus() {
+      if (!simulationPanel || simulationPanel.dataset.enabled !== 'true') {
+        return;
+      }
+      setSimulationBusy(true);
+      try {
+        const statusData = await fetchSimulation('/v1/simulation/status');
+        simulationStatus.textContent = 'Simulation active. Channels: '
+          + 'zammad=' + statusData.by_channel.zammad
+          + ', sms=' + statusData.by_channel.sms
+          + ', signal=' + statusData.by_channel.signal;
+        simulationCount.textContent = String(statusData.total_notifications);
+      } catch (error) {
+        showError(error.message || 'Simulation status failed');
+      } finally {
+        setSimulationBusy(false);
+      }
+    }
+
+    async function acknowledgeAlarm(alarmId) {
+      var result = await showConfirmModal('Acknowledge Alarm');
+      if (!result) return;
+      await postAction('/v1/alarms/' + encodeURIComponent(alarmId) + '/ack', {
+        acked_by: result.name,
+        note: result.note,
+      });
+    }
+
+    async function resolveAlarm(alarmId) {
+      var result = await showConfirmModal('Resolve Alarm');
+      if (!result) return;
+      await postAction('/v1/alarms/' + encodeURIComponent(alarmId) + '/resolve', {
+        actor: result.name,
+        note: result.note,
+      });
+    }
+
+    function runSearchFilter() {
+      const query = (searchInput.value || '').trim().toLowerCase();
+      const rows = document.querySelectorAll('tr.alarm-row');
+      let visible = 0;
+      rows.forEach((row) => {
+        const haystack = (row.dataset.search || row.textContent || '').toLowerCase();
+        const isMatch = !query || haystack.includes(query);
+        row.classList.toggle('row-hidden', !isMatch);
+        if (isMatch) visible += 1;
+      });
+      searchHint.textContent = visible + ' matching records';
+
+      var emptyEl = document.getElementById('search-empty-state');
+      if (query && visible === 0) {
+        if (!emptyEl) {
+          emptyEl = document.createElement('div');
+          emptyEl.id = 'search-empty-state';
+          emptyEl.className = 'empty-state';
+          var tableWrap = document.querySelector('.table-wrap');
+          if (tableWrap) tableWrap.parentNode.insertBefore(emptyEl, tableWrap.nextSibling);
+        }
+        emptyEl.textContent = 'No alarms matching "' + searchInput.value.trim() + '"';
+        emptyEl.hidden = false;
+      } else if (emptyEl) {
+        emptyEl.hidden = true;
+      }
+    }
+
+    document.addEventListener('click', async (event) => {
+      const closeTarget = event.target.closest('[data-close-modal="true"]');
+      if (closeTarget) {
+        closeDetailModal();
+        return;
+      }
+
+      const detailButton = event.target.closest('.detail-btn');
+      if (detailButton) {
+        openDetailModal(detailButton.closest('tr.alarm-row'));
+        return;
+      }
+
+      const ackButton = event.target.closest('.quick-ack-btn');
+      if (ackButton) {
+        const row = ackButton.closest('tr.alarm-row');
+        ackButton.disabled = true;
+        ackButton.textContent = '...';
+        try {
+          await acknowledgeAlarm(row.dataset.alarmId);
+          showSuccess('Alarm acknowledged');
+        } catch (error) {
+          ackButton.disabled = false;
+          ackButton.textContent = 'Ack';
+          showError(error.message || 'Acknowledge failed');
+        }
+        return;
+      }
+
+      const resolveButton = event.target.closest('.quick-resolve-btn');
+      if (resolveButton) {
+        const row = resolveButton.closest('tr.alarm-row');
+        resolveButton.disabled = true;
+        resolveButton.textContent = '...';
+        try {
+          await resolveAlarm(row.dataset.alarmId);
+          showSuccess('Alarm resolved');
+        } catch (error) {
+          resolveButton.disabled = false;
+          resolveButton.textContent = 'Resolve';
+          showError(error.message || 'Resolve failed');
+        }
+      }
+    });
+
+    detailAckBtn.addEventListener('click', async () => {
+      if (!modalState.alarmId) return;
+      detailAckBtn.disabled = true;
+      detailAckBtn.textContent = '...';
+      try {
+        await acknowledgeAlarm(modalState.alarmId);
+        closeDetailModal();
+        showSuccess('Alarm acknowledged');
+      } catch (error) {
+        detailAckBtn.disabled = false;
+        detailAckBtn.textContent = 'Engage (Ack)';
+        showError(error.message || 'Acknowledge failed');
+      }
+    });
+
+    detailResolveBtn.addEventListener('click', async () => {
+      if (!modalState.alarmId) return;
+      detailResolveBtn.disabled = true;
+      detailResolveBtn.textContent = '...';
+      try {
+        await resolveAlarm(modalState.alarmId);
+        closeDetailModal();
+        showSuccess('Alarm resolved');
+      } catch (error) {
+        detailResolveBtn.disabled = false;
+        detailResolveBtn.textContent = 'Mark Resolved';
+        showError(error.message || 'Resolve failed');
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        if (!confirmModal.hidden) { closeConfirmModal(null); return; }
+        if (!modalElement.hidden) { closeDetailModal(); }
+      }
+    });
+
+    searchInput.addEventListener('input', runSearchFilter);
+    runSearchFilter();
+
+    if (simulationPanel && simulationPanel.dataset.enabled === 'true') {
+      simulationRefreshBtn.addEventListener('click', async () => {
+        await refreshSimulationStatus();
+      });
+      simulationClearBtn.addEventListener('click', async () => {
+        setSimulationBusy(true);
+        try {
+          await fetchSimulation('/v1/simulation/notifications/clear', { method: 'POST' });
+          await refreshSimulationStatus();
+        } catch (error) {
+          showError(error.message || 'Clearing simulation notifications failed');
+        } finally {
+          setSimulationBusy(false);
+        }
+      });
+      simulationSeedBtn.addEventListener('click', async () => {
+        setSimulationBusy(true);
+        try {
+          const seedInfo = await fetchSimulation('/v1/simulation/seed', { method: 'POST' });
+          simulationStatus.textContent = 'Seed intelligence ready: ' + seedInfo.seed_file;
+        } catch (error) {
+          showError(error.message || 'Simulation seed info failed');
+        } finally {
+          setSimulationBusy(false);
+        }
+      });
+      refreshSimulationStatus();
+    }
+  </script>
+</body>
+
+</html>

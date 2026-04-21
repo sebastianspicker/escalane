@@ -1,11 +1,183 @@
-name: verify
+name: CI
+
 on:
   push:
-    branches: [dev]
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - run: git status --short
-github-actions: publication
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "services/alarm_broker[dev]"
+
+      - name: Check formatting
+        run: ruff format --check services/alarm_broker
+
+      - name: Run linter
+        run: ruff check services/alarm_broker
+
+      - name: Type check
+        run: python -m mypy services/alarm_broker/alarm_broker
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "services/alarm_broker[dev]"
+
+      - name: Run tests with coverage
+        run: cd services/alarm_broker && pytest -q --cov=alarm_broker --cov-report=term-missing --tb=short
+
+  postgres-smoke:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: alarm
+          POSTGRES_USER: alarm
+          POSTGRES_PASSWORD: alarm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U alarm -d alarm"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: postgresql+asyncpg://alarm:alarm@127.0.0.1:5432/alarm
+      TEST_DATABASE_URL: postgresql+asyncpg://alarm:alarm@127.0.0.1:5432/alarm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "services/alarm_broker[dev]"
+
+      - name: Apply Alembic migrations
+        run: cd services/alarm_broker && alembic upgrade head
+
+      - name: Run PostgreSQL smoke test
+        run: cd services/alarm_broker && pytest -q tests/test_postgres_smoke.py --tb=short
+
+  security:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "services/alarm_broker[dev]"
+
+      - name: Run bandit security audit
+        run: bandit -q -r services/alarm_broker/alarm_broker
+
+      - name: Run dependency vulnerability scan
+        # CVE-2026-4539: pygments transitive dep, no fix version available yet
+        run: cd services/alarm_broker && pip-audit --ignore-vuln CVE-2026-4539
+
+  package:
+    runs-on: ubuntu-latest
+    needs: [lint, test, security]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          cd services/alarm_broker && python -m build --wheel
+
+      - name: Smoke test installed wheel
+        run: |
+          python -m venv /tmp/alarm-broker-wheel
+          /tmp/alarm-broker-wheel/bin/pip install --quiet services/alarm_broker/dist/alarm_broker-*.whl
+          env -i HOME="$HOME" PATH="/tmp/alarm-broker-wheel/bin:/usr/bin:/bin" PYTHONPATH="" /tmp/alarm-broker-wheel/bin/python -c "import alarm_broker.services.ack_ui as ack_ui; import alarm_broker.api.routes.admin_ui as admin_ui; assert ack_ui._TEMPLATE.template; assert admin_ui._TEMPLATE.template"
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [lint, test, postgres-smoke, security, package]
+    timeout-minutes: 15
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build Docker image
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: alarm-broker:dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image
+        run: docker images | grep alarm-broker

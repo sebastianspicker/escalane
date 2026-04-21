@@ -1,0 +1,154 @@
+# =============================================================================
+# Simulation Mode Seed Data: Mock University (product-like demo dataset)
+# =============================================================================
+
+sites:
+  - id: uni-north
+    name: Mock University North Campus
+  - id: uni-med
+    name: Mock University Medical Campus
+
+rooms:
+  - id: uni-north-ops
+    site_id: uni-north
+    label: Security Operations Center
+    floor: "1"
+  - id: uni-north-lib
+    site_id: uni-north
+    label: Main Library Service Desk
+    floor: "1"
+  - id: uni-north-chem
+    site_id: uni-north
+    label: Chemistry Laboratory Wing C
+    floor: "2"
+  - id: uni-med-op
+    site_id: uni-med
+    label: Surgical Unit OR Control
+    floor: "2"
+  - id: uni-med-dorm
+    site_id: uni-med
+    label: Residence Hall South Lobby
+    floor: "0"
+
+persons:
+  - id: uni-security-desk
+    display_name: Alex Weber
+    role: Security Desk
+    phone_mobile: "+491770100001"
+    phone_ext: "2001"
+    active: true
+  - id: uni-campus-ops
+    display_name: Leon Schmidt
+    role: Campus Ops
+    phone_mobile: "+491770100002"
+    phone_ext: "2002"
+    active: true
+  - id: uni-lab-supervisor
+    display_name: Dr. Mira Keller
+    role: Lab Supervisor
+    phone_mobile: "+491770100003"
+    phone_ext: "2003"
+    active: true
+  - id: uni-nurse-oncall
+    display_name: Nora Becker
+    role: On-Call Nurse
+    phone_mobile: "+491770100004"
+    phone_ext: "2004"
+    active: true
+  - id: uni-duty-manager
+    display_name: Daniel Roth
+    role: Duty Manager
+    phone_mobile: "+491770100005"
+    phone_ext: "2005"
+    active: true
+
+devices:
+  - id: ylk-uni-ops-001
+    vendor: yealink
+    model_family: T54W
+    account_ext: "2001"
+    device_token: MU_YLK_NORTH_OPS_2001
+    person_id: uni-security-desk
+    room_id: uni-north-ops
+  - id: ylk-uni-lib-002
+    vendor: yealink
+    model_family: T54W
+    account_ext: "2002"
+    device_token: MU_YLK_NORTH_LIB_2002
+    person_id: uni-campus-ops
+    room_id: uni-north-lib
+  - id: ylk-uni-chem-003
+    vendor: yealink
+    model_family: T57W
+    account_ext: "2003"
+    device_token: MU_YLK_CHEM_LAB_2003
+    person_id: uni-lab-supervisor
+    room_id: uni-north-chem
+  - id: ylk-uni-or-004
+    vendor: yealink
+    model_family: T57W
+    account_ext: "2004"
+    device_token: MU_YLK_MED_OR_2004
+    person_id: uni-nurse-oncall
+    room_id: uni-med-op
+  - id: ylk-uni-dorm-005
+    vendor: yealink
+    model_family: T54W
+    account_ext: "2005"
+    device_token: MU_YLK_DORM_LOBBY_2005
+    person_id: uni-duty-manager
+    room_id: uni-med-dorm
+
+escalation_policy:
+  id: default
+  name: Mock University Escalation
+
+escalation_targets:
+  - id: uni-signal-primary
+    label: Campus Response Primary (Signal)
+    channel: signal
+    address: "+491770100001"
+    enabled: true
+  - id: uni-sms-security
+    label: Security Desk SMS
+    channel: sms
+    address: "+491770100001"
+    enabled: true
+  - id: uni-signal-secondary
+    label: Campus Response Secondary (Signal)
+    channel: signal
+    address: "+491770100002"
+    enabled: true
+  - id: uni-sms-medical
+    label: Medical On-Call SMS
+    channel: sms
+    address: "+491770100004"
+    enabled: true
+  - id: uni-sms-duty-manager
+    label: Duty Manager SMS
+    channel: sms
+    address: "+491770100005"
+    enabled: true
+  - id: uni-email-duty-manager
+    label: Duty Manager Email
+    channel: email
+    address: "duty.manager@mock-university.local"
+    enabled: true
+
+escalation_steps:
+  - policy_id: default
+    step_no: 0
+    after_seconds: 0
+    target_ids: [uni-signal-primary, uni-sms-security]
+  - policy_id: default
+    step_no: 1
+    after_seconds: 60
+    target_ids: [uni-signal-secondary, uni-sms-medical]
+  - policy_id: default
+    step_no: 2
+    after_seconds: 180
+    target_ids: [uni-sms-duty-manager]
+  - policy_id: default
+    step_no: 3
+    after_seconds: 300
+    target_ids: [uni-email-duty-manager]
