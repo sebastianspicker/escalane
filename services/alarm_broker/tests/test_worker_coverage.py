@@ -1,4 +1,4 @@
-"""Targeted tests for worker/tasks.py uncovered lines (86-117, 142-143, 156-163, 183-222).
+"""Targeted tests for worker task behavior that is easy to miss in broad flows.
 
 Covers:
   - alarm_created() full flow
@@ -67,7 +67,7 @@ def _make_ctx(sessionmaker, settings) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 1. alarm_created() full flow  (lines 86-117)
+# 1. alarm_created() full flow
 # ---------------------------------------------------------------------------
 
 
@@ -112,7 +112,7 @@ async def test_alarm_created_missing_alarm(sessionmaker, seeded_db, settings):
 
 
 # ---------------------------------------------------------------------------
-# 2. escalate() with missing alarm and already-resolved alarm  (lines 142-143, 156-163)
+# 2. escalate() with missing alarm and already-resolved alarm
 # ---------------------------------------------------------------------------
 
 
@@ -146,13 +146,12 @@ async def test_escalate_triggered_alarm_sends_notifications(sessionmaker, seeded
 
     await escalate(ctx, str(alarm_id), step_no=1)
 
-    # The enrichment + send path was exercised (lines 156-163)
-    # No escalation targets in DB, so no notification logs, but the code ran
-    # without error, covering lines 156-163
+    # No escalation targets are seeded here, so success means the enrichment
+    # and notification orchestration path ran without creating audit rows.
 
 
 # ---------------------------------------------------------------------------
-# 3. alarm_acked() flow  (lines 183-222)
+# 3. alarm_acked() flow
 # ---------------------------------------------------------------------------
 
 
@@ -189,7 +188,7 @@ async def test_alarm_acked_adds_zammad_note(sessionmaker, seeded_db, settings):
 
 
 async def test_alarm_acked_no_zammad_ticket(sessionmaker, seeded_db, settings):
-    """alarm_acked with no zammad_ticket_id returns early (line 193-198)."""
+    """alarm_acked with no zammad_ticket_id returns early."""
     alarm_id = uuid.uuid4()
 
     async with sessionmaker() as session:
@@ -212,7 +211,7 @@ async def test_alarm_acked_no_zammad_ticket(sessionmaker, seeded_db, settings):
 
 
 async def test_alarm_acked_missing_alarm(sessionmaker, seeded_db, settings):
-    """alarm_acked with non-existent alarm_id returns early (line 189-191)."""
+    """alarm_acked with non-existent alarm_id returns early."""
     ctx = _make_ctx(sessionmaker, settings)
     fake_id = uuid.uuid4()
 

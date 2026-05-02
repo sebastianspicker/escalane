@@ -183,7 +183,7 @@ redis-cli INFO clients
 
 1. Increase worker concurrency
 2. Check network latency to webhook endpoints
-3. Review webhook retry configuration
+3. Review webhook delivery logs and receiver-side latency
 
 ```bash
 # Monitor webhook delivery events

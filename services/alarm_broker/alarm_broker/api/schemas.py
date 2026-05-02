@@ -159,7 +159,6 @@ class AlarmPatchSchema(BaseModel):
 
     @model_validator(mode="after")
     def validate_fields(self):
-        # Validiere Severity wenn angegeben
         if self.severity and self.severity not in PRIORITY_ALL:
             raise ValueError(f"Invalid severity. Must be one of: {PRIORITY_ALL}")
         return self

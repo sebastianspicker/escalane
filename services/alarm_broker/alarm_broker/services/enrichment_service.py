@@ -1,3 +1,5 @@
+"""Resolve display context for alarm notifications and dashboards."""
+
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,12 @@ from alarm_broker.types import EnrichedAlarmContext
 
 
 async def enrich_alarm_context(session: AsyncSession, alarm: Alarm) -> EnrichedAlarmContext:
+    """Load human-readable person, room, and site labels for an alarm.
+
+    Missing master-data rows fall back to the stored IDs so notification
+    delivery can continue even if a room/person record was deleted or not yet
+    seeded.
+    """
     person_name: str | None = alarm.person_id
     room_label: str | None = alarm.room_id
     site_name: str | None = alarm.site_id

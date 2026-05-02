@@ -1,3 +1,5 @@
+"""SQLAlchemy models for alarm state, master data, escalation, and audit logs."""
+
 from __future__ import annotations
 
 import enum
@@ -107,6 +109,13 @@ class EscalationStep(Base):
 
 
 class Alarm(Base):
+    """Persisted alarm lifecycle row.
+
+    `meta` holds operational metadata such as request IDs, idempotency details,
+    and event-delivery recovery state. Long-lived operator notes belong in
+    `AlarmNote`; notification attempts belong in `AlarmNotification`.
+    """
+
     __tablename__ = "alarms"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

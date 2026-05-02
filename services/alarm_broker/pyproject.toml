@@ -79,6 +79,7 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+  "e2e: Served HTTP end-to-end tests for user-facing workflows.",
   "unit: Fast isolated tests without external integrations.",
   "integration: End-to-end tests across API, DB and queue boundaries.",
   "postgres: Tests that require a real PostgreSQL database.",

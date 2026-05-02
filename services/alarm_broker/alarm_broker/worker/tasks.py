@@ -19,7 +19,11 @@ from alarm_broker.connectors.sendxms import SendXmsClient
 from alarm_broker.connectors.signal import SignalClient
 from alarm_broker.connectors.zammad import ZammadClient
 from alarm_broker.core.metrics import record_event
-from alarm_broker.core.url_validation import SSRFError, validate_url_not_internal
+from alarm_broker.core.url_validation import (
+    SSRFError,
+    validate_url_not_internal,
+    validate_webhook_host_allowed,
+)
 from alarm_broker.db.models import Alarm, AlarmStatus
 from alarm_broker.services.enrichment_service import enrich_alarm_context
 from alarm_broker.services.notification_service import NotificationService, log_notification
@@ -44,8 +48,10 @@ class WorkerContext(TypedDict, total=False):
 async def process_alarm_event(ctx: dict, payload: dict[str, Any]) -> None:
     """Process a generic alarm event from EventPublisher.
 
-    This is a unified entry point for all alarm events. It dispatches
-    to the appropriate existing tasks based on the event type.
+    This is the worker-side half of the `EventPublisher` contract. The current
+    event types are `alarm.created`, `alarm.acknowledged`, and
+    `alarm.state_changed`; resolved/cancelled lifecycle updates arrive through
+    `alarm.state_changed` with the new state in the payload.
 
     Args:
         ctx: Worker context dictionary
@@ -70,12 +76,6 @@ async def process_alarm_event(ctx: dict, payload: dict[str, Any]) -> None:
     elif event_type == constants.EVENT_ALARM_STATE_CHANGED:
         state = payload.get("new_state", "")
         await alarm_state_changed(ctx, str(alarm_id), str(state))
-    elif event_type == constants.EVENT_ALARM_RESOLVED:
-        # For resolved events, we could add additional handling
-        logger.info("alarm_resolved_event_received", extra={"alarm_id": str(alarm_id)})
-    elif event_type == constants.EVENT_ALARM_CANCELLED:
-        # For cancelled events, we could add additional handling
-        logger.info("alarm_cancelled_event_received", extra={"alarm_id": str(alarm_id)})
     else:
         logger.warning(
             "process_alarm_event_unknown_type",
@@ -100,6 +100,7 @@ def _get_notification_service(ctx: dict) -> NotificationService:
 
 
 def _has_incomplete_event_delivery(alarm: Alarm) -> bool:
+    """Return true when trigger-side ARQ publication is known incomplete."""
     meta = alarm.meta if isinstance(alarm.meta, dict) else {}
     state = meta.get("event_delivery")
     if not isinstance(state, dict):
@@ -137,7 +138,12 @@ async def alarm_created(ctx: dict, alarm_id: str) -> None:
 
         # Send stage 0 notifications
         await notification.send(
-            session=session, alarm=alarm, enriched=enriched, step_no=0, ack_url=ack_url
+            session=session,
+            alarm=alarm,
+            enriched=enriched,
+            step_no=0,
+            ack_url=ack_url,
+            settings=settings,
         )
 
         schedule = await notification.get_escalation_schedule(session)
@@ -204,7 +210,12 @@ async def escalate(ctx: dict, alarm_id: str, step_no: int) -> None:
             ack_url = f"{settings.base_url}/a/{alarm.ack_token}"
 
         await notification.send(
-            session=session, alarm=alarm, enriched=enriched, step_no=step_no, ack_url=ack_url
+            session=session,
+            alarm=alarm,
+            enriched=enriched,
+            step_no=step_no,
+            ack_url=ack_url,
+            settings=settings,
         )
 
         logger.info(
@@ -302,6 +313,7 @@ async def alarm_state_changed(ctx: dict, alarm_id: str, state: str) -> None:
             return
 
         try:
+            validate_webhook_host_allowed(settings.webhook_url, settings.webhook_allowed_hosts)
             await validate_url_not_internal(settings.webhook_url)
         except SSRFError as exc:
             logger.warning(
@@ -328,6 +340,8 @@ async def alarm_state_changed(ctx: dict, alarm_id: str, state: str) -> None:
         payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if settings.webhook_secret:
+            # Receivers can verify this HMAC and reject stale payload timestamps
+            # to defend against forged or replayed state-change callbacks.
             sig = hmac.new(
                 settings.webhook_secret.encode(),
                 payload_bytes,
@@ -348,7 +362,12 @@ async def alarm_state_changed(ctx: dict, alarm_id: str, state: str) -> None:
 
 
 async def recover_incomplete_alarm_events(ctx: dict) -> None:
-    """Periodically retry incomplete trigger-side event publication."""
+    """Periodically retry incomplete trigger-side event publication.
+
+    This is a safety net for the gap between "alarm row committed" and
+    "initial worker jobs accepted by Redis". It only acts on
+    `alarm.meta.event_delivery` and does not change the alarm lifecycle.
+    """
     sessionmaker = ctx["sessionmaker"]
     settings = ctx["settings"]
     redis = ctx["redis"]

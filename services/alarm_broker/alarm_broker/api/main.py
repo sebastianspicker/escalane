@@ -160,8 +160,15 @@ def _install_security_headers_middleware(app: FastAPI) -> None:
             )
 
         # Content Security Policy (CSP)
-        # Default-src 'self' for same-origin, 'none' for others
-        csp_policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+        csp_policy = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'"
+        )
         response.headers.setdefault("Content-Security-Policy", csp_policy)
 
         # Anti-caching for ACK pages (contains token in URL)

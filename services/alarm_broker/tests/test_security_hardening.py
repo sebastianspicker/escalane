@@ -131,6 +131,63 @@ async def test_ack_page_sets_no_store_and_security_headers(
     assert resp.headers.get("X-Content-Type-Options") == "nosniff"
     assert resp.headers.get("X-Frame-Options") == "DENY"
     assert resp.headers.get("Referrer-Policy") == "no-referrer"
+    csp = resp.headers.get("Content-Security-Policy", "")
+    assert "object-src 'none'" in csp
+    assert "base-uri 'self'" in csp
+    assert "form-action 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+async def test_admin_login_failed_attempts_are_rate_limited(
+    engine, seeded_db, fake_redis, settings
+) -> None:
+    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
+
+    statuses: list[int] = []
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            for _ in range(6):
+                resp = await client.post(
+                    "/admin/login",
+                    data={"admin_key": "wrong-admin-key"},
+                    follow_redirects=False,
+                )
+                statuses.append(resp.status_code)
+
+    assert statuses == [401, 401, 401, 401, 401, 429]
+
+
+async def test_admin_login_success_clears_failed_attempt_counter(
+    engine, seeded_db, fake_redis, settings
+) -> None:
+    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
+
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            for _ in range(4):
+                resp = await client.post(
+                    "/admin/login",
+                    data={"admin_key": "wrong-admin-key"},
+                    follow_redirects=False,
+                )
+                assert resp.status_code == 401
+
+            ok = await client.post(
+                "/admin/login",
+                data={"admin_key": settings.admin_api_key},
+                follow_redirects=False,
+            )
+            assert ok.status_code == 303
+
+            retry = await client.post(
+                "/admin/login",
+                data={"admin_key": "wrong-admin-key"},
+                follow_redirects=False,
+            )
+
+    assert retry.status_code == 401
 
 
 async def test_ack_form_rejects_oversized_note(

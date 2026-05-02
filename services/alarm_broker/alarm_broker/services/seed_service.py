@@ -1,3 +1,5 @@
+"""Parse and apply operator-provided seed payloads."""
+
 from __future__ import annotations
 
 import json
@@ -23,6 +25,7 @@ _MAX_SEED_BYTES = 1_048_576  # 1 MB
 
 
 def parse_seed_payload(content_type: str, raw: bytes) -> dict[str, Any]:
+    """Parse a JSON or YAML seed payload after enforcing the size limit."""
     if len(raw) > _MAX_SEED_BYTES:
         raise ValidationError(
             f"Seed payload too large ({len(raw)} bytes). Maximum allowed: {_MAX_SEED_BYTES} bytes"
@@ -50,6 +53,7 @@ async def apply_seed_payload(
     data: dict[str, Any],
     settings: Settings,
 ) -> None:
+    """Apply parsed seed data and translate structure errors to domain validation."""
     try:
         await apply_seed(session, data, settings)
     except (KeyError, TypeError, ValueError) as exc:

@@ -15,6 +15,25 @@ class SSRFError(ValueError):
     pass
 
 
+def _parse_allowed_hosts(raw_hosts: str) -> frozenset[str]:
+    return frozenset(host.strip().lower() for host in raw_hosts.split(",") if host.strip())
+
+
+def validate_webhook_host_allowed(url: str, allowed_hosts: str) -> None:
+    """Validate that a generic webhook URL hostname is explicitly allowlisted."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise SSRFError("URL has no hostname")
+
+    allowed = _parse_allowed_hosts(allowed_hosts)
+    if not allowed:
+        raise SSRFError("WEBHOOK_ALLOWED_HOSTS is empty; generic webhooks are disabled")
+
+    if hostname.lower() not in allowed:
+        raise SSRFError(f"Webhook host '{hostname}' is not in WEBHOOK_ALLOWED_HOSTS")
+
+
 _BLOCKED_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),

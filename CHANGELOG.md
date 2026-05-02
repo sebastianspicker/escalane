@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Unused settings/env examples for `SENDXMS_MODE`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`, and `SIMULATION_SEED_URL`
+- Dead `alarm.resolved` / `alarm.cancelled` event publisher helpers and no-op worker dispatch branches
+
 ## [0.2.0] - 2026-04-19
 
 ### Added
@@ -15,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `request_id` propagation: stored in `alarm.meta` at trigger time, readable from `X-Request-ID` response header
 - Extended test coverage: 95 new tests targeting errors, event_service, notification_service, trigger_service, and worker/tasks branches
 - `.env.example` entries for all new settings
-- Configurable webhook retry settings (`WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`)
 - Externalized Admin UI HTML template for better maintainability
 - Dockerfile multi-stage build for optimized image size
 - `pytest-cov` for coverage measurement in the Python service

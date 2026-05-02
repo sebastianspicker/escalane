@@ -291,6 +291,12 @@ class TriggerService:
         return alarm
 
     def _event_delivery_defaults(self) -> dict[str, Any]:
+        """Initial recovery state for trigger-side worker event publication.
+
+        The alarm row is the durable source of truth. Redis/ARQ is best effort,
+        so these flags let duplicate triggers and the recovery cron finish
+        queuing the worker jobs after a transient queue failure.
+        """
         return {
             "alarm_created_enqueued": False,
             "alarm_state_changed_enqueued": False,
@@ -378,6 +384,13 @@ class TriggerService:
             await self._redis.delete(lock_key)
 
     async def _ensure_alarm_events_dispatched(self, alarm: Alarm) -> bool:
+        """Queue the initial worker events exactly once per alarm when possible.
+
+        This method deliberately stores progress in `alarm.meta.event_delivery`
+        and uses a short Redis lock. That keeps concurrent duplicate trigger
+        requests from publishing duplicate initial fan-out jobs while still
+        allowing a later retry or recovery scan to complete partial delivery.
+        """
         state = self._event_delivery_state(alarm)
         if state["alarm_created_enqueued"] and state["alarm_state_changed_enqueued"]:
             return True
@@ -471,6 +484,9 @@ class TriggerService:
         """
         is_duplicate, existing_id = await self.check_idempotency(token)
         if is_duplicate and existing_id:
+            # The Redis key is reserved before the DB commit. A duplicate request
+            # can arrive in that small window, so wait briefly for the row to
+            # become visible before deciding this is still "being created".
             existing_alarm = await self._load_alarm_with_retry(existing_id)
             if existing_alarm:
                 logger.info(

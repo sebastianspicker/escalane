@@ -24,7 +24,11 @@ def require_admin(
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
     settings: Settings = Depends(get_app_settings),
 ) -> None:
-    # Return 403 if admin key is not configured instead of 500
+    """Require the static admin API key for privileged API endpoints.
+
+    Missing server-side configuration fails closed with 403. A bad client key is
+    401 so operators can distinguish "server not configured" from "wrong key".
+    """
     if not settings.admin_api_key:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -87,6 +91,7 @@ def _is_trusted_proxy(peer_ip: str, trusted_proxy_cidrs: str) -> bool:
 
 
 def get_client_ip(request: Request, settings: Settings | None = None) -> str:
+    """Return the caller IP, honoring X-Forwarded-For only from trusted proxies."""
     peer_ip = request.client.host if request.client else ""
     forwarded = request.headers.get("x-forwarded-for")
     trusted_proxy_cidrs = settings.trusted_proxy_cidrs if settings else ""
@@ -102,6 +107,12 @@ def get_client_ip(request: Request, settings: Settings | None = None) -> str:
 
 
 def is_secure_request(request: Request, settings: Settings | None = None) -> bool:
+    """Return whether the original client request was HTTPS.
+
+    `X-Forwarded-Proto` is intentionally ignored unless the immediate peer is
+    in `TRUSTED_PROXY_CIDRS`; otherwise any client could force Secure-cookie
+    behavior over plain HTTP.
+    """
     if request.url.scheme == "https":
         return True
 

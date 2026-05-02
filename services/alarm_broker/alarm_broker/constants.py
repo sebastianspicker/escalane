@@ -22,6 +22,4 @@ DEFAULT_SEVERITY = PRIORITY_CRITICAL
 # Event types
 EVENT_ALARM_CREATED = "alarm.created"
 EVENT_ALARM_ACKNOWLEDGED = "alarm.acknowledged"
-EVENT_ALARM_RESOLVED = "alarm.resolved"
-EVENT_ALARM_CANCELLED = "alarm.cancelled"
 EVENT_ALARM_STATE_CHANGED = "alarm.state_changed"

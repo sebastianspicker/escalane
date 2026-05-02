@@ -11,14 +11,19 @@ __pycache__/
 .mypy_cache/
 .coverage
 htmlcov/
+coverage/
 .cache/
 *.sqlite
 
 .venv/
 venv/
+uv.lock
 dist/
 plans/
 progress.md
+reports/
+scratch/
+tmp/
 build/
 *.egg-info/
 
@@ -44,15 +49,16 @@ docs/assets/screenshots/*.png
 .claude/
 
 # Local repo-agent and audit workspace artifacts
-.agents/
-.codex/
-.github/codex/
-.github/workflows/codex.yml
-AGENTS.md
-AGENT_AUDIT_REPORT.md
-AUDIT.md
-HARNESS_PRINCIPLES.md
-code_review.md
-docs/agent/
-docs/source-audit/
-scripts/topology_inventory.sh
+/.agents/
+/.codex/
+/.kilo/
+/.github/codex/
+/.github/workflows/codex.yml
+/AGENTS.md
+/AGENT_AUDIT_REPORT.md
+/AUDIT.md
+/HARNESS_PRINCIPLES.md
+/code_review.md
+/docs/agent/
+/docs/source-audit/
+/scripts/topology_inventory.sh

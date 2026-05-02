@@ -1,3 +1,5 @@
+"""IP allowlist parsing for inbound Yealink trigger requests."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -19,6 +21,12 @@ def _parse_allowlist(allowlist: str) -> list[ipaddress.IPv4Network | ipaddress.I
 
 
 def ip_allowed(ip: str, allowlist: str) -> bool:
+    """Return whether an IP is allowed by a comma-separated IP/CIDR list.
+
+    An empty allowlist is intentionally permissive so local development can
+    run without network-specific configuration; production warns about this in
+    `Settings.warn_empty_ip_allowlist`.
+    """
     if not allowlist.strip():
         return True
     try:

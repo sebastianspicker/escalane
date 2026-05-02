@@ -124,26 +124,20 @@ async def test_bulk_ack_mixed_states(engine, sessionmaker, seeded_db, fake_redis
 
 
 async def test_bulk_resolve_all_changed(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """Bulk resolve where every alarm can transition reports all changed.
-
-    NOTE: The session.begin() wrapper in _execute_bulk_operation commits on the
-    first successful transition, closing the transaction context. When multiple
-    alarms all transition (all triggered), only the first succeeds before the
-    context manager detects the closed transaction. Using a single alarm avoids
-    this known limitation while still exercising the bulk-resolve happy path.
-    """
+    """Bulk resolve where every alarm can transition reports all changed."""
     settings.admin_api_key = ADMIN_KEY
     now = datetime.now(UTC)
 
-    aid = uuid.uuid4()
+    ids = [uuid.uuid4() for _ in range(2)]
     async with sessionmaker() as session:
-        session.add(
-            _make_alarm(
-                alarm_id=aid,
-                status=AlarmStatus.TRIGGERED,
-                created_at=now,
+        for aid in ids:
+            session.add(
+                _make_alarm(
+                    alarm_id=aid,
+                    status=AlarmStatus.TRIGGERED,
+                    created_at=now,
+                )
             )
-        )
         await session.commit()
 
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
@@ -153,13 +147,13 @@ async def test_bulk_resolve_all_changed(engine, sessionmaker, seeded_db, fake_re
             resp = await client.post(
                 "/v1/alarms/bulk/resolve",
                 headers=HEADERS,
-                json={"alarm_ids": [str(aid)], "actor": "Ops", "note": "done"},
+                json={"alarm_ids": [str(aid) for aid in ids], "actor": "Ops", "note": "done"},
             )
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["requested"] == 1
-    assert body["changed"] == 1
+    assert body["requested"] == 2
+    assert body["changed"] == 2
     assert body["unchanged"] == 0
     assert body["missing"] == []
 

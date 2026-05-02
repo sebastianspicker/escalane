@@ -11,6 +11,7 @@ import pytest
 
 from alarm_broker.db.models import Alarm, AlarmStatus, EscalationTarget
 from alarm_broker.services.notification_service import NotificationService, log_notification
+from alarm_broker.settings import Settings
 from alarm_broker.types import EnrichedAlarmContext
 
 pytestmark = [pytest.mark.unit]
@@ -78,6 +79,18 @@ async def _noop_session() -> AsyncMock:
     session.add = MagicMock()
     session.commit = AsyncMock()
     return session
+
+
+def _make_settings(**overrides: Any) -> Settings:
+    payload: dict[str, Any] = {
+        "admin_api_key": "test-admin-key",
+        "simulation_enabled": True,
+        "zammad_api_token": "",
+        "sendxms_enabled": False,
+        "signal_enabled": False,
+    }
+    payload.update(overrides)
+    return Settings(**payload)
 
 
 # ── _build_notification_payload / helpers ──────────────────────────────
@@ -241,7 +254,7 @@ async def test_send_webhook_no_url_logs_error():
         alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
     )
 
-    await svc._send_webhook_notifications(session, target, payload)
+    await svc._send_webhook_notifications(session, target, payload, _make_settings())
 
     session.commit.assert_called()
 
@@ -261,7 +274,29 @@ async def test_send_webhook_ssrf_blocked():
         new_callable=AsyncMock,
         side_effect=SSRFError("SSRF blocked"),
     ):
-        await svc._send_webhook_notifications(session, target, payload)
+        await svc._send_webhook_notifications(
+            session,
+            target,
+            payload,
+            _make_settings(webhook_allowed_hosts="169.254.169.254"),
+        )
+
+    session.commit.assert_called()
+
+
+async def test_send_webhook_empty_allowlist_rejects_without_network():
+    svc = _make_svc()
+    session = await _noop_session()
+    target = _make_target(channel="webhook", address="https://hooks.example.test/hook")
+    payload = svc._build_notification_payload(
+        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+    )
+
+    with patch(
+        "alarm_broker.services.notification_service.httpx.AsyncClient",
+        side_effect=AssertionError("network egress must not happen"),
+    ):
+        await svc._send_webhook_notifications(session, target, payload, _make_settings())
 
     session.commit.assert_called()
 
@@ -282,7 +317,12 @@ async def test_send_webhook_http_error():
             "alarm_broker.services.notification_service.httpx.AsyncClient",
             side_effect=OSError("network error"),
         ):
-            await svc._send_webhook_notifications(session, target, payload)
+            await svc._send_webhook_notifications(
+                session,
+                target,
+                payload,
+                _make_settings(webhook_allowed_hosts="valid-external.example.com"),
+            )
 
     session.commit.assert_called()
 
@@ -327,9 +367,10 @@ async def test_send_to_channel_dispatches_webhook():
     )
 
     with patch.object(svc, "_send_webhook_notifications", new_callable=AsyncMock) as mock_hook:
-        await svc._send_to_channel(session, target, payload)
+        settings = _make_settings(webhook_allowed_hosts="example.com")
+        await svc._send_to_channel(session, target, payload, settings)
 
-    mock_hook.assert_called_once_with(session, target, payload)
+    mock_hook.assert_called_once_with(session, target, payload, settings)
 
 
 async def test_send_to_channel_swallows_unexpected_exception():
@@ -398,7 +439,12 @@ async def test_send_webhook_success_logs_ok():
             return_value=mock_client,
         ):
             with patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as mock_log:
-                await svc._send_webhook_notifications(session, target, payload)
+                await svc._send_webhook_notifications(
+                    session,
+                    target,
+                    payload,
+                    _make_settings(webhook_allowed_hosts="valid-external.example.com"),
+                )
 
     mock_log.assert_called_once_with(session, target, payload, "ok")
 

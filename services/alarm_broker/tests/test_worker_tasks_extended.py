@@ -57,36 +57,6 @@ def _make_ctx(sessionmaker, settings, http=None) -> dict:
     }
 
 
-# ── process_alarm_event: resolved and cancelled dispatch ─────────────
-
-
-async def test_process_alarm_event_resolved_logs_and_returns(sessionmaker, seeded_db, settings):
-    """EVENT_ALARM_RESOLVED is handled without raising."""
-    ctx = _make_ctx(sessionmaker, settings)
-
-    # Should not raise
-    await process_alarm_event(
-        ctx,
-        {
-            "event_type": constants.EVENT_ALARM_RESOLVED,
-            "alarm_id": str(uuid.uuid4()),
-        },
-    )
-
-
-async def test_process_alarm_event_cancelled_logs_and_returns(sessionmaker, seeded_db, settings):
-    """EVENT_ALARM_CANCELLED is handled without raising."""
-    ctx = _make_ctx(sessionmaker, settings)
-
-    await process_alarm_event(
-        ctx,
-        {
-            "event_type": constants.EVENT_ALARM_CANCELLED,
-            "alarm_id": str(uuid.uuid4()),
-        },
-    )
-
-
 async def test_process_alarm_event_created_dispatches(sessionmaker, seeded_db, settings):
     """EVENT_ALARM_CREATED dispatches to alarm_created."""
     alarm_id = uuid.uuid4()
@@ -221,6 +191,7 @@ async def test_alarm_state_changed_ssrf_blocked_logs_error(sessionmaker, seeded_
     settings.webhook_enabled = True
     settings.webhook_url = "http://169.254.169.254/metadata"
     settings.webhook_timeout_seconds = 5
+    settings.webhook_allowed_hosts = "169.254.169.254"
 
     ctx = _make_ctx(sessionmaker, settings)
 
@@ -260,6 +231,7 @@ async def test_alarm_state_changed_alarm_not_found_returns_early(sessionmaker, s
     settings.webhook_enabled = True
     settings.webhook_url = "https://hooks.example.test/nf"
     settings.webhook_timeout_seconds = 5
+    settings.webhook_allowed_hosts = "hooks.example.test"
 
     ctx = _make_ctx(sessionmaker, settings)
 
@@ -279,7 +251,6 @@ async def test_recover_incomplete_alarm_events_empty_db(sessionmaker, seeded_db,
 
     ctx = _make_ctx(sessionmaker, settings)
 
-    # Should not raise; hits the `if not alarms: break` branch (line 372)
     await recover_incomplete_alarm_events(ctx)
 
 
@@ -289,7 +260,7 @@ async def test_recover_incomplete_alarm_events_empty_db(sessionmaker, seeded_db,
 async def test_recover_incomplete_alarm_events_skips_complete_alarm(
     sessionmaker, seeded_db, settings
 ):
-    """Alarms without event_delivery meta are skipped (lines 106, 376)."""
+    """Alarms without event_delivery meta are skipped."""
     from alarm_broker.worker.tasks import recover_incomplete_alarm_events
 
     alarm_id = uuid.uuid4()
@@ -310,7 +281,7 @@ async def test_recover_incomplete_alarm_events_skips_complete_alarm(
 
 
 async def test_alarm_created_schedules_escalation_steps(sessionmaker, seeded_db, settings):
-    """alarm_created enqueues escalation jobs when the schedule has future steps (lines 145-152)."""
+    """alarm_created enqueues escalation jobs when the schedule has future steps."""
     from alarm_broker.db.models import EscalationPolicy, EscalationStep, EscalationTarget
 
     alarm_id = uuid.uuid4()
@@ -341,7 +312,7 @@ async def test_alarm_created_schedules_escalation_steps(sessionmaker, seeded_db,
 
 
 async def test_escalate_alarm_without_ack_token(sessionmaker, seeded_db, settings):
-    """escalate runs without raising when alarm.ack_token is None (lines 198-202)."""
+    """escalate runs without raising when alarm.ack_token is None."""
     from alarm_broker.worker.tasks import escalate
 
     alarm_id = uuid.uuid4()
@@ -356,11 +327,11 @@ async def test_escalate_alarm_without_ack_token(sessionmaker, seeded_db, setting
     await escalate(ctx, str(alarm_id), step_no=1)
 
 
-# ── alarm_acked: zammad disabled (lines 252-253) ──────────────────────
+# ── alarm_acked: zammad disabled ──────────────────────────────────────
 
 
 async def test_alarm_acked_zammad_disabled_returns_early(sessionmaker, seeded_db, settings):
-    """alarm_acked logs debug and returns early when zammad is disabled (lines 252-253)."""
+    """alarm_acked logs debug and returns early when zammad is disabled."""
     alarm_id = uuid.uuid4()
 
     async with sessionmaker() as session:
@@ -377,11 +348,11 @@ async def test_alarm_acked_zammad_disabled_returns_early(sessionmaker, seeded_db
     await alarm_acked(ctx, str(alarm_id), acked_by="user", note=None)
 
 
-# ── alarm_acked: ack_note_failed warning (line 273) ───────────────────
+# ── alarm_acked: ack_note_failed warning ──────────────────────────────
 
 
 async def test_alarm_acked_ack_note_failed_logs_warning(sessionmaker, seeded_db, settings):
-    """alarm_acked logs warning when add_zammad_ack_note returns False (line 273)."""
+    """alarm_acked logs warning when add_zammad_ack_note returns False."""
     alarm_id = uuid.uuid4()
 
     async with sessionmaker() as session:

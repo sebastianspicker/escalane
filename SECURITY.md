@@ -51,11 +51,23 @@ Security headers are applied unconditionally by `_install_security_headers_middl
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: no-referrer`
-- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'`
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
 - `Strict-Transport-Security` (HTTPS requests only)
 - `Cache-Control: no-store` on ACK pages (`/a/...`) to prevent token caching
 
 CORS is not configured. The service is designed for same-origin access behind a reverse proxy.
+
+### Generic Webhook Egress
+
+Generic webhook delivery fails closed unless `WEBHOOK_ALLOWED_HOSTS` contains the exact destination host. This applies to both state-change callbacks (`WEBHOOK_URL`) and escalation targets with `channel="webhook"`.
+
+Example:
+
+```bash
+WEBHOOK_ALLOWED_HOSTS=hooks.example.org,webhook.internal.example.org
+```
+
+Wildcards are not supported. `ALLOW_HTTP_WEBHOOKS` still controls whether `http://` webhook URLs are accepted, but HTTP webhook hosts must also be allowlisted.
 
 ## Best Practices
 
@@ -72,8 +84,8 @@ CORS is not configured. The service is designed for same-origin access behind a 
 
 ## Dependencies Security
 
-We use `pip-audit` in CI to check for known vulnerabilities in dependencies.
+We use project-scoped `pip-audit` in CI to check for known vulnerabilities in dependencies.
 
 ```bash
-cd services/alarm_broker && pip-audit
+cd services/alarm_broker && pip-audit . --ignore-vuln CVE-2026-4539
 ```

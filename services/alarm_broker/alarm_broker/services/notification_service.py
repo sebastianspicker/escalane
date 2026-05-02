@@ -15,9 +15,14 @@ from alarm_broker import constants
 from alarm_broker.connectors.sendxms import SendXmsClient
 from alarm_broker.connectors.signal import SignalClient
 from alarm_broker.connectors.zammad import ZammadClient
-from alarm_broker.core.url_validation import SSRFError, validate_url_not_internal
+from alarm_broker.core.url_validation import (
+    SSRFError,
+    validate_url_not_internal,
+    validate_webhook_host_allowed,
+)
 from alarm_broker.db.models import Alarm, AlarmNotification, EscalationStep, EscalationTarget
 from alarm_broker.services.message_formatter import format_alarm_message
+from alarm_broker.settings import Settings
 from alarm_broker.types import EnrichedAlarmContext, NotificationPayload
 
 logger = logging.getLogger("alarm_broker")
@@ -90,6 +95,7 @@ class NotificationService:
         step_no: int,
         ack_url: str | None,
         policy_id: str = "default",
+        settings: Settings | None = None,
     ) -> None:
         """Build payload, fetch escalation targets, dispatch to each enabled channel."""
         payload = self._build_notification_payload(
@@ -104,7 +110,7 @@ class NotificationService:
         for target in targets:
             if not target.enabled:
                 continue
-            await self._send_to_channel(session, target, payload)
+            await self._send_to_channel(session, target, payload, settings)
 
     def _build_notification_payload(
         self,
@@ -258,6 +264,7 @@ class NotificationService:
         session: AsyncSession,
         target: EscalationTarget,
         payload: NotificationPayload,
+        settings: Settings | None = None,
     ) -> None:
         """Dispatch notification to the appropriate channel-specific method.
 
@@ -277,7 +284,7 @@ class NotificationService:
             elif target.channel == "signal":
                 await self._send_via_signal(session, target, payload["body"], payload)
             elif target.channel == "webhook":
-                await self._send_webhook_notifications(session, target, payload)
+                await self._send_webhook_notifications(session, target, payload, settings)
             else:
                 logger.warning(
                     "unknown_channel",
@@ -391,6 +398,7 @@ class NotificationService:
         session: AsyncSession,
         target: EscalationTarget,
         payload: NotificationPayload,
+        settings: Settings | None = None,
     ) -> None:
         """Send webhook notification via HTTP POST.
 
@@ -409,6 +417,8 @@ class NotificationService:
             return
 
         try:
+            allowed_hosts = settings.webhook_allowed_hosts if settings else ""
+            validate_webhook_host_allowed(webhook_url, allowed_hosts)
             await validate_url_not_internal(webhook_url)
         except SSRFError as e:
             logger.warning(

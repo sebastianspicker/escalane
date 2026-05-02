@@ -11,8 +11,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from alarm_broker.api.deps import get_app_settings, get_redis, get_session, is_secure_request
+from alarm_broker.api.deps import (
+    get_app_settings,
+    get_client_ip,
+    get_redis,
+    get_session,
+    is_secure_request,
+)
 from alarm_broker.api.template_loader import load_template
+from alarm_broker.core.rate_limit import minute_bucket, rate_limit_key
 from alarm_broker.db.models import Alarm, AlarmStatus
 from alarm_broker.settings import Settings
 
@@ -25,6 +32,8 @@ def escape(s: str) -> str:
 router = APIRouter()
 
 _SESSION_TTL_SECONDS = 3600  # 1 hour
+_FAILED_LOGIN_LIMIT = 5
+_FAILED_LOGIN_WINDOW_SECONDS = 60
 
 
 _TEMPLATE: Template = load_template("admin.html")
@@ -36,6 +45,26 @@ def _session_key(token: str) -> str:
 
 def _admin_key_marker(settings: Settings) -> str:
     return hashlib.sha256(settings.admin_api_key.encode()).hexdigest()
+
+
+def _failed_login_key(request: Request, settings: Settings) -> str:
+    client_ip = get_client_ip(request, settings)
+    return rate_limit_key(f"admin-login:{client_ip}", minute_bucket())
+
+
+async def _check_failed_login_limit(redis, key: str) -> None:
+    current = await redis.get(key)
+    if current is not None and int(current) >= _FAILED_LOGIN_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again later.",
+        )
+
+
+async def _record_failed_login(redis, key: str) -> None:
+    attempts = await redis.incr(key)
+    if attempts == 1:
+        await redis.expire(key, _FAILED_LOGIN_WINDOW_SECONDS)
 
 
 async def _validate_session(settings: Settings, redis, session_token: str | None) -> None:
@@ -119,14 +148,19 @@ async def admin_login_submit(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="ADMIN_API_KEY is not configured. Set it in .env or environment variables.",
         )
+    redis = get_redis(request)
+    failed_login_key = _failed_login_key(request, settings)
+    await _check_failed_login_limit(redis, failed_login_key)
+
     if not secrets.compare_digest(admin_key, settings.admin_api_key):
+        await _record_failed_login(redis, failed_login_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid admin key. Please check your credentials and try again.",
         )
 
     token = secrets.token_urlsafe(32)
-    redis = get_redis(request)
+    await redis.delete(failed_login_key)
     await redis.set(
         _session_key(token),
         _admin_key_marker(settings),

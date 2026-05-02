@@ -6,7 +6,6 @@ All configuration is loaded from environment variables (and optional .env file).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -55,7 +54,6 @@ class Settings(BaseSettings):
     sendxms_api_key: str = ""
     sendxms_from: str = "Notfall"
     sendxms_send_path: str = "/send"
-    sendxms_mode: Literal["json"] = "json"
 
     # Signal
     signal_enabled: bool = False
@@ -68,8 +66,7 @@ class Settings(BaseSettings):
     webhook_url: str = ""
     webhook_secret: str = ""
     webhook_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    webhook_max_retries: int = Field(default=3, ge=1, le=10)
-    webhook_retry_delay_seconds: int = Field(default=30, ge=1, le=300)
+    webhook_allowed_hosts: str = ""
 
     # Escalation timings
     escalate_t1: int = Field(default=60, ge=0)
@@ -87,7 +84,6 @@ class Settings(BaseSettings):
 
     # Simulation mode
     simulation_enabled: bool = False
-    simulation_seed_url: str = ""
 
     # --- Validators ---
 
@@ -144,6 +140,16 @@ class Settings(BaseSettings):
                 stacklevel=2,
             )
         return self
+
+    @field_validator("webhook_allowed_hosts")
+    @classmethod
+    def reject_webhook_host_wildcards(cls, v: str) -> str:
+        """Keep generic webhook egress on exact host allowlisting only."""
+        hosts = [item.strip() for item in v.split(",") if item.strip()]
+        wildcard_hosts = [host for host in hosts if "*" in host]
+        if wildcard_hosts:
+            raise ValueError("WEBHOOK_ALLOWED_HOSTS only supports exact host names")
+        return ",".join(hosts)
 
     # --- Convenience checks ---
 

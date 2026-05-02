@@ -118,6 +118,7 @@ async def test_alarm_state_changed_posts_webhook_with_hmac(
     settings.webhook_url = "https://hooks.example.test/hmac"
     settings.webhook_secret = "my-secret-key"
     settings.webhook_timeout_seconds = 5
+    settings.webhook_allowed_hosts = "hooks.example.test"
 
     http = httpx.AsyncClient()
     ctx = _make_ctx(sessionmaker, settings, http)
@@ -162,6 +163,7 @@ async def test_process_alarm_event_dispatches_state_changed(
     settings.webhook_url = "https://hooks.example.test/event"
     settings.webhook_secret = ""
     settings.webhook_timeout_seconds = 5
+    settings.webhook_allowed_hosts = "hooks.example.test"
 
     http = httpx.AsyncClient()
     ctx = _make_ctx(sessionmaker, settings, http)

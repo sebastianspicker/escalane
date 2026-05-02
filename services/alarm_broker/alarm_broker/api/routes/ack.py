@@ -1,3 +1,10 @@
+"""Capability-link ACK page.
+
+The `ack_token` in the URL is the responder's authority to acknowledge the
+alarm. The browser form still gets CSRF protection and a per-IP rate limit so a
+captured page cannot be submitted blindly from another origin.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -36,6 +43,7 @@ _ACK_RATE_WINDOW = 60  # seconds
 
 
 def _ack_rate_limit_key(client_ip: str) -> str:
+    """Bucket ACK form traffic by client IP and minute."""
     return rate_limit_key(f"ack:{client_ip}", minute_bucket())
 
 
@@ -66,6 +74,7 @@ async def ack_page(
     ack_token: str,
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
+    """Render the acknowledgement page and issue a one-hour CSRF cookie."""
     settings = get_app_settings(request)
     redis = get_redis(request)
     await _check_ack_rate_limit(request, redis, settings)
@@ -98,6 +107,7 @@ async def ack_submit(
     csrf_token: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
+    """Validate the ACK form, transition the alarm, and enqueue follow-up events."""
     settings = get_app_settings(request)
     redis = get_redis(request)
     await _check_ack_rate_limit(request, redis, settings)

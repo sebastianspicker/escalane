@@ -185,7 +185,7 @@ async def export_alarms(
     created_before: datetime | None = Query(default=None),
     # Export options
     format: ExportFormat = Query(default=ExportFormat.JSON),
-    # TODO: implement true streaming export to avoid loading all records into memory
+    # Export is bounded because rows are loaded before JSON/CSV serialization.
     limit: int = Query(default=1000, ge=1, le=2000),
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:

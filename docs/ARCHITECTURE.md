@@ -83,6 +83,28 @@ The API routes are split into focused modules:
 
 Typed internal data uses `types.py` (`EnrichedAlarmContext`, `NotificationPayload`).
 
+## Primary code paths
+
+The main vertical slice is:
+
+1. `api/main.py` creates the FastAPI app, installs security/observability middleware, opens DB/Redis resources, and registers routes.
+2. `api/routes/yealink.py` handles the external trigger request and delegates all business logic to `TriggerService`.
+3. `services/trigger_service.py` validates the trigger, reserves a Redis idempotency key, persists the alarm row, and records event-delivery state in `alarm.meta`.
+4. `services/event_publisher.py` converts service events into ARQ jobs for the worker. Its `JOB_NAME` and payload fields are a wire contract with `worker/tasks.py`.
+5. `worker/tasks.py` dispatches ARQ events to notification fan-out, delayed escalations, ACK follow-up notes, state-change webhooks, and event-delivery recovery.
+6. `services/notification_service.py` builds user-facing messages and writes one `alarm_notifications` audit row per channel attempt.
+
+The ACK flow starts in `api/routes/ack.py`, but uses the same state-transition helpers in `services/alarm_service.py` and the same event publisher wrappers in `services/event_service.py`.
+
+## Internal invariants
+
+- Device tokens are secrets. Logs use short SHA-256 token hashes, and trigger errors avoid distinguishing unknown tokens from incomplete mappings.
+- The Redis idempotency key is scoped to a 10-second bucket. It stores the pre-reserved alarm UUID so rapid duplicate trigger requests can return the same alarm once persistence catches up.
+- `alarm.meta.event_delivery` is recovery state, not business history. It records whether the trigger-side `alarm.created` and initial `alarm.state_changed` jobs were queued; `recover_incomplete_alarm_events` uses it to retry after transient Redis/worker failures.
+- Resolve and cancel are alarm states, not separate worker event types. Downstream webhooks receive them through the generic `alarm.state_changed` event with `new_state`.
+- Notification delivery is best effort per channel. Failures are logged in `alarm_notifications` and metrics, but one failing connector should not block other channels.
+- `ack_token` is a capability URL. It is never logged as a raw path segment and the ACK page is sent with `Cache-Control: no-store`.
+
 ## Error handling
 
 Services use domain exceptions (`ConflictError`, `NotFoundError`, `ValidationError` from `core/errors.py`). Centralized exception handlers in `api/main.py` map them to HTTP status codes. Routes never raise `HTTPException` for business logic errors.

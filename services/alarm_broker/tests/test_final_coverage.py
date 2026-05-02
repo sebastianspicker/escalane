@@ -1,10 +1,10 @@
-"""Targeted tests to push coverage from 81% to 85%+.
+"""Targeted tests for API and UI behavior outside the main alarm trigger flow.
 
-Covers uncovered lines in:
-- admin_ui.py (43%): dashboard with ACK/resolve capabilities, simulation panel
-- alarm_operations.py (52%): single transitions, get/patch/delete, bulk with non-conflict error
-- alarms.py (59%): date filters, person_id filter, empty CSV export
-- health.py (89%): healthz liveness, readyz with redis ping
+Covers:
+- admin dashboard ACK/resolve capabilities and simulation panel states
+- single alarm transitions, get/patch/delete, and bulk edge cases
+- alarm list filters, export formats, stats, and cursor pagination
+- health/readiness endpoints
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _make_alarm(
 
 
 # ---------------------------------------------------------------------------
-# admin_ui.py — dashboard with ACK/resolve capabilities (lines 106-110)
+# admin_ui.py - dashboard ACK/resolve capabilities
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ async def test_admin_dashboard_ack_resolve_capabilities(
 async def test_admin_dashboard_time_display_hours(
     engine, sessionmaker, seeded_db, fake_redis, settings
 ):
-    """Dashboard displays hours for alarms older than 60 minutes (line 99)."""
+    """Dashboard displays hours for alarms older than 60 minutes."""
     settings.admin_api_key = ADMIN_KEY
 
     old_alarm_id = uuid.uuid4()
@@ -156,7 +156,7 @@ async def test_admin_dashboard_time_display_hours(
 async def test_admin_dashboard_simulation_enabled(
     engine, sessionmaker, seeded_db, fake_redis, settings
 ):
-    """Dashboard renders simulation panel when simulation_enabled=True (line 156-171)."""
+    """Dashboard renders simulation panel when simulation_enabled=True."""
     settings.admin_api_key = ADMIN_KEY
     settings.simulation_enabled = True
 
@@ -173,7 +173,7 @@ async def test_admin_dashboard_simulation_enabled(
 
 
 async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis, settings):
-    """Dashboard renders disabled simulation panel (line 172-180)."""
+    """Dashboard renders disabled simulation panel."""
     settings.admin_api_key = ADMIN_KEY
     settings.simulation_enabled = False
 
@@ -190,12 +190,12 @@ async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis
 
 
 # ---------------------------------------------------------------------------
-# alarm_operations.py — single state transitions (lines 152-182)
+# alarm_operations.py - single state transitions
 # ---------------------------------------------------------------------------
 
 
 async def test_single_alarm_get(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms/{id} returns alarm details (lines 247-248)."""
+    """GET /v1/alarms/{id} returns alarm details."""
     settings.admin_api_key = ADMIN_KEY
     alarm_id = uuid.uuid4()
 
@@ -228,7 +228,7 @@ async def test_single_alarm_get_nonexistent(engine, seeded_db, fake_redis, setti
 
 
 async def test_patch_alarm_severity(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """PATCH /v1/alarms/{id} updates severity (lines 264-283)."""
+    """PATCH /v1/alarms/{id} updates severity."""
     settings.admin_api_key = ADMIN_KEY
     alarm_id = uuid.uuid4()
 
@@ -279,7 +279,7 @@ async def test_patch_alarm_title_description_tags(
 
 
 async def test_delete_alarm(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """DELETE /v1/alarms/{id} soft-deletes the alarm (lines 352-361)."""
+    """DELETE /v1/alarms/{id} soft-deletes the alarm."""
     settings.admin_api_key = ADMIN_KEY
     alarm_id = uuid.uuid4()
 
@@ -339,7 +339,7 @@ async def test_delete_alarm_already_deleted(engine, sessionmaker, seeded_db, fak
 
 
 async def test_single_ack_transition(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """POST /v1/alarms/{id}/ack transitions triggered -> acknowledged (lines 152-182)."""
+    """POST /v1/alarms/{id}/ack transitions triggered -> acknowledged."""
     settings.admin_api_key = ADMIN_KEY
     alarm_id = uuid.uuid4()
 
@@ -419,12 +419,12 @@ async def test_bulk_resolve_all_already_resolved(
 
 
 # ---------------------------------------------------------------------------
-# alarms.py — date and person_id filters (lines 65-86), export CSV empty
+# alarms.py - filters and export behavior
 # ---------------------------------------------------------------------------
 
 
 async def test_list_alarms_created_after(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?created_after=... filters alarms (line 83)."""
+    """GET /v1/alarms?created_after=... filters alarms."""
     settings.admin_api_key = ADMIN_KEY
     now = datetime.now(UTC)
 
@@ -454,7 +454,7 @@ async def test_list_alarms_created_after(engine, sessionmaker, seeded_db, fake_r
 
 
 async def test_list_alarms_created_before(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?created_before=... filters alarms (line 86)."""
+    """GET /v1/alarms?created_before=... filters alarms."""
     settings.admin_api_key = ADMIN_KEY
     now = datetime.now(UTC)
 
@@ -484,7 +484,7 @@ async def test_list_alarms_created_before(engine, sessionmaker, seeded_db, fake_
 
 
 async def test_list_alarms_person_id_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?person_id=... filters by person (line 68)."""
+    """GET /v1/alarms?person_id=... filters by person."""
     settings.admin_api_key = ADMIN_KEY
 
     target_id = uuid.uuid4()
@@ -512,7 +512,7 @@ async def test_list_alarms_person_id_filter(engine, sessionmaker, seeded_db, fak
 
 
 async def test_list_alarms_severity_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?severity=... filters by severity (line 65)."""
+    """GET /v1/alarms?severity=... filters by severity."""
     settings.admin_api_key = ADMIN_KEY
 
     p0_id = uuid.uuid4()
@@ -540,7 +540,7 @@ async def test_list_alarms_severity_filter(engine, sessionmaker, seeded_db, fake
 
 
 async def test_list_alarms_room_id_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?room_id=... filters by room (line 71)."""
+    """GET /v1/alarms?room_id=... filters by room."""
     settings.admin_api_key = ADMIN_KEY
 
     target_id = uuid.uuid4()
@@ -568,7 +568,7 @@ async def test_list_alarms_room_id_filter(engine, sessionmaker, seeded_db, fake_
 
 
 async def test_list_alarms_source_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?source=... filters by source (line 80)."""
+    """GET /v1/alarms?source=... filters by source."""
     settings.admin_api_key = ADMIN_KEY
 
     target_id = uuid.uuid4()
@@ -596,7 +596,7 @@ async def test_list_alarms_source_filter(engine, sessionmaker, seeded_db, fake_r
 
 
 async def test_export_csv_empty(engine, seeded_db, fake_redis, settings):
-    """CSV export with no matching alarms returns empty CSV (lines 219-254)."""
+    """CSV export with no matching alarms returns empty CSV."""
     settings.admin_api_key = ADMIN_KEY
 
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
@@ -616,7 +616,7 @@ async def test_export_csv_empty(engine, seeded_db, fake_redis, settings):
 
 
 async def test_export_json(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """JSON export returns valid JSON array (lines 210-217)."""
+    """JSON export returns valid JSON array."""
     settings.admin_api_key = ADMIN_KEY
 
     async with sessionmaker() as session:
@@ -641,7 +641,7 @@ async def test_export_json(engine, sessionmaker, seeded_db, fake_redis, settings
 
 
 async def test_export_csv_with_alarms(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """CSV export with alarms returns header + data rows (lines 220-254)."""
+    """CSV export with alarms returns header + data rows."""
     settings.admin_api_key = ADMIN_KEY
 
     async with sessionmaker() as session:
@@ -666,7 +666,7 @@ async def test_export_csv_with_alarms(engine, sessionmaker, seeded_db, fake_redi
 
 
 async def test_alarm_stats(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms/stats returns counts by status and severity (lines 272-278)."""
+    """GET /v1/alarms/stats returns counts by status and severity."""
     settings.admin_api_key = ADMIN_KEY
 
     async with sessionmaker() as session:
@@ -688,7 +688,7 @@ async def test_alarm_stats(engine, sessionmaker, seeded_db, fake_redis, settings
 
 
 async def test_list_alarms_sort_asc(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?sort_order=asc exercises ASC sort path (lines 143-144, 158-159)."""
+    """GET /v1/alarms?sort_order=asc exercises ascending sort."""
     settings.admin_api_key = ADMIN_KEY
     now = datetime.now(UTC)
 
@@ -715,7 +715,7 @@ async def test_list_alarms_sort_asc(engine, sessionmaker, seeded_db, fake_redis,
 
 
 async def test_cursor_pagination_asc(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """Cursor pagination with sort_order=asc exercises lines 143-152."""
+    """Cursor pagination works with ascending sort."""
     settings.admin_api_key = ADMIN_KEY
     now = datetime.now(UTC)
 
@@ -746,12 +746,12 @@ async def test_cursor_pagination_asc(engine, sessionmaker, seeded_db, fake_redis
 
 
 # ---------------------------------------------------------------------------
-# health.py — healthz liveness (line 37), readyz with ping (line 65)
+# health.py - liveness and readiness
 # ---------------------------------------------------------------------------
 
 
 async def test_healthz_liveness(engine, seeded_db, fake_redis, settings):
-    """GET /healthz returns basic liveness (line 37)."""
+    """GET /healthz returns basic liveness."""
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
@@ -763,7 +763,7 @@ async def test_healthz_liveness(engine, seeded_db, fake_redis, settings):
 
 
 async def test_readyz_with_redis_ping(engine, seeded_db, settings):
-    """Readyz uses redis.ping() when available (line 65)."""
+    """Readyz uses redis.ping() when available."""
 
     class PingableRedis:
         async def ping(self):

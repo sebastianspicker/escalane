@@ -190,6 +190,20 @@ Main docs:
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Yealink/Zammad templates and connector notes
 - [docs/ROADMAP.md](docs/ROADMAP.md) — implementation backlog
 
+## How to read the code
+
+Start with the vertical trigger path, then branch out:
+
+- `services/alarm_broker/alarm_broker/api/main.py` builds the FastAPI app, middleware, exception mapping, database engine, Redis pool, and route registration.
+- `api/routes/yealink.py` is the inbound alarm endpoint. It resolves the client IP, checks the Yealink allowlist, extracts the configured token query parameter, and delegates to `TriggerService`.
+- `services/trigger_service.py` owns trigger idempotency, rate limiting, device mapping checks, alarm persistence, and recovery metadata for downstream event publication.
+- `services/event_publisher.py` is the ARQ job wire contract. It enqueues `process_alarm_event` jobs with deterministic IDs so duplicate created/state events collapse at the queue layer.
+- `worker/tasks.py` is the background side of the flow: ticket creation, stage 0 notification fan-out, delayed escalation, ACK follow-up notes, state-change webhooks, and event-recovery scans.
+- `services/notification_service.py` converts an enriched alarm into channel payloads and audit rows for Zammad, SMS, Signal, and escalation-target webhooks.
+- `api/routes/ack.py` implements the capability-link ACK page. Possession of `ack_token` authorizes the ACK action, with CSRF and per-IP rate limiting around the browser form.
+
+The core state transition rules live in `services/alarm_service.py`; the SQLAlchemy schema lives in `db/models.py`; shared request/response shapes live in `api/schemas.py`.
+
 ## Additional Resources
 
 - `SECURITY.md` - Security policy and best practices
@@ -199,6 +213,7 @@ Main docs:
 
 - Docker Desktop
 - Python 3.12+ (optional for local dev; Docker is enough to run)
+- `jq` (optional, used by the example `curl` commands)
 
 ## Quickstart
 
@@ -231,28 +246,17 @@ Local development note: on plain `http://localhost:8080`, the admin session cook
 
 Metrics note: `/metrics` requires the `X-Admin-Key` header. For Prometheus, expose it through a trusted reverse proxy or scrape via a sidecar that injects the header.
 
-To test the **ACK page**, fetch alarm details with the admin key, then open `/a/<ack_token>` in a browser:
-
-```bash
-curl -sS "http://localhost:8080/v1/alarms/<alarm_id>" \
-  -H "X-Admin-Key: change-me-admin-key" | jq .ack_token
-```
+To acknowledge a local test alarm through the UI, log in to `/admin/login` and use
+the dashboard's **Quick Ack** action. The capability-link ACK page (`/a/<ack_token>`)
+is exercised by the E2E suite; in normal operation that link is distributed through
+the configured notification channels.
 
 ## Screenshots
 
 > Mock university campus demo with simulated alarm data.
 
-| View | Screenshot |
-|------|-----------|
-| Admin Overview | ![Admin Overview](docs/assets/screenshots/01-admin-overview.png) |
-| Triggered Alarm | ![Triggered Alarm](docs/assets/screenshots/02-admin-triggered-alarm.png) |
-| Search & Filter | ![Search Filter](docs/assets/screenshots/03-admin-search-filter.png) |
-| Alarm Detail Modal | ![Detail Modal](docs/assets/screenshots/04-admin-detail-modal.png) |
-| Acknowledged State | ![Acknowledged](docs/assets/screenshots/05-admin-quick-acknowledged.png) |
-| ACK Page -- Triggered (mobile) | ![ACK Triggered](docs/assets/screenshots/06-ack-page-triggered-mobile.png) |
-| ACK Page -- Acknowledged (mobile) | ![ACK Acknowledged](docs/assets/screenshots/07-ack-page-acknowledged-mobile.png) |
-| Resolved State | ![Resolved](docs/assets/screenshots/08-admin-resolved-state.png) |
-| Simulation Feed | ![Simulation](docs/assets/screenshots/09-simulation-feed.png) |
+Screenshot PNGs are generated locally with `make demo-screens` and intentionally
+ignored so the public repository does not carry bulky regenerated assets.
 
 ## Configuration
 
@@ -266,7 +270,9 @@ Notes:
 
 ```bash
 make lint       # ruff format + check
+python -m mypy services/alarm_broker/alarm_broker
 make test       # pytest with coverage (threshold: 93%)
+make e2e        # served HTTP E2E flow with temp SQLite + fake Redis
 make audit      # ruff + bandit + pip-audit
 ```
 
@@ -275,5 +281,6 @@ make audit      # ruff + bandit + pip-audit
 - mypy strict type checking
 - bandit security scanning
 - pytest with 93% coverage threshold
+- served HTTP E2E test for health, seed, trigger, ACK, and admin dashboard
 - wheel packaging smoke import
 - PostgreSQL + Alembic smoke path
