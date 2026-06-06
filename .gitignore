@@ -10,10 +10,17 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage.*
+coverage.xml
+*.cover
+*.junit.xml
+.hypothesis/
 htmlcov/
 coverage/
 .cache/
 *.sqlite
+*.sqlite3
+*.db
 
 .venv/
 venv/
@@ -61,4 +68,5 @@ docs/assets/screenshots/*.png
 /code_review.md
 /docs/agent/
 /docs/source-audit/
+/docs/archive/
 /scripts/topology_inventory.sh

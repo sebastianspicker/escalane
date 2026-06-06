@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 
@@ -17,16 +22,25 @@ from alarm_broker.services.alarm_service import (
     transition_alarm,
 )
 
+try:
+    from tests.constants import ACK_FOUND_TOKEN, ACK_SOFT_DELETED_TOKEN
+except ModuleNotFoundError:
+    from constants import ACK_FOUND_TOKEN, ACK_SOFT_DELETED_TOKEN
+
 pytestmark = [pytest.mark.unit]
+
+
+_ACK_TOKEN_UNSET = object()
 
 
 def _make_alarm(
     *,
     status: AlarmStatus = AlarmStatus.TRIGGERED,
-    ack_token: str | None = "test-ack-token",
+    ack_token: str | None | object = _ACK_TOKEN_UNSET,
     severity: str = "P0",
 ) -> Alarm:
     """Create an Alarm instance for testing."""
+    resolved_ack_token = ACK_FOUND_TOKEN if ack_token is _ACK_TOKEN_UNSET else ack_token
     return Alarm(
         id=uuid.uuid4(),
         status=status,
@@ -34,7 +48,7 @@ def _make_alarm(
         event="action_url_triggered",
         created_at=datetime.now(UTC),
         severity=severity,
-        ack_token=ack_token,
+        ack_token=resolved_ack_token,
         meta={},
     )
 
@@ -44,18 +58,18 @@ def _make_alarm(
 
 async def test_get_alarm_by_ack_token_found(sessionmaker: async_sessionmaker, engine):
     """Returns the alarm when the ack_token matches."""
-    alarm = _make_alarm(ack_token="find-me-token")
+    alarm = _make_alarm(ack_token=ACK_FOUND_TOKEN)
 
     async with sessionmaker() as session:
         session.add(alarm)
         await session.commit()
 
     async with sessionmaker() as session:
-        result = await get_alarm_by_ack_token(session, "find-me-token")
+        result = await get_alarm_by_ack_token(session, ACK_FOUND_TOKEN)
 
-    assert result is not None
-    assert result.id == alarm.id
-    assert result.ack_token == "find-me-token"
+    expect(result is not None)
+    expect(result.id == alarm.id)
+    expect(result.ack_token == ACK_FOUND_TOKEN)
 
 
 async def test_get_alarm_by_ack_token_not_found(sessionmaker: async_sessionmaker, engine):
@@ -63,14 +77,14 @@ async def test_get_alarm_by_ack_token_not_found(sessionmaker: async_sessionmaker
     async with sessionmaker() as session:
         result = await get_alarm_by_ack_token(session, "does-not-exist")
 
-    assert result is None
+    expect(result is None)
 
 
 async def test_get_alarm_by_ack_token_soft_deleted_raises_not_found(
     sessionmaker: async_sessionmaker, engine
 ):
     """Raises NotFoundError when the alarm exists but has been soft-deleted."""
-    alarm = _make_alarm(ack_token="soft-deleted-token")
+    alarm = _make_alarm(ack_token=ACK_SOFT_DELETED_TOKEN)
     alarm.deleted_at = datetime.now(UTC)
 
     async with sessionmaker() as session:
@@ -79,7 +93,7 @@ async def test_get_alarm_by_ack_token_soft_deleted_raises_not_found(
 
     async with sessionmaker() as session:
         with pytest.raises(NotFoundError):
-            await get_alarm_by_ack_token(session, "soft-deleted-token")
+            await get_alarm_by_ack_token(session, ACK_SOFT_DELETED_TOKEN)
 
 
 # ── acknowledge_alarm ──────────────────────────────────────────────────
@@ -97,15 +111,15 @@ async def test_acknowledge_alarm_success(sessionmaker: async_sessionmaker, engin
         persisted = await session.get(Alarm, alarm.id)
         result = await acknowledge_alarm(session, persisted, acked_by="Tester", note="On my way")
 
-    assert result is True
+    expect(result is True)
 
     async with sessionmaker() as session:
         updated = await session.get(Alarm, alarm.id)
 
-    assert updated.status == AlarmStatus.ACKNOWLEDGED
-    assert updated.acked_at is not None
-    assert updated.acked_by == "Tester"
-    assert updated.meta.get("ack_note") == "On my way"
+    expect(updated.status == AlarmStatus.ACKNOWLEDGED)
+    expect(updated.acked_at is not None)
+    expect(updated.acked_by == "Tester")
+    expect(updated.meta.get("ack_note") == "On my way")
 
 
 async def test_acknowledge_alarm_already_acknowledged(sessionmaker: async_sessionmaker, engine):
@@ -151,8 +165,8 @@ async def test_acknowledge_alarm_without_note(sessionmaker: async_sessionmaker, 
     async with sessionmaker() as session:
         updated = await session.get(Alarm, alarm.id)
 
-    assert updated.status == AlarmStatus.ACKNOWLEDGED
-    assert "ack_note" not in updated.meta
+    expect(updated.status == AlarmStatus.ACKNOWLEDGED)
+    expect("ack_note" not in updated.meta)
 
 
 # ── transition_alarm ───────────────────────────────────────────────────
@@ -176,15 +190,15 @@ async def test_transition_triggered_to_resolved(sessionmaker: async_sessionmaker
             note="False alarm",
         )
 
-    assert result is True
+    expect(result is True)
 
     async with sessionmaker() as session:
         updated = await session.get(Alarm, alarm.id)
 
-    assert updated.status == AlarmStatus.RESOLVED
-    assert updated.resolved_at is not None
-    assert updated.resolved_by == "admin"
-    assert updated.meta.get("resolve_note") == "False alarm"
+    expect(updated.status == AlarmStatus.RESOLVED)
+    expect(updated.resolved_at is not None)
+    expect(updated.resolved_by == "admin")
+    expect(updated.meta.get("resolve_note") == "False alarm")
 
 
 async def test_transition_triggered_to_cancelled(sessionmaker: async_sessionmaker, engine):
@@ -205,15 +219,15 @@ async def test_transition_triggered_to_cancelled(sessionmaker: async_sessionmake
             note="Test cancelled",
         )
 
-    assert result is True
+    expect(result is True)
 
     async with sessionmaker() as session:
         updated = await session.get(Alarm, alarm.id)
 
-    assert updated.status == AlarmStatus.CANCELLED
-    assert updated.cancelled_at is not None
-    assert updated.cancelled_by == "admin"
-    assert updated.meta.get("cancel_note") == "Test cancelled"
+    expect(updated.status == AlarmStatus.CANCELLED)
+    expect(updated.cancelled_at is not None)
+    expect(updated.cancelled_by == "admin")
+    expect(updated.meta.get("cancel_note") == "Test cancelled")
 
 
 async def test_transition_acknowledged_to_resolved(sessionmaker: async_sessionmaker, engine):
@@ -230,13 +244,13 @@ async def test_transition_acknowledged_to_resolved(sessionmaker: async_sessionma
             session, persisted, target_status=AlarmStatus.RESOLVED, actor="nurse"
         )
 
-    assert result is True
+    expect(result is True)
 
     async with sessionmaker() as session:
         updated = await session.get(Alarm, alarm.id)
 
-    assert updated.status == AlarmStatus.RESOLVED
-    assert updated.resolved_by == "nurse"
+    expect(updated.status == AlarmStatus.RESOLVED)
+    expect(updated.resolved_by == "nurse")
 
 
 async def test_transition_same_status_returns_false(sessionmaker: async_sessionmaker, engine):
@@ -251,7 +265,7 @@ async def test_transition_same_status_returns_false(sessionmaker: async_sessionm
         persisted = await session.get(Alarm, alarm.id)
         result = await transition_alarm(session, persisted, target_status=AlarmStatus.TRIGGERED)
 
-    assert result is False
+    expect(result is False)
 
 
 async def test_transition_invalid_raises_conflict(sessionmaker: async_sessionmaker, engine):
@@ -298,8 +312,8 @@ async def test_get_alarm_or_404_found(sessionmaker: async_sessionmaker, engine):
     async with sessionmaker() as session:
         result = await get_alarm_or_404(session, alarm.id)
 
-    assert result.id == alarm.id
-    assert result.status == AlarmStatus.TRIGGERED
+    expect(result.id == alarm.id)
+    expect(result.status == AlarmStatus.TRIGGERED)
 
 
 async def test_get_alarm_or_404_not_found(sessionmaker: async_sessionmaker, engine):
@@ -323,4 +337,4 @@ async def test_get_alarm_or_404_with_uuid_object(sessionmaker: async_sessionmake
         # Pass a freshly constructed UUID object (not the ORM-attached one)
         result = await get_alarm_or_404(session, uuid.UUID(str(alarm.id)))
 
-    assert result.id == alarm.id
+    expect(result.id == alarm.id)

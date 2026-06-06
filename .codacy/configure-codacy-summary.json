@@ -1,0 +1,233 @@
+{
+  "summary": {
+    "enabledPatterns": {
+      "before": 1661,
+      "after": 2247
+    },
+    "enabledTools": {
+      "before": 9,
+      "after": 11
+    },
+    "issues": {
+      "before": 16,
+      "after": 27
+    },
+    "analysisRuntime": {
+      "before": 50153,
+      "after": 46205
+    },
+    "broadBaseline": {
+      "enabledPatterns": 2528,
+      "enabledTools": 13,
+      "issues": 1086,
+      "analysisRuntime": 51312
+    }
+  },
+  "cloudBaseline": {
+    "provider": "gh",
+    "organization": "sebastianspicker",
+    "repository": "alarm-broker",
+    "codingStandards": [
+      "Default coding standard"
+    ],
+    "lastAnalysedCommit": "7c2ae859c550e16e6ec2aa72d624b252097c7787",
+    "cloudIssuesAtStart": 757
+  },
+  "toolChanges": [
+    {
+      "toolId": "Ruff",
+      "action": "enabled",
+      "reason": "Added focused Python security coverage while suppressing broad style and FastAPI convention findings that conflict with the repository Ruff policy in services/alarm_broker/pyproject.toml.",
+      "patternsAffected": 60
+    },
+    {
+      "toolId": "Checkov",
+      "action": "enabled",
+      "reason": "Added IaC and secret-scanning coverage for workflow and deployment YAML; tuned validation found 6 High security findings for review.",
+      "patternsAffected": 1358
+    },
+    {
+      "toolId": "jackson",
+      "action": "disabled",
+      "reason": "Auto-init selected JSON linting for two JSON files, but broad validation found 0 issues and the Cloud baseline did not enable this tool.",
+      "patternsAffected": 2
+    },
+    {
+      "toolId": "spectral",
+      "action": "disabled",
+      "reason": "Auto-init selected Spectral, but discovery found no committed OpenAPI or AsyncAPI specification; broad validation found 0 issues.",
+      "patternsAffected": 94
+    }
+  ],
+  "patternChanges": [
+    {
+      "patternId": "Prospector_pydocstyle",
+      "toolId": "Prospector",
+      "action": "disabled",
+      "reason": "Documentation noise from broad config; 476 docstring findings obscure higher-signal runtime/security findings and were not in the Cloud baseline.",
+      "delta": -476,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_E501_line-too-long",
+      "toolId": "Ruff",
+      "action": "disabled",
+      "reason": "Broad Codacy-managed Ruff produced 447 line-length findings; local format/lint policy remains owned by services/alarm_broker/pyproject.toml and make lint.",
+      "delta": -447,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_FAST002_fast-api-non-annotated-dependency",
+      "toolId": "Ruff",
+      "action": "disabled",
+      "reason": "FastAPI modernization warning is not part of the current repo Ruff policy; broad config produced 41 convention-migration findings.",
+      "delta": -41,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_B008_function-call-in-default-argument",
+      "toolId": "Ruff",
+      "action": "disabled",
+      "reason": "Project Ruff config explicitly ignores B008 for FastAPI Depends usage; broad config produced 35 convention-mismatch findings.",
+      "delta": -35,
+      "parameters": []
+    },
+    {
+      "patternId": "markdownlint_MD032",
+      "toolId": "markdownlint",
+      "action": "disabled",
+      "reason": "Restored Cloud markdownlint pattern set; broad style expansion produced 29 list-spacing findings not in the baseline.",
+      "delta": -29,
+      "parameters": []
+    },
+    {
+      "patternId": "markdownlint_MD036",
+      "toolId": "markdownlint",
+      "action": "disabled",
+      "reason": "Restored Cloud markdownlint pattern set; broad expansion produced 13 emphasis-as-heading findings not in the baseline.",
+      "delta": -13,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_W0107",
+      "toolId": "PyLintPython3",
+      "action": "disabled",
+      "reason": "Restored Cloud Pylint pattern set; broad style expansion produced 6 unnecessary-pass findings not in the baseline.",
+      "delta": -6,
+      "parameters": []
+    },
+    {
+      "patternId": "Checkov_CKV_SECRET_6",
+      "toolId": "Checkov",
+      "action": "enabled",
+      "reason": "New High security coverage for high-entropy base64 strings in deployment YAML.",
+      "delta": 5,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_RUF001_ambiguous-unicode-character-string",
+      "toolId": "Ruff",
+      "action": "enabled",
+      "reason": "New High security coverage for ambiguous Unicode characters in Python strings.",
+      "delta": 4,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_S105_hardcoded-password-string",
+      "toolId": "Ruff",
+      "action": "enabled",
+      "reason": "New Critical security coverage for hardcoded password-like string assignments.",
+      "delta": 1,
+      "parameters": []
+    },
+    {
+      "patternId": "Ruff_S107_hardcoded-password-default",
+      "toolId": "Ruff",
+      "action": "enabled",
+      "reason": "New High security coverage for hardcoded password-like function defaults.",
+      "delta": 1,
+      "parameters": []
+    },
+    {
+      "patternId": "Checkov_CKV_SECRET_4",
+      "toolId": "Checkov",
+      "action": "enabled",
+      "reason": "New High security coverage for basic-auth-like credentials in workflow configuration.",
+      "delta": 1,
+      "parameters": []
+    },
+    {
+      "patternId": "Semgrep_codacy.python.i18n.no-hardcoded-strftime",
+      "toolId": "Semgrep",
+      "action": "disabled",
+      "reason": "Auto stack-tailoring removed the prior Opengrep i18n warning; it was Warning BestPractice, not Security/Critical/High.",
+      "delta": -1,
+      "parameters": []
+    }
+  ],
+  "fileExclusions": {
+    "global": [
+      "HARNESS_PRINCIPLES.md",
+      "code_review.md",
+      "docs/agent/**",
+      "docs/archive/**",
+      "archive/**",
+      "vendor/**",
+      "third_party/**",
+      "third-party/**",
+      "external/**"
+    ],
+    "perTool": {}
+  },
+  "securityCoverage": {
+    "deduplication": [],
+    "newCoverage": [
+      "Checkov_CKV_SECRET_6 (High, 5 issues)",
+      "Ruff_RUF001_ambiguous-unicode-character-string (High, 4 issues)",
+      "Ruff_S105_hardcoded-password-string (Error, 1 issue)",
+      "Ruff_S107_hardcoded-password-default (High, 1 issue)",
+      "Checkov_CKV_SECRET_4 (High, 1 issue)"
+    ],
+    "noisyButKept": [
+      "Ruff_S105 in settings.py may be a token-query-param false positive, but hardcoded-secret coverage remains enabled.",
+      "Ruff_S107 in tests may be an ACK-token fixture false positive, but hardcoded-secret coverage remains enabled.",
+      "Checkov_CKV_SECRET_6 in deploy/simulation_seed.yaml may be demo seed data, but high-entropy secret coverage remains enabled."
+    ]
+  },
+  "keyImprovements": [
+    "Reduced the broad local baseline from 1086 issues to 27 issues while preserving Cloud critical/high/security coverage.",
+    "Added focused Ruff security coverage without importing 529 broad Ruff style/FastAPI convention findings.",
+    "Added Checkov secret and IaC coverage, surfacing 6 High security findings in workflow/deployment YAML.",
+    "Restored Cloud markdownlint, Pylint, Prospector, Lizard, Hadolint, Trivy, Bandit, Semgrep, and Agentlinter pattern intent where auto-init only added noise.",
+    "Removed Spectral and Jackson from the tuned config because current validation found no useful findings and Cloud does not enable them."
+  ],
+  "warnings": [
+    "Codacy Cloud still reports 757 issues on last analyzed commit 7c2ae859c550e16e6ec2aa72d624b252097c7787; local dirty checkout validation found 27 with the tuned config.",
+    "Codacy Analysis exits with code 1 when issues are found; baseline and validation wrote JSON output successfully.",
+    "Agentlinter matched 0 files in local analysis.",
+    "Cloud import completed with a Ruff conflict; Codacy reports Ruff is controlled by a configuration file in Cloud."
+  ],
+  "importResults": {
+    "status": "completed_with_errors",
+    "toolsConfigured": 10,
+    "toolsEnabled": [
+      "Checkov"
+    ],
+    "toolsDisabled": [],
+    "errors": [
+      {
+        "toolId": "Ruff",
+        "error": "Conflict (409)",
+        "detail": "Unable to update Project Tool Patterns, repository is using a Configuration File"
+      }
+    ],
+    "warnings": [
+      "Repository follows Default coding standard; standards may override tool configuration.",
+      "Ruff remains disabled in Cloud after import because it uses a configuration file there."
+    ],
+    "codingStandards": [
+      "Default coding standard"
+    ],
+    "forceUsed": false
+  }
+}

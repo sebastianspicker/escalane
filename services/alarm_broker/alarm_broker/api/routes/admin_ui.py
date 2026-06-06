@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import html as _html
 import secrets
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from string import Template
 
@@ -37,6 +38,23 @@ _FAILED_LOGIN_WINDOW_SECONDS = 60
 
 
 _TEMPLATE: Template = load_template("admin.html")
+
+
+@dataclass(frozen=True)
+class _AlarmRowContext:
+    alarm_id: str
+    alarm_short_id: str
+    alarm_state: str
+    time_display: str
+    created_iso: str
+    person_display: str
+    room_display: str
+    source_display: str
+    severity_display: str
+    acked_by_display: str
+    can_ack: bool
+    can_resolve: bool
+    search_blob: str
 
 
 def _session_key(token: str) -> str:
@@ -179,19 +197,7 @@ async def admin_login_submit(
     return response
 
 
-@router.get("/admin", response_class=HTMLResponse)
-async def admin_dashboard(
-    request: Request,
-    refresh: int = Query(default=10, ge=5, le=120),
-    limit: int = Query(default=100, ge=1, le=500),
-    status_filter: str | None = Query(default=None, alias="status"),
-    admin_session: str | None = Cookie(default=None),
-    session: AsyncSession = Depends(get_session),
-    settings: Settings = Depends(get_app_settings),
-) -> HTMLResponse:
-    redis = get_redis(request)
-    await _validate_session(settings, redis, admin_session)
-
+def _alarm_list_statement(status_filter: str | None, limit: int):
     stmt = (
         select(Alarm)
         .where(Alarm.deleted_at.is_(None))
@@ -199,9 +205,10 @@ async def admin_dashboard(
     )
     if status_filter and status_filter in [s.value for s in AlarmStatus]:
         stmt = stmt.where(Alarm.status == AlarmStatus(status_filter))
-    stmt = stmt.limit(limit)
-    alarms = (await session.scalars(stmt)).all()
+    return stmt.limit(limit)
 
+
+async def _alarm_status_counts(session: AsyncSession) -> tuple[int, dict[str, int]]:
     total_count = await session.scalar(
         select(func.count(Alarm.id)).where(Alarm.deleted_at.is_(None))
     )
@@ -215,104 +222,124 @@ async def admin_dashboard(
     counts = {status.value: 0 for status in AlarmStatus}
     for status_value, count in counts_rows:
         counts[status_value.value] = int(count)
+    return int(total_count or 0), counts
 
-    status_cards = []
+
+def _render_status_cards(counts: dict[str, int], status_filter: str | None) -> str:
+    cards = []
     for state in AlarmStatus:
         active_class = "active" if state.value == status_filter else ""
-        count = counts.get(state.value, 0)
         label = escape(state.value)
-        status_cards.append(
+        count = counts.get(state.value, 0)
+        cards.append(
             f"<article class='card {active_class}'><h3>{label}</h3><p>{count}</p></article>"
         )
+    return "\n".join(cards)
 
-    rows = []
-    for alarm in alarms:
-        alarm_state = escape(alarm.status.value)
-        alarm_id = str(alarm.id)
-        alarm_short_id = escape(alarm_id[:8])
-        created_at = alarm.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-        time_diff = datetime.now(UTC) - created_at
-        minutes_ago = int(time_diff.total_seconds() / 60)
-        if minutes_ago < 60:
-            time_display = f"{minutes_ago}m ago"
-        else:
-            time_display = f"{minutes_ago // 60}h {minutes_ago % 60}m ago"
-        created_iso = created_at.isoformat()
-        person_display = str(alarm.person_id or "-")
-        room_display = str(alarm.room_id or "-")
-        source_display = alarm.source
-        severity_display = alarm.severity
-        acked_by_display = str(alarm.acked_by or "-")
 
-        can_ack = alarm.status == AlarmStatus.TRIGGERED
-        can_resolve = alarm.status in (AlarmStatus.TRIGGERED, AlarmStatus.ACKNOWLEDGED)
-        ack_disabled_attr = " disabled" if not can_ack else ""
-        resolve_disabled_attr = " disabled" if not can_resolve else ""
-        search_blob = " ".join(
-            [
-                alarm_id,
-                alarm_state,
-                person_display,
-                room_display,
-                source_display,
-                severity_display,
-                acked_by_display,
-            ]
-        ).lower()
+def _time_display(created_at: datetime) -> tuple[str, str]:
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
+    time_diff = datetime.now(UTC) - created_at
+    minutes_ago = int(time_diff.total_seconds() / 60)
+    if minutes_ago < 60:
+        return f"{minutes_ago}m ago", created_at.isoformat()
+    return f"{minutes_ago // 60}h {minutes_ago % 60}m ago", created_at.isoformat()
 
-        rows.append(
-            "<tr class='alarm-row'"
-            f" data-alarm-id='{escape(alarm_id)}'"
-            f" data-short-id='{alarm_short_id}'"
-            f" data-status='{alarm_state}'"
-            f" data-created='{escape(time_display)} ({escape(created_iso)})'"
-            f" data-person='{escape(person_display)}'"
-            f" data-room='{escape(room_display)}'"
-            f" data-source='{escape(source_display)}'"
-            f" data-severity='{escape(severity_display)}'"
-            f" data-acked-by='{escape(acked_by_display)}'"
-            f" data-can-ack='{'true' if can_ack else 'false'}'"
-            f" data-can-resolve='{'true' if can_resolve else 'false'}'"
-            f" data-search='{escape(search_blob)}'>"
-            f"<td><span class='state {alarm_state}'>{alarm_state}</span></td>"
-            f"<td class='mono'>{alarm_short_id}...</td>"
-            f"<td class='muted'>{escape(time_display)}</td>"
-            f"<td>{escape(person_display)}</td>"
-            f"<td>{escape(room_display)}</td>"
-            f"<td>{escape(source_display)}</td>"
-            f"<td><span class='severity'>{escape(severity_display)}</span></td>"
-            f"<td>{escape(acked_by_display)}</td>"
-            "<td class='actions'>"
-            "<button type='button' class='btn detail-btn'>Details</button>"
-            "<button type='button' class='btn btn-ack quick-ack-btn'"
-            f"{ack_disabled_attr}>Quick Ack</button>"
-            "<button type='button' class='btn btn-resolve quick-resolve-btn'"
-            f"{resolve_disabled_attr}>Quick Resolve</button>"
-            "</td>"
-            "</tr>"
-        )
 
-    filter_qs = f"status={status_filter}&" if status_filter else ""
-    if settings.simulation_enabled:
-        simulation_panel = (
-            "<section id='simulation-panel' class='sim-panel' data-enabled='true'>"
-            "<div class='sim-head'>"
-            "<h2>Simulation Mode</h2>"
-            "<p class='muted'>Monitor mock notifications and demo seed helpers.</p>"
-            "</div>"
-            "<p id='sim-status' class='muted'>Checking simulation status ...</p>"
-            "<p class='muted'>Notifications: <strong id='sim-count'>-</strong></p>"
-            "<div class='sim-actions'>"
-            "<button id='sim-refresh-btn' type='button' class='btn'>Refresh</button>"
-            "<button id='sim-clear-btn' type='button' class='btn'>Clear Notifications</button>"
-            "<button id='sim-seed-btn' type='button' class='btn'>Load Seed Info</button>"
-            "</div>"
-            "</section>"
-        )
-    else:
-        simulation_panel = (
+def _alarm_row_context(alarm: Alarm) -> _AlarmRowContext:
+    alarm_id = str(alarm.id)
+    alarm_state = escape(alarm.status.value)
+    time_display, created_iso = _time_display(alarm.created_at)
+    person_display = str(alarm.person_id or "-")
+    room_display = str(alarm.room_id or "-")
+    source_display = alarm.source
+    severity_display = alarm.severity
+    acked_by_display = str(alarm.acked_by or "-")
+
+    can_ack = alarm.status == AlarmStatus.TRIGGERED
+    can_resolve = alarm.status in (AlarmStatus.TRIGGERED, AlarmStatus.ACKNOWLEDGED)
+    search_blob = " ".join(
+        [
+            alarm_id,
+            alarm_state,
+            person_display,
+            room_display,
+            source_display,
+            severity_display,
+            acked_by_display,
+        ]
+    ).lower()
+    return _AlarmRowContext(
+        alarm_id=alarm_id,
+        alarm_short_id=escape(alarm_id[:8]),
+        alarm_state=alarm_state,
+        time_display=time_display,
+        created_iso=created_iso,
+        person_display=person_display,
+        room_display=room_display,
+        source_display=source_display,
+        severity_display=severity_display,
+        acked_by_display=acked_by_display,
+        can_ack=can_ack,
+        can_resolve=can_resolve,
+        search_blob=search_blob,
+    )
+
+
+def _render_alarm_actions(can_ack: bool, can_resolve: bool) -> str:
+    ack_disabled_attr = " disabled" if not can_ack else ""
+    resolve_disabled_attr = " disabled" if not can_resolve else ""
+    return (
+        "<td class='actions'>"
+        "<button type='button' class='btn detail-btn'>Details</button>"
+        "<button type='button' class='btn btn-ack quick-ack-btn'"
+        f"{ack_disabled_attr}>Quick Ack</button>"
+        "<button type='button' class='btn btn-resolve quick-resolve-btn'"
+        f"{resolve_disabled_attr}>Quick Resolve</button>"
+        "</td>"
+    )
+
+
+def _render_alarm_row(alarm: Alarm) -> str:
+    row = _alarm_row_context(alarm)
+
+    return (
+        "<tr class='alarm-row'"
+        f" data-alarm-id='{escape(row.alarm_id)}'"
+        f" data-short-id='{row.alarm_short_id}'"
+        f" data-status='{row.alarm_state}'"
+        f" data-created='{escape(row.time_display)} ({escape(row.created_iso)})'"
+        f" data-person='{escape(row.person_display)}'"
+        f" data-room='{escape(row.room_display)}'"
+        f" data-source='{escape(row.source_display)}'"
+        f" data-severity='{escape(row.severity_display)}'"
+        f" data-acked-by='{escape(row.acked_by_display)}'"
+        f" data-can-ack='{'true' if row.can_ack else 'false'}'"
+        f" data-can-resolve='{'true' if row.can_resolve else 'false'}'"
+        f" data-search='{escape(row.search_blob)}'>"
+        f"<td><span class='state {row.alarm_state}'>{row.alarm_state}</span></td>"
+        f"<td class='mono'>{row.alarm_short_id}...</td>"
+        f"<td class='muted'>{escape(row.time_display)}</td>"
+        f"<td>{escape(row.person_display)}</td>"
+        f"<td>{escape(row.room_display)}</td>"
+        f"<td>{escape(row.source_display)}</td>"
+        f"<td><span class='severity'>{escape(row.severity_display)}</span></td>"
+        f"<td>{escape(row.acked_by_display)}</td>"
+        f"{_render_alarm_actions(row.can_ack, row.can_resolve)}"
+        "</tr>"
+    )
+
+
+def _render_alarm_rows(alarms: list[Alarm]) -> str:
+    if not alarms:
+        return "<tr><td colspan='9' class='muted'>No alarms found</td></tr>"
+    return "\n".join(_render_alarm_row(alarm) for alarm in alarms)
+
+
+def _simulation_panel(settings: Settings) -> str:
+    if not settings.simulation_enabled:
+        return (
             "<section id='simulation-panel' class='sim-panel' data-enabled='false'>"
             "<div class='sim-head'>"
             "<h2>Simulation Mode</h2>"
@@ -320,18 +347,48 @@ async def admin_dashboard(
             "</div>"
             "</section>"
         )
+    return (
+        "<section id='simulation-panel' class='sim-panel' data-enabled='true'>"
+        "<div class='sim-head'>"
+        "<h2>Simulation Mode</h2>"
+        "<p class='muted'>Monitor mock notifications and demo seed helpers.</p>"
+        "</div>"
+        "<p id='sim-status' class='muted'>Checking simulation status ...</p>"
+        "<p class='muted'>Notifications: <strong id='sim-count'>-</strong></p>"
+        "<div class='sim-actions'>"
+        "<button id='sim-refresh-btn' type='button' class='btn'>Refresh</button>"
+        "<button id='sim-clear-btn' type='button' class='btn'>Clear Notifications</button>"
+        "<button id='sim-seed-btn' type='button' class='btn'>Load Seed Info</button>"
+        "</div>"
+        "</section>"
+    )
 
+
+@router.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(
+    request: Request,
+    refresh: int = Query(default=10, ge=5, le=120),
+    limit: int = Query(default=100, ge=1, le=500),
+    status_filter: str | None = Query(default=None, alias="status"),
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    redis = get_redis(request)
+    await _validate_session(settings, redis, admin_session)
+
+    alarms = (await session.scalars(_alarm_list_statement(status_filter, limit))).all()
+    total_count, counts = await _alarm_status_counts(session)
+    filter_qs = f"status={status_filter}&" if status_filter else ""
     page = _TEMPLATE.substitute(
         refresh_seconds=refresh,
         row_count=str(len(alarms)),
-        total_count=str(total_count or 0),
+        total_count=str(total_count),
         generated_at=escape(datetime.now(UTC).isoformat()),
-        status_cards="\n".join(status_cards),
+        status_cards=_render_status_cards(counts, status_filter),
         filter_qs=filter_qs,
-        simulation_panel=simulation_panel,
+        simulation_panel=_simulation_panel(settings),
         admin_key_json='""',
-        rows="\n".join(rows)
-        if rows
-        else "<tr><td colspan='9' class='muted'>No alarms found</td></tr>",
+        rows=_render_alarm_rows(list(alarms)),
     )
     return HTMLResponse(content=page)

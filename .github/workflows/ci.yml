@@ -3,7 +3,27 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "HARNESS_PRINCIPLES.md"
+      - "code_review.md"
+      - "docs/agent/**"
+      - "docs/archive/**"
+      - "archive/**"
+      - "vendor/**"
+      - "third_party/**"
+      - "third-party/**"
+      - "external/**"
   pull_request:
+    paths-ignore:
+      - "HARNESS_PRINCIPLES.md"
+      - "code_review.md"
+      - "docs/agent/**"
+      - "docs/archive/**"
+      - "archive/**"
+      - "vendor/**"
+      - "third_party/**"
+      - "third-party/**"
+      - "external/**"
 
 permissions:
   contents: read
@@ -102,9 +122,6 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
-    env:
-      DATABASE_URL: postgresql+asyncpg://alarm:alarm@127.0.0.1:5432/alarm
-      TEST_DATABASE_URL: postgresql+asyncpg://alarm:alarm@127.0.0.1:5432/alarm
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -119,6 +136,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e "services/alarm_broker[dev]"
+
+      - name: Configure PostgreSQL URLs
+        shell: bash
+        env:
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: "5432"
+          POSTGRES_DB: alarm
+          POSTGRES_USER: alarm
+          POSTGRES_PASSWORD: alarm
+        run: |
+          database_url="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+          {
+            printf 'DATABASE_URL=%s\n' "${database_url}"
+            printf 'TEST_DATABASE_URL=%s\n' "${database_url}"
+          } >> "${GITHUB_ENV}"
 
       - name: Apply Alembic migrations
         run: cd services/alarm_broker && alembic upgrade head

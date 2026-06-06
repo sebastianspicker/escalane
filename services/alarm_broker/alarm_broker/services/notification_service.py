@@ -188,8 +188,8 @@ class NotificationService:
         room = enriched.get("room_label", "Unknown")
 
         if step_no == 0:
-            return f"NOTFALLALARM – {person} – {room}"
-        return f"ESKALATION Stufe {step_no} – {person} – {room}"
+            return f"NOTFALLALARM - {person} - {room}"
+        return f"ESKALATION Stufe {step_no} - {person} - {room}"
 
     def _build_tags(self, step_no: int, severity: str) -> list[str]:
         """Build tags for notification based on step and severity.

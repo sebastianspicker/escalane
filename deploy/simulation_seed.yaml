@@ -67,35 +67,35 @@ devices:
     vendor: yealink
     model_family: T54W
     account_ext: "2001"
-    device_token: MU_YLK_NORTH_OPS_2001
+    device_token: demo1
     person_id: uni-security-desk
     room_id: uni-north-ops
   - id: ylk-uni-lib-002
     vendor: yealink
     model_family: T54W
     account_ext: "2002"
-    device_token: MU_YLK_NORTH_LIB_2002
+    device_token: demo2
     person_id: uni-campus-ops
     room_id: uni-north-lib
   - id: ylk-uni-chem-003
     vendor: yealink
     model_family: T57W
     account_ext: "2003"
-    device_token: MU_YLK_CHEM_LAB_2003
+    device_token: demo3
     person_id: uni-lab-supervisor
     room_id: uni-north-chem
   - id: ylk-uni-or-004
     vendor: yealink
     model_family: T57W
     account_ext: "2004"
-    device_token: MU_YLK_MED_OR_2004
+    device_token: demo4
     person_id: uni-nurse-oncall
     room_id: uni-med-op
   - id: ylk-uni-dorm-005
     vendor: yealink
     model_family: T54W
     account_ext: "2005"
-    device_token: MU_YLK_DORM_LOBBY_2005
+    device_token: demo5
     person_id: uni-duty-manager
     room_id: uni-med-dorm
 

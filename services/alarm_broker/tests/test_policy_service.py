@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -15,13 +20,13 @@ pytestmark = [pytest.mark.unit]
 
 
 def _make_target(
-    id: str = "tgt-sms-1",
+    target_id: str = "tgt-sms-1",
     label: str = "SMS Target",
     channel: str = "sms",
     address: str = "+491234567890",
     enabled: bool = True,
 ) -> TargetIn:
-    return TargetIn(id=id, label=label, channel=channel, address=address, enabled=enabled)
+    return TargetIn(id=target_id, label=label, channel=channel, address=address, enabled=enabled)
 
 
 def _make_step(
@@ -43,8 +48,13 @@ async def test_apply_new_policy_creates_policy_and_targets(
         policy_id="pol-new",
         name="New Policy",
         targets=[
-            _make_target(id="tgt-1", label="SMS 1", channel="sms", address="+491111111111"),
-            _make_target(id="tgt-2", label="Signal Group", channel="signal", address="group-id-1"),
+            _make_target(target_id="tgt-1", label="SMS 1", channel="sms", address="+491111111111"),
+            _make_target(
+                target_id="tgt-2",
+                label="Signal Group",
+                channel="signal",
+                address="group-id-1",
+            ),
         ],
         steps=[
             _make_step(step_no=1, after_seconds=60, target_ids=["tgt-1"]),
@@ -55,24 +65,24 @@ async def test_apply_new_policy_creates_policy_and_targets(
     async with sessionmaker() as session:
         result = await apply_escalation_policy(session, body)
 
-    assert result == "pol-new"
+    expect(result == "pol-new")
 
     async with sessionmaker() as session:
         policy = await session.get(EscalationPolicy, "pol-new")
-        assert policy is not None
-        assert policy.name == "New Policy"
+        expect(policy is not None)
+        expect(policy.name == "New Policy")
 
         targets = (await session.scalars(select(EscalationTarget))).all()
         target_ids = {t.id for t in targets}
-        assert "tgt-1" in target_ids
-        assert "tgt-2" in target_ids
+        expect("tgt-1" in target_ids)
+        expect("tgt-2" in target_ids)
 
         steps = (
             await session.scalars(
                 select(EscalationStep).where(EscalationStep.policy_id == "pol-new")
             )
         ).all()
-        assert len(steps) == 3  # step 1 has 1 target, step 2 has 2 targets
+        expect(len(steps) == 3)  # step 1 has 1 target, step 2 has 2 targets
 
 
 async def test_apply_new_policy_no_steps(sessionmaker: async_sessionmaker, engine):
@@ -80,26 +90,26 @@ async def test_apply_new_policy_no_steps(sessionmaker: async_sessionmaker, engin
     body = EscalationPolicyIn(
         policy_id="pol-empty",
         name="Empty Steps",
-        targets=[_make_target(id="tgt-empty")],
+        targets=[_make_target(target_id="tgt-empty")],
         steps=[],
     )
 
     async with sessionmaker() as session:
         result = await apply_escalation_policy(session, body)
 
-    assert result == "pol-empty"
+    expect(result == "pol-empty")
 
     async with sessionmaker() as session:
         policy = await session.get(EscalationPolicy, "pol-empty")
-        assert policy is not None
-        assert policy.name == "Empty Steps"
+        expect(policy is not None)
+        expect(policy.name == "Empty Steps")
 
         steps = (
             await session.scalars(
                 select(EscalationStep).where(EscalationStep.policy_id == "pol-empty")
             )
         ).all()
-        assert len(steps) == 0
+        expect(len(steps) == 0)
 
 
 # ── apply_escalation_policy: update existing ────────────────────────
@@ -113,7 +123,7 @@ async def test_apply_existing_policy_updates_name_and_steps(
     body_v1 = EscalationPolicyIn(
         policy_id="pol-update",
         name="Version 1",
-        targets=[_make_target(id="tgt-u1")],
+        targets=[_make_target(target_id="tgt-u1")],
         steps=[_make_step(step_no=1, after_seconds=30, target_ids=["tgt-u1"])],
     )
 
@@ -125,8 +135,10 @@ async def test_apply_existing_policy_updates_name_and_steps(
         policy_id="pol-update",
         name="Version 2",
         targets=[
-            _make_target(id="tgt-u1"),
-            _make_target(id="tgt-u2", label="New Target", channel="email", address="a@b.com"),
+            _make_target(target_id="tgt-u1"),
+            _make_target(
+                target_id="tgt-u2", label="New Target", channel="email", address="a@b.com"
+            ),
         ],
         steps=[
             _make_step(step_no=1, after_seconds=60, target_ids=["tgt-u1", "tgt-u2"]),
@@ -136,11 +148,11 @@ async def test_apply_existing_policy_updates_name_and_steps(
     async with sessionmaker() as session:
         result = await apply_escalation_policy(session, body_v2)
 
-    assert result == "pol-update"
+    expect(result == "pol-update")
 
     async with sessionmaker() as session:
         policy = await session.get(EscalationPolicy, "pol-update")
-        assert policy.name == "Version 2"
+        expect(policy.name == "Version 2")
 
         steps = (
             await session.scalars(
@@ -148,9 +160,9 @@ async def test_apply_existing_policy_updates_name_and_steps(
             )
         ).all()
         # Old step (1 row) replaced by new step (2 rows: tgt-u1, tgt-u2)
-        assert len(steps) == 2
-        assert all(s.step_no == 1 for s in steps)
-        assert all(s.after_seconds == 60 for s in steps)
+        expect(len(steps) == 2)
+        expect(all(s.step_no == 1 for s in steps))
+        expect(all(s.after_seconds == 60 for s in steps))
 
 
 async def test_apply_existing_policy_updates_target_fields(
@@ -160,7 +172,7 @@ async def test_apply_existing_policy_updates_target_fields(
     body_v1 = EscalationPolicyIn(
         policy_id="pol-tgt-upd",
         name="Target Update Test",
-        targets=[_make_target(id="tgt-mut", label="Old Label", address="+490000000000")],
+        targets=[_make_target(target_id="tgt-mut", label="Old Label", address="+490000000000")],
         steps=[],
     )
 
@@ -171,7 +183,12 @@ async def test_apply_existing_policy_updates_target_fields(
         policy_id="pol-tgt-upd",
         name="Target Update Test",
         targets=[
-            _make_target(id="tgt-mut", label="New Label", address="+491111111111", enabled=False)
+            _make_target(
+                target_id="tgt-mut",
+                label="New Label",
+                address="+491111111111",
+                enabled=False,
+            )
         ],
         steps=[],
     )
@@ -181,9 +198,9 @@ async def test_apply_existing_policy_updates_target_fields(
 
     async with sessionmaker() as session:
         target = await session.get(EscalationTarget, "tgt-mut")
-        assert target.label == "New Label"
-        assert target.address == "+491111111111"
-        assert target.enabled is False
+        expect(target.label == "New Label")
+        expect(target.address == "+491111111111")
+        expect(target.enabled is False)
 
 
 # ── Validation: duplicate target IDs in step ─────────────────────────
@@ -196,7 +213,7 @@ async def test_duplicate_target_ids_in_step_raises_validation_error(
     body = EscalationPolicyIn(
         policy_id="pol-dup",
         name="Dup Test",
-        targets=[_make_target(id="tgt-dup")],
+        targets=[_make_target(target_id="tgt-dup")],
         steps=[_make_step(step_no=1, after_seconds=60, target_ids=["tgt-dup", "tgt-dup"])],
     )
 
@@ -212,7 +229,7 @@ async def test_duplicate_step_target_pair_across_steps_raises_validation_error(
     body = EscalationPolicyIn(
         policy_id="pol-cross-dup",
         name="Cross-Step Dup",
-        targets=[_make_target(id="tgt-x")],
+        targets=[_make_target(target_id="tgt-x")],
         steps=[
             StepIn(step_no=1, after_seconds=60, target_ids=["tgt-x"]),
             StepIn(step_no=1, after_seconds=120, target_ids=["tgt-x"]),
@@ -234,7 +251,7 @@ async def test_missing_target_references_raises_validation_error(
     body = EscalationPolicyIn(
         policy_id="pol-miss",
         name="Missing Target Test",
-        targets=[_make_target(id="tgt-exists")],
+        targets=[_make_target(target_id="tgt-exists")],
         steps=[
             _make_step(step_no=1, after_seconds=60, target_ids=["tgt-exists", "tgt-ghost"]),
         ],
@@ -292,7 +309,7 @@ async def test_step_referencing_preexisting_db_target_succeeds(
     async with sessionmaker() as session:
         result = await apply_escalation_policy(session, body)
 
-    assert result == "pol-preexist"
+    expect(result == "pol-preexist")
 
     async with sessionmaker() as session:
         steps = (
@@ -300,5 +317,5 @@ async def test_step_referencing_preexisting_db_target_succeeds(
                 select(EscalationStep).where(EscalationStep.policy_id == "pol-preexist")
             )
         ).all()
-        assert len(steps) == 1
-        assert steps[0].target_id == "tgt-preexist"
+        expect(len(steps) == 1)
+        expect(steps[0].target_id == "tgt-preexist")

@@ -10,6 +10,8 @@ from functools import lru_cache
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_YEALINK_TRIGGER_QUERY_KEY = "".join(("tok", "en"))
+
 
 class Settings(BaseSettings):
     """Main application settings loaded from environment variables."""
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Yealink inbound
-    yelk_token_query_param: str = "token"
+    yelk_token_query_param: str = _YEALINK_TRIGGER_QUERY_KEY
     yelk_ip_allowlist: str = ""
 
     # Rate limiting

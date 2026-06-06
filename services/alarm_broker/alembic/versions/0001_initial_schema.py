@@ -17,7 +17,7 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
+def _create_master_data_tables() -> None:
     op.create_table(
         "sites",
         sa.Column("id", sa.String(), primary_key=True),
@@ -57,6 +57,8 @@ def upgrade() -> None:
     )
     op.create_index("idx_devices_token", "devices", ["device_token"])
 
+
+def _create_escalation_tables() -> None:
     op.create_table(
         "escalation_targets",
         sa.Column("id", sa.String(), primary_key=True),
@@ -84,6 +86,8 @@ def upgrade() -> None:
         ),
     )
 
+
+def _create_alarm_tables() -> None:
     op.create_table(
         "alarms",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -114,7 +118,10 @@ def upgrade() -> None:
         sa.Column("meta", sa.JSON(), nullable=False, server_default=sa.text("'{}'::json")),
     )
     op.create_index("idx_alarms_created_at", "alarms", ["created_at"])
+    _create_alarm_notification_tables()
 
+
+def _create_alarm_notification_tables() -> None:
     op.create_table(
         "alarm_notifications",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -136,6 +143,12 @@ def upgrade() -> None:
         sa.Column("result", sa.String(), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
     )
+
+
+def upgrade() -> None:
+    _create_master_data_tables()
+    _create_escalation_tables()
+    _create_alarm_tables()
 
 
 def downgrade() -> None:
