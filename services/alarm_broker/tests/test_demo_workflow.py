@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import sys
 from pathlib import Path
 
@@ -13,11 +18,13 @@ from scripts.demo_capture import (  # noqa: E402
     SHOT_FILENAMES,
     CaptureConfig,
     DemoCaptureError,
+    _http_json,
     run_capture,
 )
 from scripts.demo_prepare import (  # noqa: E402
     DemoPrepareError,
     HttpResult,
+    _request_json,
     _resolve_admin_key,
     run_prepare,
 )
@@ -38,16 +45,16 @@ def test_demo_prepare_success_sequence(tmp_path: Path) -> None:
     ) -> HttpResult:
         calls.append((method, url))
         if url.endswith("/readyz"):
-            assert body is None
+            expect(body is None)
             return HttpResult(200, '{"ok":"true"}', {"ok": "true"})
         if url.endswith("/v1/admin/seed"):
-            assert headers["X-Admin-Key"] == "dev-admin-key"
-            assert headers["Content-Type"] == "application/x-yaml"
-            assert body == seed_file.read_bytes()
+            expect(headers["X-Admin-Key"] == "dev-admin-key")
+            expect(headers["Content-Type"] == "application/x-yaml")
+            expect(body == seed_file.read_bytes())
             return HttpResult(200, '{"ok":"true"}', {"ok": "true"})
         if url.endswith("/v1/simulation/notifications/clear"):
-            assert headers["X-Admin-Key"] == "dev-admin-key"
-            assert body == b"{}"
+            expect(headers["X-Admin-Key"] == "dev-admin-key")
+            expect(body == b"{}")
             return HttpResult(200, '{"status":"ok"}', {"status": "ok"})
         raise AssertionError(f"Unexpected URL in test: {url}")
 
@@ -59,11 +66,11 @@ def test_demo_prepare_success_sequence(tmp_path: Path) -> None:
         request_func=fake_request,
     )
 
-    assert result["base_url"] == "http://localhost:8080"
-    assert result["ready_status"] == 200
-    assert result["seed_status"] == 200
-    assert result["clear_status"] == 200
-    assert [method for method, _ in calls] == ["GET", "POST", "POST"]
+    expect(result["base_url"] == "http://localhost:8080")
+    expect(result["ready_status"] == 200)
+    expect(result["seed_status"] == 200)
+    expect(result["clear_status"] == 200)
+    expect([method for method, _ in calls] == ["GET", "POST", "POST"])
 
 
 @pytest.mark.unit
@@ -94,13 +101,19 @@ def test_demo_prepare_handles_simulation_disabled(tmp_path: Path) -> None:
             timeout_seconds=5.0,
             request_func=fake_request,
         )
-    assert "SIMULATION_ENABLED=true" in str(exc.value)
+    expect("SIMULATION_ENABLED=true" in str(exc.value))
+
+
+@pytest.mark.unit
+def test_demo_prepare_rejects_non_http_url() -> None:
+    with pytest.raises(DemoPrepareError):
+        _request_json("GET", "file:///etc/passwd")
 
 
 @pytest.mark.unit
 def test_resolve_admin_key_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ADMIN_API_KEY", "env-admin")
-    assert _resolve_admin_key(None) == "env-admin"
+    expect(_resolve_admin_key(None) == "env-admin")
 
 
 @pytest.mark.unit
@@ -126,10 +139,10 @@ def test_demo_capture_mock_mode_creates_expected_files(tmp_path: Path) -> None:
 
     created = run_capture(config)
 
-    assert [path.name for path in created] == SHOT_FILENAMES
+    expect([path.name for path in created] == SHOT_FILENAMES)
     for path in created:
-        assert path.exists()
-        assert path.stat().st_size > 0
+        expect(path.exists())
+        expect(path.stat().st_size > 0)
 
 
 @pytest.mark.unit
@@ -138,3 +151,9 @@ def test_demo_capture_requires_admin_key() -> None:
         from scripts.demo_capture import _resolve_admin_key
 
         _resolve_admin_key("")
+
+
+@pytest.mark.unit
+def test_demo_capture_rejects_non_http_url() -> None:
+    with pytest.raises(DemoCaptureError):
+        _http_json("GET", "file:///etc/passwd")

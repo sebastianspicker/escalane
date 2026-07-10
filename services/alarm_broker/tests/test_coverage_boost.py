@@ -9,6 +9,11 @@ Covers:
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -29,42 +34,32 @@ ADMIN_KEY = "dev-admin-key"
 HEADERS = {"X-Admin-Key": ADMIN_KEY}
 
 
-def _make_alarm(
-    *,
-    alarm_id: uuid.UUID | None = None,
-    status: AlarmStatus = AlarmStatus.TRIGGERED,
-    ack_token: str | None = None,
-    created_at: datetime | None = None,
-    source: str = "test",
-    severity: str = "P0",
-    resolved_at: datetime | None = None,
-    resolved_by: str | None = None,
-    cancelled_at: datetime | None = None,
-    cancelled_by: str | None = None,
-    acked_at: datetime | None = None,
-    acked_by: str | None = None,
-) -> Alarm:
-    return Alarm(
-        id=alarm_id or uuid.uuid4(),
-        status=status,
-        source=source,
-        event="alarm.trigger",
-        person_id="ma-012",
-        room_id="bg-1.23",
-        site_id="bg",
-        device_id="ylk-t5-10023",
-        severity=severity,
-        silent=True,
-        ack_token=ack_token or f"tok-{uuid.uuid4().hex[:8]}",
-        created_at=created_at or datetime.now(UTC),
-        meta={},
-        resolved_at=resolved_at,
-        resolved_by=resolved_by,
-        cancelled_at=cancelled_at,
-        cancelled_by=cancelled_by,
-        acked_at=acked_at,
-        acked_by=acked_by,
-    )
+def _make_alarm(**overrides) -> Alarm:
+    if "alarm_id" in overrides:
+        overrides["id"] = overrides.pop("alarm_id")
+    defaults = {
+        "id": uuid.uuid4(),
+        "status": AlarmStatus.TRIGGERED,
+        "source": "test",
+        "event": "alarm.trigger",
+        "person_id": "ma-012",
+        "room_id": "bg-1.23",
+        "site_id": "bg",
+        "device_id": "ylk-t5-10023",
+        "severity": "P0",
+        "silent": True,
+        "ack_token": f"tok-{uuid.uuid4().hex[:8]}",
+        "created_at": datetime.now(UTC),
+        "meta": {},
+        "resolved_at": None,
+        "resolved_by": None,
+        "cancelled_at": None,
+        "cancelled_by": None,
+        "acked_at": None,
+        "acked_by": None,
+    }
+    defaults.update(overrides)
+    return Alarm(**defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -110,12 +105,12 @@ async def test_bulk_ack_mixed_states(engine, sessionmaker, seeded_db, fake_redis
                 },
             )
 
-    assert resp.status_code == 200, resp.text
+    expect(resp.status_code == 200, resp.text)
     body = resp.json()
-    assert body["requested"] == 3
-    assert body["changed"] == 1  # only triggered -> acknowledged
-    assert body["unchanged"] == 1  # resolved cannot be acked
-    assert body["missing"] == [str(missing_id)]
+    expect(body["requested"] == 3)
+    expect(body["changed"] == 1)  # only triggered -> acknowledged
+    expect(body["unchanged"] == 1)  # resolved cannot be acked
+    expect(body["missing"] == [str(missing_id)])
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +145,12 @@ async def test_bulk_resolve_all_changed(engine, sessionmaker, seeded_db, fake_re
                 json={"alarm_ids": [str(aid) for aid in ids], "actor": "Ops", "note": "done"},
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     body = resp.json()
-    assert body["requested"] == 2
-    assert body["changed"] == 2
-    assert body["unchanged"] == 0
-    assert body["missing"] == []
+    expect(body["requested"] == 2)
+    expect(body["changed"] == 2)
+    expect(body["unchanged"] == 0)
+    expect(body["missing"] == [])
 
 
 # ---------------------------------------------------------------------------
@@ -199,12 +194,12 @@ async def test_bulk_cancel_counts(engine, sessionmaker, seeded_db, fake_redis, s
                 },
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     body = resp.json()
-    assert body["requested"] == 2
-    assert body["changed"] == 1
-    assert body["unchanged"] == 1
-    assert body["missing"] == []
+    expect(body["requested"] == 2)
+    expect(body["changed"] == 1)
+    expect(body["unchanged"] == 1)
+    expect(body["missing"] == [])
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +241,7 @@ async def test_cursor_pagination_multiple_pages(
                 if cursor:
                     params["cursor"] = cursor
                 resp = await client.get("/v1/alarms", params=params, headers=HEADERS)
-                assert resp.status_code == 200
+                expect(resp.status_code == 200)
                 data = resp.json()
                 all_fetched.extend(item["id"] for item in data)
                 pages += 1
@@ -255,12 +250,12 @@ async def test_cursor_pagination_multiple_pages(
                     break
 
     # We should have walked through >= 3 pages (2+2+1)
-    assert pages >= 3
+    expect(pages >= 3)
     # No duplicates
-    assert len(all_fetched) == len(set(all_fetched))
+    expect(len(all_fetched) == len(set(all_fetched)))
     # All created alarms should appear
     for aid in created_ids:
-        assert str(aid) in all_fetched
+        expect(str(aid) in all_fetched)
 
 
 # ---------------------------------------------------------------------------
@@ -295,11 +290,11 @@ async def test_export_csv_sanitises_formula_injection(
                 headers=HEADERS,
             )
 
-    assert resp.status_code == 200
-    assert "text/csv" in resp.headers["content-type"]
+    expect(resp.status_code == 200)
+    expect("text/csv" in resp.headers["content-type"])
     body = resp.text
     # The malicious source should be sanitised with a leading apostrophe
-    assert "'=cmd('calc')" in body
+    expect("'=cmd('calc')" in body)
     # The raw unsanitised version should NOT appear as-is in a CSV cell start
     lines = body.strip().split("\n")
     for line in lines[1:]:  # skip header
@@ -325,9 +320,9 @@ async def test_admin_dashboard_empty_state(engine, seeded_db, fake_redis, settin
             await admin_login(client, ADMIN_KEY)
             resp = await client.get("/admin")
 
-    assert resp.status_code == 200
-    assert "text/html" in resp.headers["content-type"]
-    assert "No alarms found" in resp.text
+    expect(resp.status_code == 200)
+    expect("text/html" in resp.headers["content-type"])
+    expect("No alarms found" in resp.text)
 
 
 # ---------------------------------------------------------------------------
@@ -345,26 +340,26 @@ async def test_healthz_details_returns_dependency_info(engine, seeded_db, fake_r
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/healthz/details", headers=HEADERS)
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     body = resp.json()
 
     # Application section
-    assert body["application"]["name"] == "alarm-broker"
-    assert "uptime_seconds" in body["application"]
-    assert "timestamp" in body["application"]
+    expect(body["application"]["name"] == "alarm-broker")
+    expect("uptime_seconds" in body["application"])
+    expect("timestamp" in body["application"])
 
     # Dependencies
-    assert body["dependencies"]["database"]["status"] == "ok"
-    assert body["dependencies"]["redis"]["status"] == "ok"
-    assert "latency_ms" in body["dependencies"]["redis"]
+    expect(body["dependencies"]["database"]["status"] == "ok")
+    expect(body["dependencies"]["redis"]["status"] == "ok")
+    expect("latency_ms" in body["dependencies"]["redis"])
 
     # Connectors
-    assert "zammad" in body["connectors"]
-    assert "sms" in body["connectors"]
-    assert "signal" in body["connectors"]
+    expect("zammad" in body["connectors"])
+    expect("sms" in body["connectors"])
+    expect("signal" in body["connectors"])
 
     # Overall
-    assert body["status"] == "healthy"
+    expect(body["status"] == "healthy")
 
 
 async def test_healthz_details_unhealthy_redis(engine, seeded_db, settings):
@@ -382,9 +377,9 @@ async def test_healthz_details_unhealthy_redis(engine, seeded_db, settings):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/healthz/details", headers=HEADERS)
 
-    assert resp.status_code == 503
+    expect(resp.status_code == 503)
     body = resp.json()
-    assert body["status"] == "unhealthy"
-    assert body["dependencies"]["redis"]["status"] == "error"
+    expect(body["status"] == "unhealthy")
+    expect(body["dependencies"]["redis"]["status"] == "error")
     # Database should still be ok
-    assert body["dependencies"]["database"]["status"] == "ok"
+    expect(body["dependencies"]["database"]["status"] == "ok")

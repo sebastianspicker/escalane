@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -78,7 +83,7 @@ class TestCreateAsyncEngineFromUrl:
 
             result = create_async_engine_from_url(_SQLITE_URL, slow_query_log_ms=0)
 
-        assert result is sentinel
+        expect(result is sentinel)
 
 
 class TestInstallSlowQueryListener:
@@ -104,7 +109,7 @@ class TestInstallSlowQueryListener:
                 mock_conn, None, "SELECT 1", None, None, False
             )
 
-        assert any("slow_query" in r.message for r in caplog.records)
+        expect(any("slow_query" in r.message for r in caplog.records))
 
     def test_fast_query_no_warning(self, caplog):
         """Queries below a very high threshold do not produce a WARNING log."""
@@ -122,7 +127,7 @@ class TestInstallSlowQueryListener:
                 mock_conn, None, "SELECT 1", None, None, False
             )
 
-        assert not any("slow_query" in r.message for r in caplog.records)
+        expect(not any("slow_query" in r.message for r in caplog.records))
 
     def test_empty_start_time_stack_is_safe(self):
         """after_cursor_execute with no matching before event must not raise."""
@@ -151,6 +156,6 @@ class TestInstallSlowQueryListener:
             sync_engine.dispatch.after_cursor_execute(mock_conn, None, long_stmt, None, None, False)
 
         warning_records = [r for r in caplog.records if "slow_query" in r.message]
-        assert warning_records
+        expect(warning_records)
         logged_stmt = warning_records[0].__dict__.get("statement", "")
-        assert len(logged_stmt) <= 200
+        expect(len(logged_stmt) <= 200)

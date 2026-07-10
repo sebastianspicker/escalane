@@ -68,6 +68,56 @@ async def _check_ack_rate_limit(
         )
 
 
+def _validate_csrf(csrf_token: str | None, form_csrf: str) -> None:
+    if csrf_token and form_csrf and secrets.compare_digest(csrf_token, form_csrf):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Security validation failed. Please reload the page and try again.",
+    )
+
+
+def _parse_ack_payload(form) -> AckIn:
+    raw_acked_by = form.get("acked_by")
+    raw_note = form.get("note")
+    acked_by = (str(raw_acked_by).strip() if raw_acked_by else None) or None
+    note = (str(raw_note).strip() if raw_note else None) or None
+    try:
+        return AckIn(acked_by=acked_by, note=note)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=exc.errors(),
+        ) from exc
+
+
+async def _enqueue_ack_followups(request: Request, redis, alarm, payload: AckIn) -> None:
+    request.state.alarm_id = str(alarm.id)
+    ack_result = await enqueue_alarm_acked_event(
+        redis,
+        alarm_id=alarm.id,
+        acked_by=payload.acked_by,
+        note=payload.note,
+        logger=logger,
+    )
+    if not ack_result.success:
+        logger.warning(
+            "ack_event_enqueue_failed",
+            extra={"alarm_id": str(alarm.id), "error": ack_result.error},
+        )
+    state_result = await enqueue_alarm_state_changed_event(
+        redis,
+        alarm_id=alarm.id,
+        state=alarm.status.value,
+        logger=logger,
+    )
+    if not state_result.success:
+        logger.warning(
+            "state_event_enqueue_failed",
+            extra={"alarm_id": str(alarm.id), "error": state_result.error},
+        )
+
+
 @router.get("/a/{ack_token}", response_class=HTMLResponse)
 async def ack_page(
     request: Request,
@@ -119,25 +169,8 @@ async def ack_submit(
         )
 
     form = await request.form()
-
-    # CSRF validation: compare cookie value with hidden form field
-    form_csrf = str(form.get("csrf_token", ""))
-    if not csrf_token or not form_csrf or not secrets.compare_digest(csrf_token, form_csrf):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Security validation failed. Please reload the page and try again.",
-        )
-    raw_acked_by = form.get("acked_by")
-    raw_note = form.get("note")
-    acked_by = (str(raw_acked_by).strip() if raw_acked_by else None) or None
-    note = (str(raw_note).strip() if raw_note else None) or None
-    try:
-        payload = AckIn(acked_by=acked_by, note=note)
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=exc.errors(),
-        ) from exc
+    _validate_csrf(csrf_token, str(form.get("csrf_token", "")))
+    payload = _parse_ack_payload(form)
 
     changed = await acknowledge_alarm(
         session,
@@ -146,30 +179,7 @@ async def ack_submit(
         note=payload.note,
     )
     if changed:
-        request.state.alarm_id = str(alarm.id)
-        ack_result = await enqueue_alarm_acked_event(
-            redis,
-            alarm_id=alarm.id,
-            acked_by=payload.acked_by,
-            note=payload.note,
-            logger=logger,
-        )
-        if not ack_result.success:
-            logger.warning(
-                "ack_event_enqueue_failed",
-                extra={"alarm_id": str(alarm.id), "error": ack_result.error},
-            )
-        state_result = await enqueue_alarm_state_changed_event(
-            redis,
-            alarm_id=alarm.id,
-            state=alarm.status.value,
-            logger=logger,
-        )
-        if not state_result.success:
-            logger.warning(
-                "state_event_enqueue_failed",
-                extra={"alarm_id": str(alarm.id), "error": state_result.error},
-            )
+        await _enqueue_ack_followups(request, redis, alarm, payload)
 
     enriched = await enrich_alarm_context(session, alarm)
     return HTMLResponse(render_ack_page(alarm, enriched))

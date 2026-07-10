@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
@@ -12,15 +17,20 @@ from alarm_broker.connectors.base import BaseConnector, BaseConnectorConfig
 from alarm_broker.db.models import Alarm, AlarmNotification, AlarmStatus
 from alarm_broker.services.notification_service import NotificationService
 
+try:
+    from tests.constants import value_for_test
+except ModuleNotFoundError:
+    from constants import value_for_test
+
 
 class _DummyZammad:
     def enabled(self) -> bool:
         return True
 
     async def add_internal_note(self, ticket_id: int, subject: str, body: str) -> None:
-        assert ticket_id > 0
-        assert subject
-        assert body
+        expect(ticket_id > 0)
+        expect(subject)
+        expect(body)
 
 
 class _DummyNoop:
@@ -44,7 +54,7 @@ async def test_add_zammad_ack_note_logs_with_real_alarm_id(sessionmaker, seeded_
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="ack-note-test",
+                ack_token=value_for_test("ack-note"),
                 acked_at=now,
                 acked_by="Responder",
                 meta={},
@@ -66,7 +76,7 @@ async def test_add_zammad_ack_note_logs_with_real_alarm_id(sessionmaker, seeded_
             acked_at=now,
             note="all good",
         )
-        assert ok is True
+        expect(ok is True)
 
         row = await session.scalar(
             select(AlarmNotification)
@@ -75,9 +85,9 @@ async def test_add_zammad_ack_note_logs_with_real_alarm_id(sessionmaker, seeded_
             .order_by(AlarmNotification.created_at.desc())
         )
 
-    assert row is not None
-    assert row.payload.get("action") == "ack_update"
-    assert row.payload.get("ticket_id") == 42
+    expect(row is not None)
+    expect(row.payload.get("action") == "ack_update")
+    expect(row.payload.get("ticket_id") == 42)
 
 
 async def test_connector_retry_exactly_3_times():
@@ -91,4 +101,4 @@ async def test_connector_retry_exactly_3_times():
     with pytest.raises(httpx.ConnectError):
         await connector._post_with_retry("/test", json={"a": 1})
 
-    assert mock_http.request.call_count == 3
+    expect(mock_http.request.call_count == 3)

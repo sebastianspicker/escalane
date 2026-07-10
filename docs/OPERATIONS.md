@@ -1,6 +1,8 @@
 # Operations Guide
 
-This guide covers operational aspects of running Alarm Broker in production.
+This guide covers operational aspects of running Alarm Broker. The project is a
+release candidate and still requires environment-specific hardening before
+safety-critical, security-critical, or compliance-critical deployment.
 
 ## Monitoring
 
@@ -63,14 +65,12 @@ Configure via `LOG_LEVEL` environment variable:
 - `WARNING` - Warning messages
 - `ERROR` - Error messages only
 
-### Structured Logging
+### Request Logging
 
-All logs are JSON-formatted with:
-- `timestamp` - ISO 8601 timestamp
-- `level` - Log level (debug, info, warning, error)
-- `logger` - Source logger name
-- `message` - Log message
-- `extra` - Additional context fields
+The API middleware records request-oriented log fields including route, status,
+latency, request ID, and alarm ID when available. Use `LOG_LEVEL=DEBUG` for
+diagnostic detail, and configure the container/runtime log driver to match your
+operations stack.
 
 ### Log Aggregation
 
@@ -111,6 +111,16 @@ redis-cli SAVE
 cp /data/dump.rdb backup/dump_$(date +%Y%m%d).rdb
 ```
 
+### Redis Script Permission
+
+The trigger service uses Redis `EVAL` for atomic compare-and-delete of recovery
+locks, failed-request idempotency reservations, and corrupt idempotency values.
+The Redis account and any proxy, ACL, or managed-service policy in front of it
+must permit `EVAL` for this application. Do not replace that permission with a
+client-side get/delete sequence: it loses the atomicity that prevents a changed
+value from being deleted. Verify the permission during deployment with the
+application account and monitor Redis command-denied errors.
+
 ### Automated Backups
 
 ```bash
@@ -127,7 +137,10 @@ Pool settings are configured via environment variables (`DB_POOL_SIZE`, `DB_MAX_
 
 ### Worker Concurrency
 
-arq worker concurrency is set in `WorkerSettings` in `worker/settings.py`. To change it, set the `max_jobs` class attribute. There's no env var for this currently.
+arq worker concurrency is set in `WorkerSettings` in `worker/settings.py`. To
+change it, adjust the `max_jobs` class attribute and verify the worker under the
+expected notification and escalation load. There is no environment variable for
+this currently.
 
 ## Troubleshooting
 

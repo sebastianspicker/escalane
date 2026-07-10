@@ -31,6 +31,41 @@ from alarm_broker.settings import Settings, get_settings
 logger = logging.getLogger("alarm_broker")
 
 
+def _build_engine(
+    resolved_settings: Settings,
+    injected_engine: AsyncEngine | None,
+) -> AsyncEngine:
+    if injected_engine is not None:
+        return injected_engine
+    return create_async_engine_from_url(
+        resolved_settings.database_url,
+        pool_size=resolved_settings.db_pool_size,
+        max_overflow=resolved_settings.db_max_overflow,
+        pool_timeout=resolved_settings.db_pool_timeout,
+        pool_recycle=resolved_settings.db_pool_recycle,
+        slow_query_log_ms=resolved_settings.slow_query_log_ms,
+    )
+
+
+async def _build_redis(resolved_settings: Settings, injected_redis: Any | None) -> Any:
+    if injected_redis is not None:
+        return injected_redis
+    return await create_pool(RedisSettings.from_dsn(str(resolved_settings.redis_url)))
+
+
+async def _close_lifespan_resources(
+    *,
+    engine: AsyncEngine,
+    redis: Any | None,
+    injected_engine: AsyncEngine | None,
+    injected_redis: Any | None,
+) -> None:
+    if injected_redis is None and redis is not None:
+        await redis.close()
+    if injected_engine is None:
+        await engine.dispose()
+
+
 def _lifespan(
     *,
     settings: Settings | None = None,
@@ -42,36 +77,20 @@ def _lifespan(
         resolved_settings = settings or get_settings()
         app.state.settings = resolved_settings
 
-        engine: AsyncEngine
-        if injected_engine is not None:
-            engine = injected_engine
-        else:
-            engine = create_async_engine_from_url(
-                resolved_settings.database_url,
-                pool_size=resolved_settings.db_pool_size,
-                max_overflow=resolved_settings.db_max_overflow,
-                pool_timeout=resolved_settings.db_pool_timeout,
-                pool_recycle=resolved_settings.db_pool_recycle,
-                slow_query_log_ms=resolved_settings.slow_query_log_ms,
-            )
+        engine = _build_engine(resolved_settings, injected_engine)
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
-
-        if injected_redis is not None:
-            app.state.redis = injected_redis
-        else:
-            app.state.redis = await create_pool(
-                RedisSettings.from_dsn(str(resolved_settings.redis_url))
-            )
+        app.state.redis = await _build_redis(resolved_settings, injected_redis)
 
         try:
             yield
         finally:
-            redis = getattr(app.state, "redis", None)
-            if injected_redis is None and redis is not None:
-                await redis.close()
-            if injected_engine is None and engine is not None:
-                await engine.dispose()
+            await _close_lifespan_resources(
+                engine=engine,
+                redis=getattr(app.state, "redis", None),
+                injected_engine=injected_engine,
+                injected_redis=injected_redis,
+            )
 
     return lifespan
 

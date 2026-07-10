@@ -6,21 +6,11 @@
 - Stability and API consistency take precedence over feature breadth.
 - UI improvements are additive and compatible with existing paths.
 
-## Completed History
-
-Completed phase history is archived in
-[docs/archive/roadmap-history.md](archive/roadmap-history.md). This file tracks
-the active backlog and definition of done for the public release surface.
-
 ## Backlog
 
-1. ~~Extended search/filter options for admin operations.~~ ✅ Already implemented (person_id, room_id, device_id, created_after, created_before, severity filters on `GET /v1/alarms`).
-2. ~~Distributed tracing (propagate request_id to worker tasks).~~ ✅ Phase 22.
-3. ~~Query performance logging.~~ ✅ Phase 22.
-4. ~~Connection pool tuning for production deployments.~~ ✅ Phase 22.
-5. Streaming export — `GET /v1/alarms/export` currently buffers up to 2 000 rows in memory before writing the response. Implement true server-side streaming to handle larger exports without memory pressure.
-6. ~~IP allowlist hardening — `YELK_IP_ALLOWLIST` defaults to blank (all IPs accepted). Add a startup `UserWarning` in `Settings` when the allowlist is empty and `simulation_enabled` is `False`.~~ ✅ Implemented (`warn_empty_ip_allowlist` model validator in `settings.py`).
-7. ~~Trigger response normalisation — unknown-token (404) vs. incomplete-mapping (409) leaks token validity to callers. Normalise both to a single 404 to prevent token-probing.~~ ✅ Implemented (always returns 404 in `trigger_service.py`).
+1. Streaming export — `GET /v1/alarms/export` currently buffers up to 2,000 rows in memory before writing the response. Implement true server-side streaming to handle larger exports without memory pressure.
+2. Runtime verification — keep Docker image build, PostgreSQL/Alembic smoke checks, served HTTP E2E, lint, type checking, security audit, and package build green for release-candidate handoff.
+3. Operator hardening — continue tightening health, notification, and webhook observability so operators can distinguish full success from best-effort or partial-failure paths.
 
 ## Definition of Done
 

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import re
 import time
 import uuid
 
 from httpx import AsyncClient, Response
+
+try:
+    from tests.constants import TEST_DEVICE_TOKEN
+except ModuleNotFoundError:
+    from constants import TEST_DEVICE_TOKEN
 
 
 async def admin_login(client: AsyncClient, admin_key: str = "dev-admin-key") -> None:
@@ -19,8 +29,9 @@ async def admin_login(client: AsyncClient, admin_key: str = "dev-admin-key") -> 
     forwards it naturally on subsequent requests.
     """
     resp = await client.post("/admin/login", data={"admin_key": admin_key}, follow_redirects=False)
-    assert resp.status_code in (200, 303), (
-        f"Admin login failed with status {resp.status_code}: {resp.text}"
+    expect(
+        resp.status_code in (200, 303),
+        f"Admin login failed with status {resp.status_code}: {resp.text}",
     )
 
 
@@ -38,7 +49,7 @@ async def ack_with_csrf(
     3. POST with both the cookie and the form field.
     """
     get_resp = await client.get(f"/a/{ack_token}")
-    assert get_resp.status_code == 200, get_resp.text
+    expect(get_resp.status_code == 200, get_resp.text)
 
     # Extract CSRF token from the hidden form field
     match = re.search(r'name="csrf_token"\s+value="([^"]+)"', get_resp.text)
@@ -93,6 +104,27 @@ class FakeRedis:
         self._expiries.pop(key, None)
         return 1 if self._store.pop(key, None) is not None else 0
 
+    async def eval(self, script: str, numkeys: int, *keys_and_args: object) -> int:
+        """Implement the compare-and-delete Lua operation used by services."""
+        if numkeys != 1 or len(keys_and_args) != 2:
+            raise NotImplementedError("FakeRedis only supports one-key compare-and-delete")
+        key, expected = keys_and_args
+        if not isinstance(key, str):
+            return 0
+        self._purge_expired(key)
+        current = self._store.get(key)
+
+        def redis_bytes(value: object) -> bytes | None:
+            if isinstance(value, bytes):
+                return value
+            if isinstance(value, str):
+                return value.encode("utf-8")
+            return None
+
+        if redis_bytes(current) != redis_bytes(expected):
+            return 0
+        return await self.delete(key)
+
     async def incr(self, key: str) -> int:
         self._purge_expired(key)
         current = int(self._store.get(key, "0")) + 1
@@ -118,6 +150,6 @@ class FakeRedis:
 
 async def trigger_alarm(client: AsyncClient) -> uuid.UUID:
     """Trigger an alarm via the Yealink endpoint and return the alarm UUID."""
-    response = await client.get("/v1/yealink/alarm", params={"token": "YLK_T54W_3F9A"})
-    assert response.status_code == 200, response.text
+    response = await client.get("/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN})
+    expect(response.status_code == 200, response.text)
     return uuid.UUID(response.json()["alarm_id"])

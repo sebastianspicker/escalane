@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +17,17 @@ from alarm_broker.services.event_service import EventResult
 from alarm_broker.services.trigger_service import TriggerResult, TriggerService
 from alarm_broker.settings import Settings
 
+try:
+    from tests.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, value_for_test
+    from tests.helpers import FakeRedis
+except ModuleNotFoundError:
+    from constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, value_for_test
+    from helpers import FakeRedis
+
 pytestmark = [pytest.mark.unit]
+
+PROCESS_TOKEN = value_for_test("process-token")
+UNKNOWN_PROCESS_TOKEN = value_for_test("unknown-process-token")
 
 
 # ── helpers ────────────────────────────────────────────────────────────
@@ -23,10 +38,10 @@ def _make_settings() -> Settings:
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://fake/0",
         base_url="http://localhost:8080",
-        admin_api_key="test-key",
+        admin_api_key=TEST_ADMIN_API_KEY,
         simulation_enabled=True,
         rate_limit_per_minute=100,
-        zammad_api_token="",
+        zammad_api_token=EMPTY_SECRET_VALUE,
         sendxms_enabled=False,
         signal_enabled=False,
     )
@@ -59,37 +74,37 @@ def _make_device(*, has_person: bool = True, has_room: bool = True) -> Device:
 def test_validate_trigger_empty_token():
     svc, _, _ = _make_service()
     valid, msg = svc._validate_trigger("")
-    assert not valid
-    assert msg == "Token is required"
+    expect(not valid)
+    expect(msg == "Token is required")
 
 
 def test_validate_trigger_whitespace_token():
     svc, _, _ = _make_service()
     valid, msg = svc._validate_trigger("   ")
-    assert not valid
-    assert msg == "Token is required"
+    expect(not valid)
+    expect(msg == "Token is required")
 
 
 def test_validate_trigger_invalid_severity():
     svc, _, _ = _make_service()
-    valid, msg = svc._validate_trigger("TOK", severity="INVALID")
-    assert not valid
-    assert msg is not None
-    assert "INVALID" in msg
+    valid, msg = svc._validate_trigger(PROCESS_TOKEN, severity="INVALID")
+    expect(not valid)
+    expect(msg is not None)
+    expect("INVALID" in msg)
 
 
 def test_validate_trigger_valid():
     svc, _, _ = _make_service()
-    valid, msg = svc._validate_trigger("TOK")
-    assert valid
-    assert msg is None
+    valid, msg = svc._validate_trigger(PROCESS_TOKEN)
+    expect(valid)
+    expect(msg is None)
 
 
 def test_validate_trigger_valid_severity():
     svc, _, _ = _make_service()
-    valid, msg = svc._validate_trigger("TOK", severity="P0")
-    assert valid
-    assert msg is None
+    valid, msg = svc._validate_trigger(PROCESS_TOKEN, severity="P0")
+    expect(valid)
+    expect(msg is None)
 
 
 # ── _get_rate_limit_key raises when bucket not set ────────────────────
@@ -112,7 +127,7 @@ async def test_check_rate_limit_bucket_none_always_passes():
 
     result = await svc.check_rate_limit("any-token")
 
-    assert result is True
+    expect(result is True)
 
 
 # ── check_idempotency: invalid UUID in Redis ──────────────────────────
@@ -121,13 +136,13 @@ async def test_check_rate_limit_bucket_none_always_passes():
 async def test_check_idempotency_invalid_uuid_clears_key():
     svc, _, r = _make_service()
     r.get = AsyncMock(return_value="not-a-uuid")
-    r.delete = AsyncMock()
+    r.eval = AsyncMock(return_value=1)
 
-    is_dup, existing_id = await svc.check_idempotency("TOK")
+    is_dup, existing_id = await svc.check_idempotency(PROCESS_TOKEN)
 
-    assert not is_dup
-    assert existing_id is None
-    r.delete.assert_called_once()
+    expect(not is_dup)
+    expect(existing_id is None)
+    r.eval.assert_awaited_once()
 
 
 async def test_check_idempotency_valid_uuid_returns_duplicate():
@@ -135,20 +150,43 @@ async def test_check_idempotency_valid_uuid_returns_duplicate():
     svc, _, r = _make_service()
     r.get = AsyncMock(return_value=str(existing))
 
-    is_dup, existing_id = await svc.check_idempotency("TOK")
+    is_dup, existing_id = await svc.check_idempotency(PROCESS_TOKEN)
 
-    assert is_dup is True
-    assert existing_id == existing
+    expect(is_dup is True)
+    expect(existing_id == existing)
+
+
+async def test_check_idempotency_valid_uuid_bytes_returns_duplicate():
+    existing = uuid.uuid4()
+    svc, _, r = _make_service()
+    r.get = AsyncMock(return_value=str(existing).encode("utf-8"))
+
+    is_dup, existing_id = await svc.check_idempotency(PROCESS_TOKEN)
+
+    expect(is_dup is True)
+    expect(existing_id == existing)
+
+
+@pytest.mark.parametrize("corrupt", [b"\xff", b"", "", 123, object()])
+async def test_check_idempotency_corrupt_values_do_not_raise_type_error(corrupt):
+    svc, _, r = _make_service()
+    r.get = AsyncMock(return_value=corrupt)
+    r.eval = AsyncMock(side_effect=TypeError("unsupported Redis argument"))
+
+    is_dup, existing_id = await svc.check_idempotency(PROCESS_TOKEN)
+
+    expect(not is_dup)
+    expect(existing_id is None)
 
 
 async def test_check_idempotency_no_key_returns_no_duplicate():
     svc, _, r = _make_service()
     r.get = AsyncMock(return_value=None)
 
-    is_dup, existing_id = await svc.check_idempotency("TOK")
+    is_dup, existing_id = await svc.check_idempotency(PROCESS_TOKEN)
 
-    assert not is_dup
-    assert existing_id is None
+    expect(not is_dup)
+    expect(existing_id is None)
 
 
 # ── reserve_alarm_id: race condition (invalid UUID triggers retry) ─────
@@ -161,8 +199,8 @@ async def test_reserve_alarm_id_returns_none_if_other_owner_wins():
     r.set = AsyncMock(return_value=None)  # NX fails every time
     r.get = AsyncMock(return_value=str(existing))
 
-    result = await svc.reserve_alarm_id("TOK")
-    assert result is None
+    result = await svc.reserve_alarm_id(PROCESS_TOKEN)
+    expect(result is None)
 
 
 async def test_reserve_alarm_id_clears_invalid_and_retries():
@@ -182,23 +220,52 @@ async def test_reserve_alarm_id_clears_invalid_and_retries():
     svc, _, r = _make_service()
     r.set = AsyncMock(side_effect=fake_set)
     r.get = AsyncMock(side_effect=fake_get)
-    r.delete = AsyncMock()
+    r.eval = AsyncMock(return_value=1)
 
-    result = await svc.reserve_alarm_id("TOK")
-    assert result is not None  # eventually succeeds
-    assert r.delete.called
+    result = await svc.reserve_alarm_id(PROCESS_TOKEN)
+    expect(result is not None)  # eventually succeeds
+    expect(r.eval.called)
+
+
+async def test_reserve_alarm_id_accepts_valid_uuid_bytes_from_redis():
+    svc, _, r = _make_service()
+    r.set = AsyncMock(return_value=None)
+    r.get = AsyncMock(return_value=str(uuid.uuid4()).encode("utf-8"))
+
+    result = await svc.reserve_alarm_id(PROCESS_TOKEN)
+
+    expect(result is None)
 
 
 # ── clear_idempotency ─────────────────────────────────────────────────
 
 
-async def test_clear_idempotency_deletes_key():
+async def test_clear_idempotency_deletes_owned_key():
     svc, _, r = _make_service()
-    r.delete = AsyncMock()
+    r.eval = AsyncMock(return_value=1)
+    alarm_id = uuid.uuid4()
 
-    await svc.clear_idempotency("TOK")
+    await svc.clear_idempotency(PROCESS_TOKEN, alarm_id)
 
-    r.delete.assert_called_once()
+    r.eval.assert_awaited_once()
+
+
+async def test_clear_idempotency_cannot_delete_replacement():
+    redis = FakeRedis()
+    svc = TriggerService(
+        session=AsyncMock(),
+        redis=redis,  # type: ignore[arg-type]
+        settings=_make_settings(),
+        idempotency_bucket=100,
+    )
+    alarm_id = uuid.uuid4()
+    replacement = str(uuid.uuid4())
+    key = svc._get_idempotency_key(PROCESS_TOKEN)
+    await redis.set(key, replacement)
+
+    await svc.clear_idempotency(PROCESS_TOKEN, alarm_id)
+
+    expect(await redis.get(key) == replacement)
 
 
 # ── validate_device ───────────────────────────────────────────────────
@@ -210,38 +277,38 @@ async def test_validate_device_unknown_token():
 
     device, err = await svc.validate_device("UNKNOWN_TOK")
 
-    assert device is None
-    assert err == "Unknown token"
+    expect(device is None)
+    expect(err == "Unknown token")
 
 
 async def test_validate_device_mapping_incomplete():
     svc, session, _ = _make_service()
     session.scalar = AsyncMock(return_value=_make_device(has_person=False))
 
-    device, err = await svc.validate_device("TOK")
+    device, err = await svc.validate_device(PROCESS_TOKEN)
 
-    assert device is None
-    assert err == "Device mapping incomplete"
+    expect(device is None)
+    expect(err == "Device mapping incomplete")
 
 
 async def test_validate_device_room_missing_mapping_incomplete():
     svc, session, _ = _make_service()
     session.scalar = AsyncMock(return_value=_make_device(has_room=False))
 
-    device, err = await svc.validate_device("TOK")
+    device, err = await svc.validate_device(PROCESS_TOKEN)
 
-    assert device is None
-    assert err == "Device mapping incomplete"
+    expect(device is None)
+    expect(err == "Device mapping incomplete")
 
 
 async def test_validate_device_ok():
     svc, session, _ = _make_service()
     session.scalar = AsyncMock(return_value=_make_device())
 
-    device, err = await svc.validate_device("TOK")
+    device, err = await svc.validate_device(PROCESS_TOKEN)
 
-    assert device is not None
-    assert err is None
+    expect(device is not None)
+    expect(err is None)
 
 
 # ── _acquire / _release event recovery lock ───────────────────────────
@@ -253,7 +320,7 @@ async def test_acquire_event_recovery_lock_success():
 
     token = await svc._acquire_event_recovery_lock(uuid.uuid4())
 
-    assert token is not None
+    expect(token is not None)
 
 
 async def test_acquire_event_recovery_lock_fails_when_locked():
@@ -262,29 +329,44 @@ async def test_acquire_event_recovery_lock_fails_when_locked():
 
     token = await svc._acquire_event_recovery_lock(uuid.uuid4())
 
-    assert token is None
+    expect(token is None)
 
 
 async def test_release_event_recovery_lock_skips_if_token_mismatch():
     alarm_id = uuid.uuid4()
     svc, _, r = _make_service()
-    r.get = AsyncMock(return_value="other-token")
-    r.delete = AsyncMock()
+    r.eval = AsyncMock(return_value=0)
 
     await svc._release_event_recovery_lock(alarm_id, "my-token")
 
-    r.delete.assert_not_called()
+    r.eval.assert_awaited_once()
 
 
 async def test_release_event_recovery_lock_deletes_if_token_matches():
     alarm_id = uuid.uuid4()
     svc, _, r = _make_service()
-    r.get = AsyncMock(return_value="my-token")
-    r.delete = AsyncMock()
+    r.eval = AsyncMock(return_value=1)
 
     await svc._release_event_recovery_lock(alarm_id, "my-token")
 
-    r.delete.assert_called_once()
+    r.eval.assert_awaited_once()
+
+
+async def test_release_event_recovery_lock_cannot_delete_replacement():
+    alarm_id = uuid.uuid4()
+    redis = FakeRedis()
+    svc = TriggerService(
+        session=AsyncMock(),
+        redis=redis,  # type: ignore[arg-type]
+        settings=_make_settings(),
+        idempotency_bucket=100,
+    )
+    lock_key = svc._get_event_recovery_lock_key(alarm_id)
+    await redis.set(lock_key, "token-b")
+
+    await svc._release_event_recovery_lock(alarm_id, "token-a")
+
+    expect(await redis.get(lock_key) == "token-b")
 
 
 # ── _enqueue_event_with_retry: exhausted ─────────────────────────────
@@ -303,8 +385,8 @@ async def test_enqueue_event_with_retry_exhausted_returns_last_failure(monkeypat
 
     result = await svc._enqueue_event_with_retry(enqueue=always_fail)
 
-    assert result.success is False
-    assert call_count["n"] == 2
+    expect(result.success is False)
+    expect(call_count["n"] == 2)
 
 
 # ── process_trigger: full orchestrator paths ───────────────────────────
@@ -313,10 +395,12 @@ async def test_enqueue_event_with_retry_exhausted_returns_last_failure(monkeypat
 async def test_process_trigger_empty_token_returns_400():
     svc, _, _ = _make_service()
 
-    result = await svc.process_trigger(token="", client_ip="127.0.0.1", user_agent="test")
+    result = await svc.process_trigger(
+        token=EMPTY_SECRET_VALUE, client_ip="127.0.0.1", user_agent="test"
+    )
 
-    assert not result.success
-    assert result.error_code == 400
+    expect(not result.success)
+    expect(result.error_code == 400)
 
 
 async def test_process_trigger_rate_limit_exceeded_returns_429():
@@ -324,10 +408,12 @@ async def test_process_trigger_rate_limit_exceeded_returns_429():
     r.get = AsyncMock(return_value=None)  # no existing idempotency key
     r.incr = AsyncMock(return_value=999)  # far above limit
 
-    result = await svc.process_trigger(token="TOK", client_ip="127.0.0.1", user_agent="test")
+    result = await svc.process_trigger(
+        token=value_for_test("rate-limit-device"), client_ip="127.0.0.1", user_agent="test"
+    )
 
-    assert not result.success
-    assert result.error_code == 429
+    expect(not result.success)
+    expect(result.error_code == 429)
 
 
 async def test_process_trigger_unknown_device_returns_404():
@@ -339,10 +425,12 @@ async def test_process_trigger_unknown_device_returns_404():
     r.delete = AsyncMock()
     session.scalar = AsyncMock(return_value=None)  # device not found
 
-    result = await svc.process_trigger(token="UNKNOWN", client_ip="127.0.0.1", user_agent="test")
+    result = await svc.process_trigger(
+        token=UNKNOWN_PROCESS_TOKEN, client_ip="127.0.0.1", user_agent="test"
+    )
 
-    assert not result.success
-    assert result.error_code == 404
+    expect(not result.success)
+    expect(result.error_code == 404)
 
 
 async def test_process_trigger_device_mapping_incomplete_returns_404():
@@ -354,10 +442,12 @@ async def test_process_trigger_device_mapping_incomplete_returns_404():
     r.delete = AsyncMock()
     session.scalar = AsyncMock(return_value=_make_device(has_person=False))
 
-    result = await svc.process_trigger(token="TOK", client_ip="127.0.0.1", user_agent="test")
+    result = await svc.process_trigger(
+        token=value_for_test("incomplete-mapping"), client_ip="127.0.0.1", user_agent="test"
+    )
 
-    assert not result.success
-    assert result.error_code == 404
+    expect(not result.success)
+    expect(result.error_code == 404)
 
 
 async def test_process_trigger_idempotency_reservation_failure_no_existing_alarm():
@@ -368,10 +458,12 @@ async def test_process_trigger_idempotency_reservation_failure_no_existing_alarm
     r.expire = AsyncMock()
     r.set = AsyncMock(return_value=None)  # NX fails → reservation fails
 
-    result = await svc.process_trigger(token="TOK", client_ip="127.0.0.1", user_agent="test")
+    result = await svc.process_trigger(
+        token=value_for_test("reservation-failure"), client_ip="127.0.0.1", user_agent="test"
+    )
 
-    assert not result.success
-    assert result.error_code in (409, 500)
+    expect(not result.success)
+    expect(result.error_code in (409, 500))
 
 
 async def test_process_trigger_alarm_creation_exception_returns_500():
@@ -386,10 +478,12 @@ async def test_process_trigger_alarm_creation_exception_returns_500():
     with patch.object(
         svc, "create_alarm", new_callable=AsyncMock, side_effect=RuntimeError("db error")
     ):
-        result = await svc.process_trigger(token="TOK", client_ip="127.0.0.1", user_agent="test")
+        result = await svc.process_trigger(
+            token=value_for_test("creation-exception"), client_ip="127.0.0.1", user_agent="test"
+        )
 
-    assert not result.success
-    assert result.error_code == 500
+    expect(not result.success)
+    expect(result.error_code == 500)
 
 
 # ── TriggerResult helpers ─────────────────────────────────────────────
@@ -398,19 +492,19 @@ async def test_process_trigger_alarm_creation_exception_returns_500():
 def test_trigger_result_ok():
     alarm_id = uuid.uuid4()
     r = TriggerResult.ok(alarm_id, AlarmStatus.TRIGGERED)
-    assert r.success
-    assert r.alarm_id == alarm_id
-    assert r.is_duplicate is False
+    expect(r.success)
+    expect(r.alarm_id == alarm_id)
+    expect(r.is_duplicate is False)
 
 
 def test_trigger_result_ok_duplicate():
     alarm_id = uuid.uuid4()
     r = TriggerResult.ok(alarm_id, AlarmStatus.TRIGGERED, is_duplicate=True)
-    assert r.is_duplicate is True
+    expect(r.is_duplicate is True)
 
 
 def test_trigger_result_error():
     r = TriggerResult.error(503, "downstream failed")
-    assert not r.success
-    assert r.error_code == 503
-    assert r.error_message == "downstream failed"
+    expect(not r.success)
+    expect(r.error_code == 503)
+    expect(r.error_message == "downstream failed")

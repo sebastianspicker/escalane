@@ -21,7 +21,7 @@ devices:
     vendor: yealink
     model_family: T5
     account_ext: "10023"
-    device_token: YLK_T54W_3F9A
+    device_token: ${YEALINK_DEVICE_TOKEN}
     person_id: ma-012
     room_id: bg-1.23
 

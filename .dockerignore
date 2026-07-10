@@ -1,5 +1,10 @@
 .git
 .github
+.codacy
+.codegraph
+.serena
+.DS_Store
+**/.DS_Store
 .env
 .env.*
 !.env.example
@@ -12,6 +17,10 @@ __pycache__
 .ruff_cache
 .mypy_cache
 .coverage
+*.log
+*.tmp
+*.swp
+*~
 htmlcov
 dist
 build

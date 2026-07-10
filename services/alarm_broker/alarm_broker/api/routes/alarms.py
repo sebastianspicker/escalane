@@ -4,12 +4,14 @@ import csv
 import io
 import json
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +20,7 @@ from alarm_broker.api.schemas import AlarmOut, ExportFormat
 from alarm_broker.db.models import Alarm, AlarmStatus
 
 _CSV_FORMULA_CHARS = frozenset("=+-@\t\r")
+_EXPORT_TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
 
 
 def _sanitize_csv_value(value: Any) -> Any:
@@ -45,125 +48,214 @@ class SortField(StrEnum):
     SEVERITY = "severity"
 
 
-def _apply_alarm_filters(
-    stmt: Select,
-    status: AlarmStatus | None = None,
-    severity: str | None = None,
-    person_id: str | None = None,
-    room_id: str | None = None,
-    site_id: str | None = None,
-    device_id: str | None = None,
-    source: str | None = None,
-    created_after: datetime | None = None,
-    created_before: datetime | None = None,
-) -> Select:
+_SORT_COLUMNS = {
+    SortField.CREATED_AT: Alarm.created_at,
+    SortField.STATUS: Alarm.status,
+    SortField.SEVERITY: Alarm.severity,
+}
+
+
+@dataclass(frozen=True)
+class AlarmFilters:
+    status: AlarmStatus | None = None
+    severity: str | None = None
+    person_id: str | None = None
+    room_id: str | None = None
+    site_id: str | None = None
+    device_id: str | None = None
+    source: str | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+
+
+class AlarmListQuery(BaseModel):
+    status: AlarmStatus | None = None
+    severity: str | None = None
+    person_id: str | None = None
+    room_id: str | None = None
+    site_id: str | None = None
+    device_id: str | None = None
+    source: str | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    limit: int = Field(default=50, ge=1, le=200)
+    cursor: uuid.UUID | None = None
+    sort_by: SortField = SortField.CREATED_AT
+    sort_order: SortOrder = SortOrder.DESC
+
+
+class AlarmExportQuery(BaseModel):
+    status: AlarmStatus | None = None
+    severity: str | None = None
+    person_id: str | None = None
+    room_id: str | None = None
+    site_id: str | None = None
+    device_id: str | None = None
+    source: str | None = None
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    format: ExportFormat = ExportFormat.JSON
+    limit: int = Field(default=1000, ge=1, le=2000)
+
+
+def _apply_alarm_filters(stmt: Select, filters: AlarmFilters) -> Select:
     """Apply common filter parameters to an alarm query."""
-    if status is not None:
-        stmt = stmt.where(Alarm.status == status)
+    equality_filters = [
+        (Alarm.status, filters.status),
+        (Alarm.severity, filters.severity),
+        (Alarm.person_id, filters.person_id),
+        (Alarm.room_id, filters.room_id),
+        (Alarm.site_id, filters.site_id),
+        (Alarm.device_id, filters.device_id),
+        (Alarm.source, filters.source),
+    ]
+    for column, value in equality_filters:
+        if value is not None:
+            stmt = stmt.where(column == value)
 
-    if severity is not None:
-        stmt = stmt.where(Alarm.severity == severity)
+    if filters.created_after is not None:
+        stmt = stmt.where(Alarm.created_at >= filters.created_after)
 
-    if person_id is not None:
-        stmt = stmt.where(Alarm.person_id == person_id)
-
-    if room_id is not None:
-        stmt = stmt.where(Alarm.room_id == room_id)
-
-    if site_id is not None:
-        stmt = stmt.where(Alarm.site_id == site_id)
-
-    if device_id is not None:
-        stmt = stmt.where(Alarm.device_id == device_id)
-
-    if source is not None:
-        stmt = stmt.where(Alarm.source == source)
-
-    if created_after is not None:
-        stmt = stmt.where(Alarm.created_at >= created_after)
-
-    if created_before is not None:
-        stmt = stmt.where(Alarm.created_at <= created_before)
+    if filters.created_before is not None:
+        stmt = stmt.where(Alarm.created_at <= filters.created_before)
 
     return stmt
+
+
+async def _apply_cursor_filter(
+    stmt: Select,
+    *,
+    session: AsyncSession,
+    cursor: uuid.UUID | None,
+    sort_by: SortField,
+    sort_order: SortOrder,
+) -> Select:
+    if cursor is None:
+        return stmt
+    cursor_alarm = await session.get(Alarm, cursor)
+    if not cursor_alarm:
+        return stmt
+    sort_column = _SORT_COLUMNS[sort_by]
+    cursor_sort_value = getattr(cursor_alarm, sort_by.value)
+    if sort_order == SortOrder.DESC:
+        return stmt.where(
+            or_(
+                sort_column < cursor_sort_value,
+                and_(
+                    sort_column == cursor_sort_value,
+                    Alarm.id < cursor_alarm.id,
+                ),
+            )
+        )
+    return stmt.where(
+        or_(
+            sort_column > cursor_sort_value,
+            and_(
+                sort_column == cursor_sort_value,
+                Alarm.id > cursor_alarm.id,
+            ),
+        )
+    )
+
+
+def _apply_alarm_sort(stmt: Select, sort_by: SortField, sort_order: SortOrder) -> Select:
+    sort_column = _SORT_COLUMNS[sort_by]
+    if sort_order == SortOrder.DESC:
+        return stmt.order_by(sort_column.desc(), Alarm.id.desc())
+    return stmt.order_by(sort_column.asc(), Alarm.id.asc())
+
+
+def _alarm_filters_from_query(query: AlarmListQuery | AlarmExportQuery) -> AlarmFilters:
+    return AlarmFilters(
+        status=query.status,
+        severity=query.severity,
+        person_id=query.person_id,
+        room_id=query.room_id,
+        site_id=query.site_id,
+        device_id=query.device_id,
+        source=query.source,
+        created_after=query.created_after,
+        created_before=query.created_before,
+    )
+
+
+def _export_filename(extension: str) -> str:
+    timestamp = datetime.now(UTC).strftime(_EXPORT_TIMESTAMP_FORMAT)
+    return f"alarms_export_{timestamp}.{extension}"
+
+
+def _json_export_content(alarms: list[Alarm]) -> str:
+    data = [
+        AlarmOut.model_validate(alarm, from_attributes=True).model_dump(mode="json")
+        for alarm in alarms
+    ]
+    return json.dumps(data, indent=2, default=str)
+
+
+def _csv_export_content(alarms: list[Alarm]) -> str:
+    output = io.StringIO()
+    if not alarms:
+        return output.getvalue()
+
+    field_names = [
+        "id",
+        "status",
+        "source",
+        "event",
+        "created_at",
+        "person_id",
+        "room_id",
+        "site_id",
+        "device_id",
+        "severity",
+        "silent",
+        "zammad_ticket_id",
+        "acked_at",
+        "acked_by",
+        "resolved_at",
+        "resolved_by",
+        "cancelled_at",
+        "cancelled_by",
+    ]
+    writer = csv.DictWriter(output, fieldnames=field_names, extrasaction="ignore")
+    writer.writeheader()
+    for alarm in alarms:
+        writer.writerow(_csv_export_row(alarm, field_names))
+    return output.getvalue()
+
+
+def _csv_export_row(alarm: Alarm, field_names: list[str]) -> dict[str, Any]:
+    row = {name: getattr(alarm, name, None) for name in field_names}
+    for dt_field in ["created_at", "acked_at", "resolved_at", "cancelled_at"]:
+        dt_val = row[dt_field]
+        if dt_val is not None and hasattr(dt_val, "isoformat"):
+            row[dt_field] = dt_val.isoformat()
+    return {key: _sanitize_csv_value(value) for key, value in row.items()}
 
 
 @router.get("", response_model=list[AlarmOut])
 async def list_alarms(
     response: Response,
-    # Filtering
-    status: AlarmStatus | None = None,
-    severity: str | None = None,
-    person_id: str | None = None,
-    room_id: str | None = None,
-    site_id: str | None = None,
-    device_id: str | None = None,
-    source: str | None = None,
-    # Date range filtering
-    created_after: datetime | None = None,
-    created_before: datetime | None = None,
-    # Pagination
-    limit: int = Query(default=50, ge=1, le=200),
-    cursor: uuid.UUID | None = None,
-    # Sorting
-    sort_by: SortField = SortField.CREATED_AT,
-    sort_order: SortOrder = SortOrder.DESC,
+    query: Annotated[AlarmListQuery, Query()],
     session: AsyncSession = Depends(get_session),
 ) -> list[AlarmOut]:
     """List alarms with filtering, pagination, and sorting."""
     stmt = select(Alarm).where(Alarm.deleted_at.is_(None))
 
-    stmt = _apply_alarm_filters(
+    filters = _alarm_filters_from_query(query)
+    stmt = _apply_alarm_filters(stmt, filters)
+    stmt = await _apply_cursor_filter(
         stmt,
-        status=status,
-        severity=severity,
-        person_id=person_id,
-        room_id=room_id,
-        site_id=site_id,
-        device_id=device_id,
-        source=source,
-        created_after=created_after,
-        created_before=created_before,
+        session=session,
+        cursor=query.cursor,
+        sort_by=query.sort_by,
+        sort_order=query.sort_order,
     )
-
-    # Apply cursor pagination
-    if cursor is not None:
-        cursor_alarm = await session.get(Alarm, cursor)
-        if cursor_alarm:
-            if sort_order == SortOrder.DESC:
-                stmt = stmt.where(
-                    or_(
-                        Alarm.created_at < cursor_alarm.created_at,
-                        and_(
-                            Alarm.created_at == cursor_alarm.created_at,
-                            Alarm.id < cursor_alarm.id,
-                        ),
-                    )
-                )
-            else:
-                stmt = stmt.where(
-                    or_(
-                        Alarm.created_at > cursor_alarm.created_at,
-                        and_(
-                            Alarm.created_at == cursor_alarm.created_at,
-                            Alarm.id > cursor_alarm.id,
-                        ),
-                    )
-                )
-
-    # Apply sorting
-    sort_column = getattr(Alarm, sort_by.value)
-    if sort_order == SortOrder.DESC:
-        stmt = stmt.order_by(sort_column.desc(), Alarm.id.desc())
-    else:
-        stmt = stmt.order_by(sort_column.asc(), Alarm.id.asc())
-
-    # Apply limit
-    stmt = stmt.limit(limit + 1)
+    stmt = _apply_alarm_sort(stmt, query.sort_by, query.sort_order).limit(query.limit + 1)
     alarms = list((await session.scalars(stmt)).all())
 
-    has_more = len(alarms) > limit
-    page = alarms[:limit]
+    has_more = len(alarms) > query.limit
+    page = alarms[: query.limit]
     if has_more and page:
         response.headers["X-Next-Cursor"] = str(page[-1].id)
 
@@ -172,86 +264,26 @@ async def list_alarms(
 
 @router.get("/export")
 async def export_alarms(
-    # Filtering
-    status: AlarmStatus | None = Query(default=None),
-    severity: str | None = Query(default=None),
-    person_id: str | None = Query(default=None),
-    room_id: str | None = Query(default=None),
-    site_id: str | None = Query(default=None),
-    device_id: str | None = Query(default=None),
-    source: str | None = Query(default=None),
-    # Date range filtering
-    created_after: datetime | None = Query(default=None),
-    created_before: datetime | None = Query(default=None),
-    # Export options
-    format: ExportFormat = Query(default=ExportFormat.JSON),
-    # Export is bounded because rows are loaded before JSON/CSV serialization.
-    limit: int = Query(default=1000, ge=1, le=2000),
+    query: Annotated[AlarmExportQuery, Query()],
     session: AsyncSession = Depends(get_session),
 ) -> StreamingResponse:
     """Export alarms in JSON or CSV format."""
     stmt = select(Alarm).where(Alarm.deleted_at.is_(None))
 
-    stmt = _apply_alarm_filters(
-        stmt,
-        status=status,
-        severity=severity,
-        person_id=person_id,
-        room_id=room_id,
-        site_id=site_id,
-        device_id=device_id,
-        source=source,
-        created_after=created_after,
-        created_before=created_before,
-    )
+    filters = _alarm_filters_from_query(query)
+    stmt = _apply_alarm_filters(stmt, filters)
 
-    stmt = stmt.order_by(Alarm.created_at.desc()).limit(limit)
+    stmt = stmt.order_by(Alarm.created_at.desc()).limit(query.limit)
     alarms = list((await session.scalars(stmt)).all())
 
-    if format == ExportFormat.JSON:
-        data = [
-            AlarmOut.model_validate(alarm, from_attributes=True).model_dump(mode="json")
-            for alarm in alarms
-        ]
-        content = json.dumps(data, indent=2, default=str)
+    if query.format == ExportFormat.JSON:
+        content = _json_export_content(alarms)
         media_type = "application/json"
-        filename = f"alarms_export_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.json"
+        filename = _export_filename("json")
     else:
-        output = io.StringIO()
-        if alarms:
-            field_names = [
-                "id",
-                "status",
-                "source",
-                "event",
-                "created_at",
-                "person_id",
-                "room_id",
-                "site_id",
-                "device_id",
-                "severity",
-                "silent",
-                "zammad_ticket_id",
-                "acked_at",
-                "acked_by",
-                "resolved_at",
-                "resolved_by",
-                "cancelled_at",
-                "cancelled_by",
-            ]
-            writer = csv.DictWriter(output, fieldnames=field_names, extrasaction="ignore")
-            writer.writeheader()
-            for alarm in alarms:
-                row = {k: getattr(alarm, k, None) for k in field_names}
-                for dt_field in ["created_at", "acked_at", "resolved_at", "cancelled_at"]:
-                    dt_val = row[dt_field]
-                    if dt_val is not None and hasattr(dt_val, "isoformat"):
-                        row[dt_field] = dt_val.isoformat()
-                row = {k: _sanitize_csv_value(v) for k, v in row.items()}
-                writer.writerow(row)
-        content = output.getvalue()
+        content = _csv_export_content(alarms)
         media_type = "text/csv"
-        filename = f"alarms_export_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.csv"
+        filename = _export_filename("csv")
 
     return StreamingResponse(
         iter([content]),

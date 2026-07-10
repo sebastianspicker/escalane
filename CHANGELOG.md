@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-04-19
 
-### Added
+### Added in 0.2.0
 - `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` settings for connection pool tuning
 - `SLOW_QUERY_LOG_MS` setting; SQLAlchemy slow-query listener logs WARNINGs for queries exceeding threshold
 - `request_id` propagation: stored in `alarm.meta` at trigger time, readable from `X-Request-ID` response header
@@ -62,7 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2024-01-15
 
-### Added
+### Added in 0.1.0
 - Initial release
 - Alarm management API (create, list, acknowledge)
 - Admin UI for alarm management

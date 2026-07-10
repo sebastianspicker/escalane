@@ -287,6 +287,73 @@ async def alarm_acked(
             )
 
 
+async def _log_rejected_webhook(
+    session: AsyncSession,
+    *,
+    alarm: Alarm,
+    alarm_id: str,
+    state: str,
+    webhook_url: str,
+    error: str,
+) -> None:
+    logger.warning(
+        "webhook_url_rejected",
+        extra={
+            "alarm_id": alarm_id,
+            "webhook_url": webhook_url,
+            "error": error,
+        },
+    )
+    await log_notification(
+        session,
+        alarm_id=alarm.id,
+        channel="webhook",
+        target_id=None,
+        payload={"state": state},
+        result="error",
+        error=error,
+    )
+    record_event("webhook_delivery_error")
+
+
+async def _webhook_url_allowed(
+    session: AsyncSession,
+    *,
+    alarm: Alarm,
+    alarm_id: str,
+    state: str,
+    settings: Settings,
+) -> bool:
+    try:
+        validate_webhook_host_allowed(settings.webhook_url, settings.webhook_allowed_hosts)
+        await validate_url_not_internal(settings.webhook_url)
+    except SSRFError as exc:
+        await _log_rejected_webhook(
+            session,
+            alarm=alarm,
+            alarm_id=alarm_id,
+            state=state,
+            webhook_url=settings.webhook_url,
+            error=str(exc),
+        )
+        return False
+    return True
+
+
+def _webhook_headers(settings: Settings, payload_bytes: bytes) -> dict[str, str]:
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if settings.webhook_secret:
+        # Receivers can verify this HMAC and reject stale payload timestamps
+        # to defend against forged or replayed state-change callbacks.
+        sig = hmac.new(
+            settings.webhook_secret.encode(),
+            payload_bytes,
+            hashlib.sha256,
+        ).hexdigest()
+        headers["X-Hub-Signature-256"] = f"sha256={sig}"
+    return headers
+
+
 async def alarm_state_changed(ctx: dict, alarm_id: str, state: str) -> None:
     """Send state-change webhook callbacks with retry and audit logging.
 
@@ -312,48 +379,23 @@ async def alarm_state_changed(ctx: dict, alarm_id: str, state: str) -> None:
             )
             return
 
-        try:
-            validate_webhook_host_allowed(settings.webhook_url, settings.webhook_allowed_hosts)
-            await validate_url_not_internal(settings.webhook_url)
-        except SSRFError as exc:
-            logger.warning(
-                "webhook_url_rejected",
-                extra={
-                    "alarm_id": alarm_id,
-                    "webhook_url": settings.webhook_url,
-                    "error": str(exc),
-                },
-            )
-            await log_notification(
-                session,
-                alarm_id=alarm.id,
-                channel="webhook",
-                target_id=None,
-                payload={"state": state},
-                result="error",
-                error=str(exc),
-            )
-            record_event("webhook_delivery_error")
+        if not await _webhook_url_allowed(
+            session,
+            alarm=alarm,
+            alarm_id=alarm_id,
+            state=state,
+            settings=settings,
+        ):
             return
 
         payload = _build_webhook_payload(alarm, state)
         payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if settings.webhook_secret:
-            # Receivers can verify this HMAC and reject stale payload timestamps
-            # to defend against forged or replayed state-change callbacks.
-            sig = hmac.new(
-                settings.webhook_secret.encode(),
-                payload_bytes,
-                hashlib.sha256,
-            ).hexdigest()
-            headers["X-Hub-Signature-256"] = f"sha256={sig}"
 
         await _send_webhook_with_retry(
             http=http,
             webhook_url=settings.webhook_url,
             payload_bytes=payload_bytes,
-            headers=headers,
+            headers=_webhook_headers(settings, payload_bytes),
             timeout=settings.webhook_timeout_seconds,
             alarm_id=alarm.id,
             session=session,

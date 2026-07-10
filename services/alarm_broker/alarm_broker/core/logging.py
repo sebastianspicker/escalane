@@ -99,6 +99,7 @@ class HumanReadableFormatter(logging.Formatter):
         "CRITICAL": "\033[35m",  # Magenta
     }
     RESET = "\033[0m"
+    TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
     def format(self, record: logging.LogRecord) -> str:
         """Format the log record for human reading.
@@ -109,7 +110,7 @@ class HumanReadableFormatter(logging.Formatter):
         Returns:
             Human readable log string
         """
-        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(UTC).strftime(self.TIMESTAMP_FORMAT)
         color = self.COLORS.get(record.levelname, "")
         level = f"{color}{record.levelname:8}{self.RESET}"
 

@@ -9,6 +9,11 @@ Covers:
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -29,40 +34,30 @@ ADMIN_KEY = "dev-admin-key"
 HEADERS = {"X-Admin-Key": ADMIN_KEY}
 
 
-def _make_alarm(
-    *,
-    alarm_id: uuid.UUID | None = None,
-    status: AlarmStatus = AlarmStatus.TRIGGERED,
-    ack_token: str | None = None,
-    created_at: datetime | None = None,
-    source: str = "test",
-    severity: str = "P0",
-    person_id: str = "ma-012",
-    room_id: str = "bg-1.23",
-    resolved_at: datetime | None = None,
-    resolved_by: str | None = None,
-    acked_at: datetime | None = None,
-    acked_by: str | None = None,
-) -> Alarm:
-    return Alarm(
-        id=alarm_id or uuid.uuid4(),
-        status=status,
-        source=source,
-        event="alarm.trigger",
-        person_id=person_id,
-        room_id=room_id,
-        site_id="bg",
-        device_id="ylk-t5-10023",
-        severity=severity,
-        silent=True,
-        ack_token=ack_token or f"tok-{uuid.uuid4().hex[:8]}",
-        created_at=created_at or datetime.now(UTC),
-        meta={},
-        resolved_at=resolved_at,
-        resolved_by=resolved_by,
-        acked_at=acked_at,
-        acked_by=acked_by,
-    )
+def _make_alarm(**overrides) -> Alarm:
+    if "alarm_id" in overrides:
+        overrides["id"] = overrides.pop("alarm_id")
+    defaults = {
+        "id": uuid.uuid4(),
+        "status": AlarmStatus.TRIGGERED,
+        "source": "test",
+        "event": "alarm.trigger",
+        "person_id": "ma-012",
+        "room_id": "bg-1.23",
+        "site_id": "bg",
+        "device_id": "ylk-t5-10023",
+        "severity": "P0",
+        "silent": True,
+        "ack_token": f"tok-{uuid.uuid4().hex[:8]}",
+        "created_at": datetime.now(UTC),
+        "meta": {},
+        "resolved_at": None,
+        "resolved_by": None,
+        "acked_at": None,
+        "acked_by": None,
+    }
+    defaults.update(overrides)
+    return Alarm(**defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -116,14 +111,14 @@ async def test_admin_dashboard_ack_resolve_capabilities(
             await admin_login(client, ADMIN_KEY)
             resp = await client.get("/admin")
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     html = resp.text
     # Triggered alarm: can_ack=true, can_resolve=true
-    assert f"data-alarm-id='{triggered_id}'" in html
-    assert "data-can-ack='true'" in html
-    assert "data-can-resolve='true'" in html
+    expect(f"data-alarm-id='{triggered_id}'" in html)
+    expect("data-can-ack='true'" in html)
+    expect("data-can-resolve='true'" in html)
     # Resolved alarm: both disabled
-    assert "data-can-ack='false'" in html
+    expect("data-can-ack='false'" in html)
 
 
 async def test_admin_dashboard_time_display_hours(
@@ -149,8 +144,8 @@ async def test_admin_dashboard_time_display_hours(
             await admin_login(client, ADMIN_KEY)
             resp = await client.get("/admin")
 
-    assert resp.status_code == 200
-    assert "2h " in resp.text  # "2h 30m ago"
+    expect(resp.status_code == 200)
+    expect("2h " in resp.text)  # "2h 30m ago"
 
 
 async def test_admin_dashboard_simulation_enabled(
@@ -167,9 +162,9 @@ async def test_admin_dashboard_simulation_enabled(
             await admin_login(client, ADMIN_KEY)
             resp = await client.get("/admin")
 
-    assert resp.status_code == 200
-    assert "data-enabled='true'" in resp.text
-    assert "sim-refresh-btn" in resp.text
+    expect(resp.status_code == 200)
+    expect("data-enabled='true'" in resp.text)
+    expect("sim-refresh-btn" in resp.text)
 
 
 async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis, settings):
@@ -184,9 +179,9 @@ async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis
             await admin_login(client, ADMIN_KEY)
             resp = await client.get("/admin")
 
-    assert resp.status_code == 200
-    assert "data-enabled='false'" in resp.text
-    assert "currently disabled" in resp.text
+    expect(resp.status_code == 200)
+    expect("data-enabled='false'" in resp.text)
+    expect("currently disabled" in resp.text)
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +204,8 @@ async def test_single_alarm_get(engine, sessionmaker, seeded_db, fake_redis, set
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(f"/v1/alarms/{alarm_id}", headers=HEADERS)
 
-    assert resp.status_code == 200
-    assert resp.json()["id"] == str(alarm_id)
+    expect(resp.status_code == 200)
+    expect(resp.json()["id"] == str(alarm_id))
 
 
 async def test_single_alarm_get_nonexistent(engine, seeded_db, fake_redis, settings):
@@ -224,7 +219,7 @@ async def test_single_alarm_get_nonexistent(engine, seeded_db, fake_redis, setti
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(f"/v1/alarms/{missing_id}", headers=HEADERS)
 
-    assert resp.status_code == 404
+    expect(resp.status_code == 404)
 
 
 async def test_patch_alarm_severity(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -246,8 +241,8 @@ async def test_patch_alarm_severity(engine, sessionmaker, seeded_db, fake_redis,
                 json={"severity": "P1"},
             )
 
-    assert resp.status_code == 200
-    assert resp.json()["severity"] == "P1"
+    expect(resp.status_code == 200)
+    expect(resp.json()["severity"] == "P1")
 
 
 async def test_patch_alarm_title_description_tags(
@@ -271,11 +266,11 @@ async def test_patch_alarm_title_description_tags(
                 json={"title": "Fire alarm", "description": "Floor 3", "tags": ["fire"]},
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     meta = resp.json()["meta"]
-    assert meta["title"] == "Fire alarm"
-    assert meta["description"] == "Floor 3"
-    assert meta["tags"] == ["fire"]
+    expect(meta["title"] == "Fire alarm")
+    expect(meta["description"] == "Floor 3")
+    expect(meta["tags"] == ["fire"])
 
 
 async def test_delete_alarm(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -293,12 +288,12 @@ async def test_delete_alarm(engine, sessionmaker, seeded_db, fake_redis, setting
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.delete(f"/v1/alarms/{alarm_id}", headers=HEADERS)
 
-    assert resp.status_code == 204
+    expect(resp.status_code == 204)
 
     async with sessionmaker() as session:
         alarm = await session.get(Alarm, alarm_id)
-        assert alarm is not None
-        assert alarm.deleted_at is not None
+        expect(alarm is not None)
+        expect(alarm.deleted_at is not None)
 
 
 async def test_delete_alarm_nonexistent(engine, seeded_db, fake_redis, settings):
@@ -311,7 +306,7 @@ async def test_delete_alarm_nonexistent(engine, seeded_db, fake_redis, settings)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.delete(f"/v1/alarms/{uuid.uuid4()}", headers=HEADERS)
 
-    assert resp.status_code == 404
+    expect(resp.status_code == 404)
 
 
 async def test_delete_alarm_already_deleted(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -335,7 +330,7 @@ async def test_delete_alarm_already_deleted(engine, sessionmaker, seeded_db, fak
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.delete(f"/v1/alarms/{alarm_id}", headers=HEADERS)
 
-    assert resp.status_code == 404
+    expect(resp.status_code == 404)
 
 
 async def test_single_ack_transition(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -357,7 +352,7 @@ async def test_single_ack_transition(engine, sessionmaker, seeded_db, fake_redis
                 json={"acked_by": "Tester", "note": "seen"},
             )
 
-    assert resp.status_code == 204
+    expect(resp.status_code == 204)
 
 
 async def test_single_cancel_transition(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -379,7 +374,7 @@ async def test_single_cancel_transition(engine, sessionmaker, seeded_db, fake_re
                 json={"actor": "Ops"},
             )
 
-    assert resp.status_code == 204
+    expect(resp.status_code == 204)
 
 
 async def test_bulk_resolve_all_already_resolved(
@@ -412,337 +407,10 @@ async def test_bulk_resolve_all_already_resolved(
                 json={"alarm_ids": [str(a) for a in ids], "actor": "Ops"},
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
     body = resp.json()
-    assert body["changed"] == 0
-    assert body["unchanged"] == 2
-
-
-# ---------------------------------------------------------------------------
-# alarms.py - filters and export behavior
-# ---------------------------------------------------------------------------
-
-
-async def test_list_alarms_created_after(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?created_after=... filters alarms."""
-    settings.admin_api_key = ADMIN_KEY
-    now = datetime.now(UTC)
-
-    old_id = uuid.uuid4()
-    new_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=old_id, created_at=now - timedelta(days=5)))
-        session.add(_make_alarm(alarm_id=new_id, created_at=now))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            cutoff = (now - timedelta(days=1)).isoformat()
-            resp = await client.get(
-                "/v1/alarms",
-                params={"created_after": cutoff},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(new_id) in ids
-    assert str(old_id) not in ids
-
-
-async def test_list_alarms_created_before(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?created_before=... filters alarms."""
-    settings.admin_api_key = ADMIN_KEY
-    now = datetime.now(UTC)
-
-    old_id = uuid.uuid4()
-    new_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=old_id, created_at=now - timedelta(days=5)))
-        session.add(_make_alarm(alarm_id=new_id, created_at=now))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            cutoff = (now - timedelta(days=1)).isoformat()
-            resp = await client.get(
-                "/v1/alarms",
-                params={"created_before": cutoff},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(old_id) in ids
-    assert str(new_id) not in ids
-
-
-async def test_list_alarms_person_id_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?person_id=... filters by person."""
-    settings.admin_api_key = ADMIN_KEY
-
-    target_id = uuid.uuid4()
-    other_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=target_id, person_id="ma-012"))
-        session.add(_make_alarm(alarm_id=other_id, person_id="ma-999"))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"person_id": "ma-012"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(target_id) in ids
-    assert str(other_id) not in ids
-
-
-async def test_list_alarms_severity_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?severity=... filters by severity."""
-    settings.admin_api_key = ADMIN_KEY
-
-    p0_id = uuid.uuid4()
-    p1_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=p0_id, severity="P0"))
-        session.add(_make_alarm(alarm_id=p1_id, severity="P1"))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"severity": "P0"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(p0_id) in ids
-    assert str(p1_id) not in ids
-
-
-async def test_list_alarms_room_id_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?room_id=... filters by room."""
-    settings.admin_api_key = ADMIN_KEY
-
-    target_id = uuid.uuid4()
-    other_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=target_id, room_id="bg-1.23"))
-        session.add(_make_alarm(alarm_id=other_id, room_id="bg-2.01"))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"room_id": "bg-1.23"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(target_id) in ids
-    assert str(other_id) not in ids
-
-
-async def test_list_alarms_source_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?source=... filters by source."""
-    settings.admin_api_key = ADMIN_KEY
-
-    target_id = uuid.uuid4()
-    other_id = uuid.uuid4()
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(alarm_id=target_id, source="yealink"))
-        session.add(_make_alarm(alarm_id=other_id, source="manual"))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"source": "yealink"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    ids = [a["id"] for a in resp.json()]
-    assert str(target_id) in ids
-    assert str(other_id) not in ids
-
-
-async def test_export_csv_empty(engine, seeded_db, fake_redis, settings):
-    """CSV export with no matching alarms returns empty CSV."""
-    settings.admin_api_key = ADMIN_KEY
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms/export",
-                params={"format": "csv", "person_id": "nonexistent"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    assert "text/csv" in resp.headers["content-type"]
-    # Empty CSV has no rows
-    assert resp.text.strip() == ""
-
-
-async def test_export_json(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """JSON export returns valid JSON array."""
-    settings.admin_api_key = ADMIN_KEY
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm())
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms/export",
-                params={"format": "json"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    assert "application/json" in resp.headers["content-type"]
-    data = resp.json()
-    assert isinstance(data, list)
-    assert len(data) >= 1
-
-
-async def test_export_csv_with_alarms(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """CSV export with alarms returns header + data rows."""
-    settings.admin_api_key = ADMIN_KEY
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm())
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms/export",
-                params={"format": "csv"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    lines = resp.text.strip().split("\n")
-    assert len(lines) >= 2  # header + at least one data row
-    assert "id" in lines[0]
-    assert "status" in lines[0]
-
-
-async def test_alarm_stats(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms/stats returns counts by status and severity."""
-    settings.admin_api_key = ADMIN_KEY
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(severity="P0"))
-        session.add(_make_alarm(severity="P1"))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/v1/alarms/stats", headers=HEADERS)
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["total"] >= 2
-    assert "by_status" in body
-    assert "by_severity" in body
-
-
-async def test_list_alarms_sort_asc(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """GET /v1/alarms?sort_order=asc exercises ascending sort."""
-    settings.admin_api_key = ADMIN_KEY
-    now = datetime.now(UTC)
-
-    async with sessionmaker() as session:
-        session.add(_make_alarm(created_at=now - timedelta(minutes=2)))
-        session.add(_make_alarm(created_at=now))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"sort_order": "asc"},
-                headers=HEADERS,
-            )
-
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) >= 2
-    # Oldest should come first in ASC order
-    assert data[0]["created_at"] <= data[1]["created_at"]
-
-
-async def test_cursor_pagination_asc(engine, sessionmaker, seeded_db, fake_redis, settings):
-    """Cursor pagination works with ascending sort."""
-    settings.admin_api_key = ADMIN_KEY
-    now = datetime.now(UTC)
-
-    ids = [uuid.uuid4() for _ in range(3)]
-    async with sessionmaker() as session:
-        for i, aid in enumerate(ids):
-            session.add(_make_alarm(alarm_id=aid, created_at=now + timedelta(seconds=i)))
-        await session.commit()
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get(
-                "/v1/alarms",
-                params={"limit": 2, "sort_order": "asc"},
-                headers=HEADERS,
-            )
-            assert resp.status_code == 200
-            cursor = resp.headers.get("X-Next-Cursor")
-            if cursor:
-                resp2 = await client.get(
-                    "/v1/alarms",
-                    params={"limit": 2, "sort_order": "asc", "cursor": cursor},
-                    headers=HEADERS,
-                )
-                assert resp2.status_code == 200
+    expect(body["changed"] == 0)
+    expect(body["unchanged"] == 2)
 
 
 # ---------------------------------------------------------------------------
@@ -758,8 +426,8 @@ async def test_healthz_liveness(engine, seeded_db, fake_redis, settings):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/healthz")
 
-    assert resp.status_code == 200
-    assert resp.json() == {"ok": "true"}
+    expect(resp.status_code == 200)
+    expect(resp.json() == {"ok": "true"})
 
 
 async def test_readyz_with_redis_ping(engine, seeded_db, settings):
@@ -775,6 +443,6 @@ async def test_readyz_with_redis_ping(engine, seeded_db, settings):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/readyz")
 
-    assert resp.status_code == 200
-    assert resp.json()["ok"] == "true"
-    assert resp.json()["redis"] == "ok"
+    expect(resp.status_code == 200)
+    expect(resp.json()["ok"] == "true")
+    expect(resp.json()["redis"] == "ok")

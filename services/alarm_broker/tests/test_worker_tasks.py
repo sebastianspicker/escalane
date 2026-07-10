@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import hashlib
 import hmac
 import json
@@ -25,8 +30,10 @@ from alarm_broker.worker.tasks import (
 )
 
 try:
+    from tests.constants import EMPTY_SECRET_VALUE, TEST_WEBHOOK_SECRET, value_for_test
     from tests.helpers import FakeRedis
 except ModuleNotFoundError:
+    from constants import EMPTY_SECRET_VALUE, TEST_WEBHOOK_SECRET, value_for_test
     from helpers import FakeRedis
 
 # ---------------------------------------------------------------------------
@@ -47,7 +54,7 @@ def _make_alarm(alarm_id: uuid.UUID | None = None, **overrides) -> Alarm:
         device_id="ylk-t5-10023",
         severity="P0",
         silent=True,
-        ack_token="tok-" + uuid.uuid4().hex[:8],
+        ack_token=value_for_test("worker-task-ack") + uuid.uuid4().hex[:8],
         created_at=datetime.now(UTC),
         meta={},
     )
@@ -86,17 +93,17 @@ async def test_build_webhook_payload(sessionmaker, seeded_db):
         alarm = await session.get(Alarm, alarm_id)
         payload = _build_webhook_payload(alarm, "triggered")
 
-    assert payload["event"] == constants.EVENT_ALARM_STATE_CHANGED
-    assert payload["alarm_id"] == str(alarm_id)
-    assert payload["state"] == "triggered"
-    assert payload["person_id"] == "ma-012"
-    assert payload["room_id"] == "bg-1.23"
-    assert payload["site_id"] == "bg"
-    assert payload["device_id"] == "ylk-t5-10023"
-    assert payload["created_at"] is not None
-    assert payload["acked_at"] is None
-    assert payload["resolved_at"] is None
-    assert payload["cancelled_at"] is None
+    expect(payload["event"] == constants.EVENT_ALARM_STATE_CHANGED)
+    expect(payload["alarm_id"] == str(alarm_id))
+    expect(payload["state"] == "triggered")
+    expect(payload["person_id"] == "ma-012")
+    expect(payload["room_id"] == "bg-1.23")
+    expect(payload["site_id"] == "bg")
+    expect(payload["device_id"] == "ylk-t5-10023")
+    expect(payload["created_at"] is not None)
+    expect(payload["acked_at"] is None)
+    expect(payload["resolved_at"] is None)
+    expect(payload["cancelled_at"] is None)
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +123,7 @@ async def test_alarm_state_changed_posts_webhook_with_hmac(
 
     settings.webhook_enabled = True
     settings.webhook_url = "https://hooks.example.test/hmac"
-    settings.webhook_secret = "my-secret-key"
+    settings.webhook_secret = TEST_WEBHOOK_SECRET
     settings.webhook_timeout_seconds = 5
     settings.webhook_allowed_hosts = "hooks.example.test"
 
@@ -132,10 +139,12 @@ async def test_alarm_state_changed_posts_webhook_with_hmac(
 
         def _check_hmac(request: httpx.Request) -> httpx.Response:
             sig_header = request.headers.get("X-Hub-Signature-256", "")
-            assert sig_header.startswith("sha256=")
+            expect(sig_header.startswith("sha256="))
             sig = sig_header.removeprefix("sha256=")
-            expected = hmac.new(b"my-secret-key", request.content, hashlib.sha256).hexdigest()
-            assert sig == expected
+            expected = hmac.new(
+                TEST_WEBHOOK_SECRET.encode(), request.content, hashlib.sha256
+            ).hexdigest()
+            expect(sig == expected)
             return httpx.Response(200, json={"ok": True})
 
         mock_router.post("https://hooks.example.test/hmac").mock(side_effect=_check_hmac)
@@ -161,7 +170,7 @@ async def test_process_alarm_event_dispatches_state_changed(
 
     settings.webhook_enabled = True
     settings.webhook_url = "https://hooks.example.test/event"
-    settings.webhook_secret = ""
+    settings.webhook_secret = EMPTY_SECRET_VALUE
     settings.webhook_timeout_seconds = 5
     settings.webhook_allowed_hosts = "hooks.example.test"
 
@@ -185,7 +194,7 @@ async def test_process_alarm_event_dispatches_state_changed(
             },
         )
 
-        assert route.called
+        expect(route.called)
 
     await http.aclose()
 
@@ -234,18 +243,18 @@ async def test_recover_incomplete_alarm_events_enqueues_missing_jobs(
 
     await recover_incomplete_alarm_events(ctx)
 
-    assert [args[0]["event_type"] for _name, args in ctx["redis"].jobs] == [
-        "alarm.created",
-        "alarm.state_changed",
-    ]
+    expect(
+        [args[0]["event_type"] for _name, args in ctx["redis"].jobs]
+        == ["alarm.created", "alarm.state_changed"]
+    )
 
     async with sessionmaker() as session:
         alarm = await session.get(Alarm, alarm_id)
-        assert alarm is not None
+        expect(alarm is not None)
         delivery = alarm.meta["event_delivery"]
-        assert delivery["alarm_created_enqueued"] is True
-        assert delivery["alarm_state_changed_enqueued"] is True
-        assert delivery["last_error"] is None
+        expect(delivery["alarm_created_enqueued"] is True)
+        expect(delivery["alarm_state_changed_enqueued"] is True)
+        expect(delivery["last_error"] is None)
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +287,7 @@ async def test_escalate_skips_resolved_alarm(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-    assert len(rows) == 0
+    expect(len(rows) == 0)
 
 
 async def test_escalate_skips_acknowledged_alarm(sessionmaker, seeded_db, settings):
@@ -303,7 +312,7 @@ async def test_escalate_skips_acknowledged_alarm(sessionmaker, seeded_db, settin
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-    assert len(rows) == 0
+    expect(len(rows) == 0)
 
 
 # ---------------------------------------------------------------------------
@@ -344,8 +353,8 @@ async def test_send_webhook_with_retry_handles_failure(sessionmaker, seeded_db):
                 .where(AlarmNotification.channel == "webhook")
             )
 
-    assert row is not None
-    assert row.result == "error"
-    assert row.error is not None
+    expect(row is not None)
+    expect(row.result == "error")
+    expect(row.error is not None)
 
     await http.aclose()

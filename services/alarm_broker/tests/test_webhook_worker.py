@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 
@@ -11,20 +16,14 @@ from alarm_broker.db.models import Alarm, AlarmNotification, AlarmStatus
 from alarm_broker.worker.tasks import alarm_state_changed
 
 try:
+    from tests.constants import TEST_WEBHOOK_SECRET, value_for_test
     from tests.helpers import FakeRedis
 except ModuleNotFoundError:
+    from constants import TEST_WEBHOOK_SECRET, value_for_test
     from helpers import FakeRedis
 
 
-async def test_alarm_state_changed_posts_webhook_and_logs_result(
-    sessionmaker,
-    seeded_db,
-    settings,
-    monkeypatch,
-):
-    alarm_id = uuid.uuid4()
-    now = datetime.now(UTC)
-
+async def _add_webhook_alarm(sessionmaker, alarm_id: uuid.UUID) -> None:
     async with sessionmaker() as session:
         session.add(
             Alarm(
@@ -38,26 +37,53 @@ async def test_alarm_state_changed_posts_webhook_and_logs_result(
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="webhook-test",
-                created_at=now,
+                ack_token=value_for_test("webhook"),
+                created_at=datetime.now(UTC),
                 meta={},
             )
         )
         await session.commit()
 
+
+def _enable_webhook(settings, *, allowed_hosts: str = "hooks.example.test") -> None:
     settings.webhook_enabled = True
     settings.webhook_url = "https://hooks.example.test/alarm"
-    settings.webhook_secret = "test-secret"
+    settings.webhook_secret = TEST_WEBHOOK_SECRET
     settings.webhook_timeout_seconds = 5
-    settings.webhook_allowed_hosts = "hooks.example.test"
+    settings.webhook_allowed_hosts = allowed_hosts
 
-    http = httpx.AsyncClient()
-    ctx = {
+
+def _worker_ctx(sessionmaker, settings, http):
+    return {
         "sessionmaker": sessionmaker,
         "settings": settings,
         "http": http,
         "redis": FakeRedis(),
     }
+
+
+async def _latest_webhook_notification(sessionmaker, alarm_id: uuid.UUID):
+    async with sessionmaker() as session:
+        return await session.scalar(
+            select(AlarmNotification)
+            .where(AlarmNotification.alarm_id == alarm_id)
+            .where(AlarmNotification.channel == "webhook")
+            .order_by(AlarmNotification.created_at.desc())
+        )
+
+
+async def test_alarm_state_changed_posts_webhook_and_logs_result(
+    sessionmaker,
+    seeded_db,
+    settings,
+    monkeypatch,
+):
+    alarm_id = uuid.uuid4()
+    await _add_webhook_alarm(sessionmaker, alarm_id)
+    _enable_webhook(settings)
+
+    http = httpx.AsyncClient()
+    ctx = _worker_ctx(sessionmaker, settings, http)
 
     async def allow_webhook(_url: str) -> None:
         return None
@@ -67,19 +93,12 @@ async def test_alarm_state_changed_posts_webhook_and_logs_result(
     with respx.mock(assert_all_called=True) as mock_router:
         route = mock_router.post("https://hooks.example.test/alarm").respond(200, json={"ok": True})
         await alarm_state_changed(ctx, str(alarm_id), "triggered")
-        assert route.called
+        expect(route.called)
 
-    async with sessionmaker() as session:
-        row = await session.scalar(
-            select(AlarmNotification)
-            .where(AlarmNotification.alarm_id == alarm_id)
-            .where(AlarmNotification.channel == "webhook")
-            .order_by(AlarmNotification.created_at.desc())
-        )
-        assert row is not None
-        assert row.result == "ok"
-        assert row.payload.get("state") == "triggered"
-
+    row = await _latest_webhook_notification(sessionmaker, alarm_id)
+    expect(row is not None)
+    expect(row.result == "ok")
+    expect(row.payload.get("state") == "triggered")
     await http.aclose()
 
 
@@ -100,7 +119,7 @@ async def test_alarm_state_changed_rejects_loopback_webhook_url(sessionmaker, se
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="webhook-loopback-test",
+                ack_token=value_for_test("webhook-loopback"),
                 created_at=now,
                 meta={},
             )
@@ -109,7 +128,7 @@ async def test_alarm_state_changed_rejects_loopback_webhook_url(sessionmaker, se
 
     settings.webhook_enabled = True
     settings.webhook_url = "https://127.0.0.1/hooks"
-    settings.webhook_secret = "test-secret"
+    settings.webhook_secret = TEST_WEBHOOK_SECRET
     settings.webhook_timeout_seconds = 5
     settings.webhook_allowed_hosts = "127.0.0.1"
 
@@ -130,10 +149,10 @@ async def test_alarm_state_changed_rejects_loopback_webhook_url(sessionmaker, se
             .where(AlarmNotification.channel == "webhook")
             .order_by(AlarmNotification.created_at.desc())
         )
-        assert row is not None
-        assert row.result == "error"
-        assert row.error is not None
-        assert "blocked IP range" in row.error
+        expect(row is not None)
+        expect(row.result == "error")
+        expect(row.error is not None)
+        expect("blocked IP range" in row.error)
 
     await http.aclose()
 
@@ -157,7 +176,7 @@ async def test_alarm_state_changed_rejects_unallowlisted_host_without_egress(
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="webhook-allowlist-test",
+                ack_token=value_for_test("webhook-allowlist"),
                 created_at=now,
                 meta={},
             )
@@ -166,7 +185,7 @@ async def test_alarm_state_changed_rejects_unallowlisted_host_without_egress(
 
     settings.webhook_enabled = True
     settings.webhook_url = "https://hooks.example.test/alarm"
-    settings.webhook_secret = "test-secret"
+    settings.webhook_secret = TEST_WEBHOOK_SECRET
     settings.webhook_timeout_seconds = 5
     settings.webhook_allowed_hosts = ""
 
@@ -190,7 +209,7 @@ async def test_alarm_state_changed_rejects_unallowlisted_host_without_egress(
             .where(AlarmNotification.channel == "webhook")
             .order_by(AlarmNotification.created_at.desc())
         )
-        assert row is not None
-        assert row.result == "error"
-        assert row.error is not None
-        assert "WEBHOOK_ALLOWED_HOSTS is empty" in row.error
+        expect(row is not None)
+        expect(row.result == "error")
+        expect(row.error is not None)
+        expect("WEBHOOK_ALLOWED_HOSTS is empty" in row.error)

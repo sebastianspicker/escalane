@@ -19,6 +19,62 @@ router = APIRouter()
 logger = logging.getLogger("alarm_broker")
 
 
+def _validate_source_ip(request: Request, settings: Settings) -> str:
+    client_ip = get_client_ip(request, settings)
+    allowed = ip_allowed(client_ip, settings.yelk_ip_allowlist)
+    if settings.simulation_enabled:
+        if settings.yelk_ip_allowlist and not allowed:
+            logger.warning(
+                "ip_not_allowed_simulation",
+                extra={"client_ip": client_ip, "path": request.url.path},
+            )
+        return client_ip
+
+    if allowed:
+        return client_ip
+    logger.warning(
+        "ip_not_allowed",
+        extra={"client_ip": client_ip, "path": request.url.path},
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="IP not allowed. Check YELK_IP_ALLOWLIST in server configuration.",
+    )
+
+
+def _trigger_token(request: Request, settings: Settings) -> str:
+    token = request.query_params.get(settings.yelk_token_query_param)
+    if token:
+        return token
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Missing '{settings.yelk_token_query_param}' query parameter in trigger URL.",
+    )
+
+
+def _raise_trigger_failure(result) -> None:
+    if result.success:
+        return
+    raise HTTPException(
+        status_code=result.error_code or 500,
+        detail=(
+            result.error_message or "Trigger processing failed. Check server logs for details."
+        ),
+    )
+
+
+def _trigger_response(result) -> TriggerResponse:
+    if result.alarm_id is None or result.status is None:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Internal error: alarm was created but response data is incomplete. "
+                "Check server logs."
+            ),
+        )
+    return TriggerResponse(alarm_id=result.alarm_id, status=result.status)
+
+
 @router.get("/v1/yealink/alarm", response_model=TriggerResponse)
 async def yealink_alarm(
     request: Request,
@@ -26,36 +82,9 @@ async def yealink_alarm(
     settings: Settings = Depends(get_app_settings),
 ) -> TriggerResponse:
     """Handle Yealink alarm trigger."""
-    # Validate source IP (skip in simulation mode but log warning)
-    client_ip = get_client_ip(request, settings)
-    if not settings.simulation_enabled:
-        if not ip_allowed(client_ip, settings.yelk_ip_allowlist):
-            logger.warning(
-                "ip_not_allowed",
-                extra={"client_ip": client_ip, "path": request.url.path},
-            )
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="IP not allowed. Check YELK_IP_ALLOWLIST in server configuration.",
-            )
-    else:
-        # In simulation mode, still validate but log for debugging
-        if settings.yelk_ip_allowlist and not ip_allowed(client_ip, settings.yelk_ip_allowlist):
-            logger.warning(
-                "ip_not_allowed_simulation",
-                extra={"client_ip": client_ip, "path": request.url.path},
-            )
-
-    token = request.query_params.get(settings.yelk_token_query_param)
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Missing '{settings.yelk_token_query_param}' query parameter in trigger URL.",
-        )
-
+    client_ip = _validate_source_ip(request, settings)
+    token = _trigger_token(request, settings)
     redis = get_redis(request)
-
-    # In simulation mode, disable rate limiting
     rate_bucket = None if settings.simulation_enabled else minute_bucket()
     trigger = TriggerService(
         session,
@@ -72,24 +101,7 @@ async def yealink_alarm(
         request_id=getattr(request.state, "request_id", None),
     )
 
-    if not result.success:
-        raise HTTPException(
-            status_code=result.error_code or 500,
-            detail=(
-                result.error_message or "Trigger processing failed. Check server logs for details."
-            ),
-        )
-
-    if result.alarm_id is None or result.status is None:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Internal error: alarm was created but response data is incomplete. "
-                "Check server logs."
-            ),
-        )
-
-    # Store alarm_id in request state for logging
+    _raise_trigger_failure(result)
+    response = _trigger_response(result)
     request.state.alarm_id = str(result.alarm_id)
-
-    return TriggerResponse(alarm_id=result.alarm_id, status=result.status)
+    return response

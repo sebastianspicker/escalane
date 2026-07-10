@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -13,6 +18,11 @@ from alarm_broker.db.models import Alarm, AlarmStatus, EscalationTarget
 from alarm_broker.services.notification_service import NotificationService, log_notification
 from alarm_broker.settings import Settings
 from alarm_broker.types import EnrichedAlarmContext
+
+try:
+    from tests.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY
+except ModuleNotFoundError:
+    from constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY
 
 pytestmark = [pytest.mark.unit]
 
@@ -83,9 +93,9 @@ async def _noop_session() -> AsyncMock:
 
 def _make_settings(**overrides: Any) -> Settings:
     payload: dict[str, Any] = {
-        "admin_api_key": "test-admin-key",
+        "admin_api_key": TEST_ADMIN_API_KEY,
         "simulation_enabled": True,
-        "zammad_api_token": "",
+        "zammad_api_token": EMPTY_SECRET_VALUE,
         "sendxms_enabled": False,
         "signal_enabled": False,
     }
@@ -100,40 +110,40 @@ def test_build_title_step_zero():
     svc = _make_svc()
     enriched = _make_enriched(person_name="Alice", room_label="R1")
     title = svc._build_title(enriched, step_no=0)
-    assert "NOTFALLALARM" in title
-    assert "Alice" in title
+    expect("NOTFALLALARM" in title)
+    expect("Alice" in title)
 
 
 def test_build_title_escalation_step():
     svc = _make_svc()
     enriched = _make_enriched(person_name="Bob", room_label="R2")
     title = svc._build_title(enriched, step_no=2)
-    assert "ESKALATION" in title
-    assert "2" in title
+    expect("ESKALATION" in title)
+    expect("2" in title)
 
 
 def test_build_tags_step_zero_critical():
     svc = _make_svc()
     tags = svc._build_tags(step_no=0, severity="P0")
-    assert len(tags) == 2  # emergency + silent
+    expect(len(tags) == 2)  # emergency + silent
 
 
 def test_build_tags_step_one_no_emergency():
     svc = _make_svc()
     tags = svc._build_tags(step_no=1, severity="P1")
-    assert len(tags) == 0
+    expect(len(tags) == 0)
 
 
 def test_get_priority_for_known_severity():
     svc = _make_svc()
-    assert svc._get_priority_for_severity("P0") == 3
-    assert svc._get_priority_for_severity("P1") == 2
-    assert svc._get_priority_for_severity("P3") == 1
+    expect(svc._get_priority_for_severity("P0") == 3)
+    expect(svc._get_priority_for_severity("P1") == 2)
+    expect(svc._get_priority_for_severity("P3") == 1)
 
 
 def test_get_priority_unknown_defaults_to_critical():
     svc = _make_svc()
-    assert svc._get_priority_for_severity("unknown") == 3
+    expect(svc._get_priority_for_severity("unknown") == 3)
 
 
 # ── _send_to_channel: disabled target ─────────────────────────────────
@@ -464,7 +474,7 @@ async def test_handle_zammad_ticket_disabled_returns_none():
         settings=None,
     )
 
-    assert result is None
+    expect(result is None)
 
 
 async def test_handle_zammad_ticket_create_exception_returns_none():
@@ -480,7 +490,7 @@ async def test_handle_zammad_ticket_create_exception_returns_none():
         settings=None,
     )
 
-    assert result is None
+    expect(result is None)
 
 
 async def test_handle_zammad_ticket_success_returns_ticket_id():
@@ -496,7 +506,7 @@ async def test_handle_zammad_ticket_success_returns_ticket_id():
         settings=None,
     )
 
-    assert result == 42
+    expect(result == 42)
 
 
 # ── add_zammad_ack_note ────────────────────────────────────────────────
@@ -515,7 +525,7 @@ async def test_add_zammad_ack_note_disabled_returns_false():
         note=None,
     )
 
-    assert result is False
+    expect(result is False)
 
 
 async def test_add_zammad_ack_note_exception_returns_false():
@@ -532,7 +542,7 @@ async def test_add_zammad_ack_note_exception_returns_false():
         note="note text",
     )
 
-    assert result is False
+    expect(result is False)
 
 
 # ── log_notification (module-level) ───────────────────────────────────

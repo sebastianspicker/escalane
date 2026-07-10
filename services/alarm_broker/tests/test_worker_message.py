@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 from datetime import UTC, datetime
 
 import pytest
@@ -27,13 +32,13 @@ def test_format_alarm_message_all_fields():
         step_no=2,
     )
 
-    assert "NOTFALLALARM (silent)" in result
-    assert "Alarm-ID: abc-123" in result
-    assert "Person: Person X" in result
-    assert "Ort: Raum 1.23 / Standort BG" in result
-    assert "Zeit: 2025-06-15T14:30:00+00:00" in result
-    assert "Stufe: 2" in result
-    assert "Quittieren: http://localhost:8080/a/token123" in result
+    expect("NOTFALLALARM (silent)" in result)
+    expect("Alarm-ID: abc-123" in result)
+    expect("Person: Person X" in result)
+    expect("Ort: Raum 1.23 / Standort BG" in result)
+    expect("Zeit: 2025-06-15T14:30:00+00:00" in result)
+    expect("Stufe: 2" in result)
+    expect("Quittieren: http://localhost:8080/a/token123" in result)
 
 
 def test_format_alarm_message_all_fields_line_order():
@@ -50,14 +55,14 @@ def test_format_alarm_message_all_fields_line_order():
     )
 
     lines = result.strip().split("\n")
-    assert len(lines) == 7
-    assert lines[0] == "NOTFALLALARM (silent)"
-    assert lines[1].startswith("Alarm-ID:")
-    assert lines[2].startswith("Person:")
-    assert lines[3].startswith("Ort:")
-    assert lines[4].startswith("Zeit:")
-    assert lines[5].startswith("Stufe:")
-    assert lines[6].startswith("Quittieren:")
+    expect(len(lines) == 7)
+    expect(lines[0] == "NOTFALLALARM (silent)")
+    expect(lines[1].startswith("Alarm-ID:"))
+    expect(lines[2].startswith("Person:"))
+    expect(lines[3].startswith("Ort:"))
+    expect(lines[4].startswith("Zeit:"))
+    expect(lines[5].startswith("Stufe:"))
+    expect(lines[6].startswith("Quittieren:"))
 
 
 # ── format_alarm_message: optional site missing ─────────────────────
@@ -76,8 +81,8 @@ def test_format_alarm_message_site_none():
         step_no=1,
     )
 
-    assert "Ort: Raum 2.05" in result
-    assert " / " not in result
+    expect("Ort: Raum 2.05" in result)
+    expect(" / " not in result)
 
 
 def test_format_alarm_message_site_empty_string_treated_as_truthy():
@@ -95,8 +100,8 @@ def test_format_alarm_message_site_empty_string_treated_as_truthy():
     )
 
     # Empty string is falsy, so the " / " separator should not appear
-    assert "Ort: R300" in result
-    assert " / " not in result
+    expect("Ort: R300" in result)
+    expect(" / " not in result)
 
 
 def test_format_alarm_message_step_zero():
@@ -112,7 +117,7 @@ def test_format_alarm_message_step_zero():
         step_no=0,
     )
 
-    assert "Stufe: 0" in result
+    expect("Stufe: 0" in result)
 
 
 def test_format_alarm_message_returns_string():
@@ -128,7 +133,7 @@ def test_format_alarm_message_returns_string():
         step_no=1,
     )
 
-    assert isinstance(result, str)
+    expect(isinstance(result, str))
 
 
 def test_format_alarm_message_omits_ack_line_when_missing():
@@ -144,4 +149,4 @@ def test_format_alarm_message_omits_ack_line_when_missing():
         step_no=1,
     )
 
-    assert "Quittieren:" not in result
+    expect("Quittieren:" not in result)

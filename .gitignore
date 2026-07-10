@@ -1,8 +1,31 @@
+# Operating-system and editor metadata
 **/.DS_Store
+**/Thumbs.db
+**/Desktop.ini
+*.swp
+*.swo
+*~
+
+# Local environment and credentials
 .env
 .env.*
 !.env.example
+.envrc
+.direnv/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+client_secret*.json
+service-account*.json
+.netrc
+.npmrc
+.pypirc
 
+# Python caches, reports, and build outputs
 __pycache__/
 *.py[cod]
 *.pyo
@@ -18,6 +41,9 @@ coverage.xml
 htmlcov/
 coverage/
 .cache/
+*.log
+*.pid
+*.pid.lock
 *.sqlite
 *.sqlite3
 *.db
@@ -26,28 +52,27 @@ coverage/
 venv/
 uv.lock
 dist/
+build/
+*.egg-info/
+
+# Local working artifacts
 plans/
 progress.md
 reports/
 scratch/
 tmp/
-build/
-*.egg-info/
+*.tmp
+*.temp
+*.bak
 
+# IDE and dependency caches
 .idea/
 .vscode/
+.fleet/
 
 node_modules/
 
 deploy/pgdata/
-
-# Secrets and credentials
-*.pem
-*.key
-*.p12
-*.pfx
-credentials.json
-service-account*.json
 
 # Generated screenshot assets (regenerate with scripts/demo_capture.py)
 docs/assets/screenshots/*.png
@@ -58,7 +83,14 @@ docs/assets/screenshots/*.png
 # Local repo-agent and audit workspace artifacts
 /.agents/
 /.codex/
+/.codegraph/
 /.kilo/
+/.serena/
+/.codacy/cli-config.yaml
+/.codacy/codacy.yaml
+/.codacy/generated/
+/.codacy/logs/
+/.codacy/tools-configs/
 /.github/codex/
 /.github/workflows/codex.yml
 /AGENTS.md

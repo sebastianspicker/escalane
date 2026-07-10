@@ -1,4 +1,10 @@
-## What does this PR do?
+## Summary
+
+<!-- What changed, and why? Link the issue or task when possible. -->
+
+## Risk and runtime impact
+
+<!-- Note affected endpoints, workers, DB schema, Redis/arq jobs, connectors, auth/session behavior, ACK links, or operator-visible states. Write "None" only after checking. -->
 
 ## Type of change
 
@@ -6,11 +12,24 @@
 - [ ] New feature
 - [ ] Refactor / cleanup
 - [ ] Documentation
+- [ ] Security / hardening
+- [ ] CI / release / dependency maintenance
 - [ ] Other:
 
-## Checklist
+## Verification
 
-- [ ] Tests pass (`make test`)
-- [ ] Lint clean (`make lint`)
-- [ ] Security clean (`make audit`)
-- [ ] CHANGELOG.md updated (for user-facing changes)
+<!-- List exact commands run and results. If skipped, explain why. -->
+
+- [ ] `make lint`
+- [ ] `python -m mypy services/alarm_broker/alarm_broker`
+- [ ] `make test`
+- [ ] `make e2e` when user-facing HTTP/browser flows changed
+- [ ] `make test-postgres-smoke` when DB models, migrations, or persistence behavior changed
+- [ ] `make audit` when dependencies, auth, network egress, secrets, parsing, or security controls changed
+- [ ] `make package-check` when packaging, templates, Docker, or release metadata changed
+
+## Release notes
+
+- [ ] `CHANGELOG.md` updated for user-facing, operational, security, or compatibility changes
+- [ ] Docs updated for changed endpoints, env vars, deployment steps, runtime semantics, or operator guidance
+- [ ] No release note needed because:

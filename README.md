@@ -3,7 +3,7 @@
 [![CI](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml)
 
 > **NOTICE (Release Candidate)** -- This project is a **release candidate** and not yet validated for safety-critical, security-critical, or compliance-critical environments.
-> It is an open-source reference implementation intended to explore architecture patterns, integration flows, and an MVP workflow.
+> It is an open-source reference implementation for alarm intake, persistence, acknowledgement, notification fan-out, and escalation workflows.
 > No warranty is provided; you are responsible for risk assessment, hardening, monitoring, redundancy, and operational procedures before any production deployment.
 
 ## Features
@@ -91,9 +91,9 @@ sequenceDiagram
       alt unknown token
         API->>R: DEL idemp:*
         API-->>Y: 404 Unknown token
-      else mapping incomplete
+      else unknown token or incomplete mapping
         API->>R: DEL idemp:*
-        API-->>Y: 409 Mapping incomplete
+        API-->>Y: 404 Unknown token
       else ok
         API->>PG: INSERT alarms(status=triggered, ack_token, meta, ...)
         API->>PG: UPDATE devices.last_seen_at
@@ -179,16 +179,16 @@ stateDiagram-v2
 
 ## Repository layout
 
-- `docs/` – concepts and specifications (English)
+- `docs/` – current public setup, operations, architecture, integration, and roadmap documentation
 - `services/alarm_broker/` – FastAPI API + arq worker + Alembic migrations
 - `deploy/` – Docker Compose + example seed file
 
-Main docs:
+Current docs:
 - [docs/SETUP.md](docs/SETUP.md) — installation, configuration reference, dev workflow
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — monitoring, backups, troubleshooting
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data model, flows, lifecycle
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Yealink/Zammad templates and connector notes
-- [docs/ROADMAP.md](docs/ROADMAP.md) — implementation backlog
+- [docs/ROADMAP.md](docs/ROADMAP.md) — active release-candidate backlog
 
 ## How to read the code
 
@@ -220,6 +220,7 @@ The core state transition rules live in `services/alarm_service.py`; the SQLAlch
 ```bash
 # 1. Configure environment
 cp .env.example .env
+# Set ADMIN_API_KEY and YEALINK_DEVICE_TOKEN in .env before loading seed data.
 
 # 2. Start all services (API + PostgreSQL + Redis + Worker)
 docker compose -f deploy/docker-compose.yml up -d --build
@@ -234,7 +235,7 @@ curl -sS -X POST "http://localhost:8080/v1/admin/seed" \
   --data-binary @deploy/seed.example.yaml
 
 # 5. Trigger a test alarm
-curl -sS "http://localhost:8080/v1/yealink/alarm?token=YLK_T54W_3F9A" | jq .
+curl -sS "http://localhost:8080/v1/yealink/alarm?token=<device-token>" | jq .
 
 # 6. Check readiness
 curl -sS "http://localhost:8080/readyz" | jq .

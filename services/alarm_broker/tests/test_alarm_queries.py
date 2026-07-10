@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -68,11 +73,11 @@ async def test_list_alarms_sort_by_created_at_asc(
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 200
+    expect(response.status_code == 200)
     data = response.json()
-    assert len(data) >= 3
+    expect(len(data) >= 3)
     timestamps = [item["created_at"] for item in data]
-    assert timestamps == sorted(timestamps)
+    expect(timestamps == sorted(timestamps))
 
 
 async def test_list_alarms_cursor_pagination(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -91,9 +96,9 @@ async def test_list_alarms_cursor_pagination(engine, sessionmaker, seeded_db, fa
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             page1 = await client.get("/v1/alarms", params={"limit": 2}, headers=ADMIN_HEADERS)
-            assert page1.status_code == 200
-            assert len(page1.json()) == 2
-            assert "X-Next-Cursor" in page1.headers
+            expect(page1.status_code == 200)
+            expect(len(page1.json()) == 2)
+            expect("X-Next-Cursor" in page1.headers)
 
             cursor = page1.headers["X-Next-Cursor"]
             page2 = await client.get(
@@ -101,13 +106,13 @@ async def test_list_alarms_cursor_pagination(engine, sessionmaker, seeded_db, fa
                 params={"limit": 2, "cursor": cursor},
                 headers=ADMIN_HEADERS,
             )
-            assert page2.status_code == 200
-            assert len(page2.json()) >= 1
+            expect(page2.status_code == 200)
+            expect(len(page2.json()) >= 1)
 
             # Verify no overlap between pages
             page1_ids = {item["id"] for item in page1.json()}
             page2_ids = {item["id"] for item in page2.json()}
-            assert page1_ids.isdisjoint(page2_ids)
+            expect(page1_ids.isdisjoint(page2_ids))
 
 
 async def test_list_alarms_status_filter(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -139,10 +144,10 @@ async def test_list_alarms_status_filter(engine, sessionmaker, seeded_db, fake_r
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 200
+    expect(response.status_code == 200)
     data = response.json()
-    assert all(item["status"] == "resolved" for item in data)
-    assert len(data) >= 1
+    expect(all(item["status"] == "resolved" for item in data))
+    expect(len(data) >= 1)
 
 
 async def test_export_alarms_csv(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -165,16 +170,16 @@ async def test_export_alarms_csv(engine, sessionmaker, seeded_db, fake_redis, se
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 200
-    assert "text/csv" in response.headers["content-type"]
-    assert "content-disposition" in response.headers
-    assert "attachment" in response.headers["content-disposition"]
-    assert ".csv" in response.headers["content-disposition"]
+    expect(response.status_code == 200)
+    expect("text/csv" in response.headers["content-type"])
+    expect("content-disposition" in response.headers)
+    expect("attachment" in response.headers["content-disposition"])
+    expect(".csv" in response.headers["content-disposition"])
     # Verify CSV has header row
     lines = response.text.strip().split("\n")
-    assert len(lines) >= 2  # header + at least one data row
-    assert "id" in lines[0]
-    assert "status" in lines[0]
+    expect(len(lines) >= 2)  # header + at least one data row
+    expect("id" in lines[0])
+    expect("status" in lines[0])
 
 
 async def test_export_alarms_json(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -197,13 +202,13 @@ async def test_export_alarms_json(engine, sessionmaker, seeded_db, fake_redis, s
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 200
-    assert "application/json" in response.headers["content-type"]
+    expect(response.status_code == 200)
+    expect("application/json" in response.headers["content-type"])
     data = response.json()
-    assert isinstance(data, list)
-    assert len(data) >= 1
-    assert "id" in data[0]
-    assert "status" in data[0]
+    expect(isinstance(data, list))
+    expect(len(data) >= 1)
+    expect("id" in data[0])
+    expect("status" in data[0])
 
 
 async def test_alarm_stats_structure(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -232,14 +237,14 @@ async def test_alarm_stats_structure(engine, sessionmaker, seeded_db, fake_redis
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/v1/alarms/stats", headers=ADMIN_HEADERS)
 
-    assert response.status_code == 200
+    expect(response.status_code == 200)
     data = response.json()
-    assert "total" in data
-    assert "by_status" in data
-    assert "by_severity" in data
-    assert data["total"] >= 2
-    assert isinstance(data["by_status"], dict)
-    assert isinstance(data["by_severity"], dict)
+    expect("total" in data)
+    expect("by_status" in data)
+    expect("by_severity" in data)
+    expect(data["total"] >= 2)
+    expect(isinstance(data["by_status"], dict))
+    expect(isinstance(data["by_severity"], dict))
 
 
 async def test_patch_alarm_severity(engine, sessionmaker, seeded_db, fake_redis, settings):
@@ -263,8 +268,8 @@ async def test_patch_alarm_severity(engine, sessionmaker, seeded_db, fake_redis,
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 200
-    assert response.json()["severity"] == "P1"
+    expect(response.status_code == 200)
+    expect(response.json()["severity"] == "P1")
 
 
 async def test_single_alarm_resolve(engine, seeded_db, fake_redis, settings):
@@ -282,7 +287,7 @@ async def test_single_alarm_resolve(engine, seeded_db, fake_redis, settings):
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 204
+    expect(response.status_code == 204)
 
 
 async def test_single_alarm_cancel(engine, seeded_db, fake_redis, settings):
@@ -300,4 +305,4 @@ async def test_single_alarm_cancel(engine, seeded_db, fake_redis, settings):
                 headers=ADMIN_HEADERS,
             )
 
-    assert response.status_code == 204
+    expect(response.status_code == 204)

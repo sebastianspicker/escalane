@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -12,8 +17,10 @@ from alarm_broker.api.main import create_app
 from alarm_broker.db.models import Alarm, AlarmStatus
 
 try:
+    from tests.constants import TEST_ADMIN_API_KEY, value_for_test
     from tests.helpers import trigger_alarm as _trigger_alarm
 except ModuleNotFoundError:
+    from constants import TEST_ADMIN_API_KEY, value_for_test
     from helpers import trigger_alarm as _trigger_alarm
 
 pytestmark = [pytest.mark.integration]
@@ -22,8 +29,39 @@ pytestmark = [pytest.mark.integration]
 # ── Helper ───────────────────────────────────────────────────────────
 
 
-def _admin_headers(key: str = "dev-admin-key") -> dict[str, str]:
+def _admin_headers(key: str = TEST_ADMIN_API_KEY) -> dict[str, str]:
     return {"X-Admin-Key": key}
+
+
+def _make_alarm(**overrides) -> Alarm:
+    if "alarm_id" in overrides:
+        overrides["id"] = overrides.pop("alarm_id")
+    defaults = {
+        "id": uuid.uuid4(),
+        "status": AlarmStatus.TRIGGERED,
+        "source": "stats-test",
+        "event": "alarm.trigger",
+        "severity": "P0",
+        "silent": True,
+        "ack_token": value_for_test(f"integration-{uuid.uuid4().hex[:8]}"),
+        "created_at": datetime.now(UTC),
+        "meta": {},
+    }
+    defaults.update(overrides)
+    return Alarm(**defaults)
+
+
+def _expect_alarm_stats_payload(data: dict) -> None:
+    expect("total" in data)
+    expect(data["total"] >= 2)
+    expect("by_status" in data)
+    expect(isinstance(data["by_status"], dict))
+    expect(data["by_status"].get("triggered", 0) >= 1)
+    expect(data["by_status"].get("resolved", 0) >= 1)
+    expect("by_severity" in data)
+    expect(isinstance(data["by_severity"], dict))
+    expect(data["by_severity"].get("P0", 0) >= 1)
+    expect(data["by_severity"].get("P1", 0) >= 1)
 
 
 # ── Full alarm lifecycle: trigger → ack → resolve ────────────────────
@@ -33,7 +71,7 @@ async def test_full_alarm_lifecycle_trigger_ack_resolve(
     engine, sessionmaker, seeded_db, fake_redis, settings
 ):
     """An alarm can be triggered, acknowledged, and then resolved in sequence."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
     async with app.router.lifespan_context(app):
@@ -47,8 +85,8 @@ async def test_full_alarm_lifecycle_trigger_ack_resolve(
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert get_resp.status_code == 200
-            assert get_resp.json()["status"] == "triggered"
+            expect(get_resp.status_code == 200)
+            expect(get_resp.json()["status"] == "triggered")
 
             # 2. Acknowledge
             ack_resp = await client.post(
@@ -56,17 +94,17 @@ async def test_full_alarm_lifecycle_trigger_ack_resolve(
                 headers=_admin_headers(),
                 json={"acked_by": "Nurse A", "note": "On my way"},
             )
-            assert ack_resp.status_code == 204
+            expect(ack_resp.status_code == 204)
 
             get_resp_ack = await client.get(
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert get_resp_ack.status_code == 200
+            expect(get_resp_ack.status_code == 200)
             data_ack = get_resp_ack.json()
-            assert data_ack["status"] == "acknowledged"
-            assert data_ack["acked_by"] == "Nurse A"
-            assert data_ack["acked_at"] is not None
+            expect(data_ack["status"] == "acknowledged")
+            expect(data_ack["acked_by"] == "Nurse A")
+            expect(data_ack["acked_at"] is not None)
 
             # 3. Resolve
             resolve_resp = await client.post(
@@ -74,17 +112,17 @@ async def test_full_alarm_lifecycle_trigger_ack_resolve(
                 headers=_admin_headers(),
                 json={"actor": "Doctor B", "note": "Situation handled"},
             )
-            assert resolve_resp.status_code == 204
+            expect(resolve_resp.status_code == 204)
 
             get_resp_resolved = await client.get(
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert get_resp_resolved.status_code == 200
+            expect(get_resp_resolved.status_code == 200)
             data_resolved = get_resp_resolved.json()
-            assert data_resolved["status"] == "resolved"
-            assert data_resolved["resolved_by"] == "Doctor B"
-            assert data_resolved["resolved_at"] is not None
+            expect(data_resolved["status"] == "resolved")
+            expect(data_resolved["resolved_by"] == "Doctor B")
+            expect(data_resolved["resolved_at"] is not None)
 
 
 # ── Alarm export endpoint ────────────────────────────────────────────
@@ -92,7 +130,7 @@ async def test_full_alarm_lifecycle_trigger_ack_resolve(
 
 async def test_alarm_export_json_format(engine, sessionmaker, seeded_db, fake_redis, settings):
     """The export endpoint returns valid JSON with the expected fields."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     now = datetime.now(UTC)
     alarm_id = uuid.uuid4()
 
@@ -109,7 +147,7 @@ async def test_alarm_export_json_format(engine, sessionmaker, seeded_db, fake_re
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="export-test-token",
+                ack_token=value_for_test("export"),
                 created_at=now,
                 meta={},
             )
@@ -127,25 +165,25 @@ async def test_alarm_export_json_format(engine, sessionmaker, seeded_db, fake_re
                 headers=_admin_headers(),
             )
 
-    assert response.status_code == 200
-    assert "application/json" in response.headers["content-type"]
+    expect(response.status_code == 200)
+    expect("application/json" in response.headers["content-type"])
 
     data = response.json()
-    assert isinstance(data, list)
-    assert len(data) >= 1
+    expect(isinstance(data, list))
+    expect(len(data) >= 1)
 
     # Check that the exported alarm has the expected structure
     exported = next((a for a in data if a["id"] == str(alarm_id)), None)
-    assert exported is not None
-    assert exported["status"] == "triggered"
-    assert exported["source"] == "test"
-    assert exported["severity"] == "P0"
-    assert "created_at" in exported
+    expect(exported is not None)
+    expect(exported["status"] == "triggered")
+    expect(exported["source"] == "test")
+    expect(exported["severity"] == "P0")
+    expect("created_at" in exported)
 
 
 async def test_alarm_export_csv_format(engine, sessionmaker, seeded_db, fake_redis, settings):
     """The export endpoint returns CSV content with a header row."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     now = datetime.now(UTC)
 
     async with sessionmaker() as session:
@@ -161,7 +199,7 @@ async def test_alarm_export_csv_format(engine, sessionmaker, seeded_db, fake_red
                 device_id="ylk-t5-10023",
                 severity="P0",
                 silent=True,
-                ack_token="csv-export-token",
+                ack_token=value_for_test("csv-export"),
                 created_at=now,
                 meta={},
             )
@@ -179,18 +217,18 @@ async def test_alarm_export_csv_format(engine, sessionmaker, seeded_db, fake_red
                 headers=_admin_headers(),
             )
 
-    assert response.status_code == 200
-    assert "text/csv" in response.headers["content-type"]
+    expect(response.status_code == 200)
+    expect("text/csv" in response.headers["content-type"])
 
     body = response.text
     lines = body.strip().split("\n")
-    assert len(lines) >= 2  # header + at least one data row
+    expect(len(lines) >= 2)  # header + at least one data row
 
     header = lines[0]
-    assert "id" in header
-    assert "status" in header
-    assert "source" in header
-    assert "severity" in header
+    expect("id" in header)
+    expect("status" in header)
+    expect("source" in header)
+    expect("severity" in header)
 
 
 # ── Alarm stats endpoint ─────────────────────────────────────────────
@@ -200,36 +238,24 @@ async def test_alarm_stats_returns_correct_structure(
     engine, sessionmaker, seeded_db, fake_redis, settings
 ):
     """The stats endpoint returns total, by_status, and by_severity."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     now = datetime.now(UTC)
 
     async with sessionmaker() as session:
         session.add(
-            Alarm(
-                id=uuid.uuid4(),
-                status=AlarmStatus.TRIGGERED,
-                source="stats-test",
-                event="alarm.trigger",
-                severity="P0",
-                silent=True,
-                ack_token="stats-1",
+            _make_alarm(
+                ack_token=value_for_test("stats-1"),
                 created_at=now,
-                meta={},
             )
         )
         session.add(
-            Alarm(
-                id=uuid.uuid4(),
+            _make_alarm(
                 status=AlarmStatus.RESOLVED,
-                source="stats-test",
-                event="alarm.trigger",
                 severity="P1",
-                silent=True,
-                ack_token="stats-2",
+                ack_token=value_for_test("stats-2"),
                 created_at=now - timedelta(hours=1),
                 resolved_at=now,
                 resolved_by="auto",
-                meta={},
             )
         )
         await session.commit()
@@ -244,26 +270,13 @@ async def test_alarm_stats_returns_correct_structure(
                 headers=_admin_headers(),
             )
 
-    assert response.status_code == 200
-    data = response.json()
-
-    assert "total" in data
-    assert data["total"] >= 2
-
-    assert "by_status" in data
-    assert isinstance(data["by_status"], dict)
-    assert data["by_status"].get("triggered", 0) >= 1
-    assert data["by_status"].get("resolved", 0) >= 1
-
-    assert "by_severity" in data
-    assert isinstance(data["by_severity"], dict)
-    assert data["by_severity"].get("P0", 0) >= 1
-    assert data["by_severity"].get("P1", 0) >= 1
+    expect(response.status_code == 200)
+    _expect_alarm_stats_payload(response.json())
 
 
 async def test_alarm_stats_empty_database(engine, seeded_db, fake_redis, settings):
     """Stats endpoint returns zero total when no alarms exist."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
     async with app.router.lifespan_context(app):
@@ -274,11 +287,11 @@ async def test_alarm_stats_empty_database(engine, seeded_db, fake_redis, setting
                 headers=_admin_headers(),
             )
 
-    assert response.status_code == 200
+    expect(response.status_code == 200)
     data = response.json()
-    assert data["total"] == 0
-    assert data["by_status"] == {}
-    assert data["by_severity"] == {}
+    expect(data["total"] == 0)
+    expect(data["by_status"] == {})
+    expect(data["by_severity"] == {})
 
 
 # ── Alarm notes creation and listing ─────────────────────────────────
@@ -286,7 +299,7 @@ async def test_alarm_stats_empty_database(engine, seeded_db, fake_redis, setting
 
 async def test_alarm_notes_creation_and_listing(engine, seeded_db, fake_redis, settings):
     """Notes can be created and listed for an alarm."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
     async with app.router.lifespan_context(app):
@@ -300,12 +313,12 @@ async def test_alarm_notes_creation_and_listing(engine, seeded_db, fake_redis, s
                 headers=_admin_headers(),
                 json={"note": "First observation", "created_by": "Nurse A"},
             )
-            assert create_resp_1.status_code == 201
+            expect(create_resp_1.status_code == 201)
             note_1 = create_resp_1.json()
-            assert note_1["note"] == "First observation"
-            assert note_1["created_by"] == "Nurse A"
-            assert note_1["note_type"] == "manual"
-            assert note_1["alarm_id"] == str(alarm_id)
+            expect(note_1["note"] == "First observation")
+            expect(note_1["created_by"] == "Nurse A")
+            expect(note_1["note_type"] == "manual")
+            expect(note_1["alarm_id"] == str(alarm_id))
 
             # Create second note
             create_resp_2 = await client.post(
@@ -313,25 +326,25 @@ async def test_alarm_notes_creation_and_listing(engine, seeded_db, fake_redis, s
                 headers=_admin_headers(),
                 json={"note": "Second update", "created_by": "Doctor B"},
             )
-            assert create_resp_2.status_code == 201
+            expect(create_resp_2.status_code == 201)
 
             # List notes
             list_resp = await client.get(
                 f"/v1/alarms/{alarm_id}/notes",
                 headers=_admin_headers(),
             )
-            assert list_resp.status_code == 200
+            expect(list_resp.status_code == 200)
             notes = list_resp.json()
-            assert len(notes) == 2
-            assert notes[0]["note"] == "First observation"
-            assert notes[1]["note"] == "Second update"
+            expect(len(notes) == 2)
+            expect(notes[0]["note"] == "First observation")
+            expect(notes[1]["note"] == "Second update")
 
 
 async def test_alarm_notes_for_nonexistent_alarm_returns_404(
     engine, seeded_db, fake_redis, settings
 ):
     """Creating a note for a nonexistent alarm returns 404."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     missing_id = uuid.uuid4()
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
@@ -344,7 +357,7 @@ async def test_alarm_notes_for_nonexistent_alarm_returns_404(
                 json={"note": "This should fail"},
             )
 
-    assert response.status_code == 404
+    expect(response.status_code == 404)
 
 
 # ── Alarm deletion (soft delete) ─────────────────────────────────────
@@ -352,7 +365,7 @@ async def test_alarm_notes_for_nonexistent_alarm_returns_404(
 
 async def test_alarm_soft_delete(engine, sessionmaker, seeded_db, fake_redis, settings):
     """Deleting an alarm sets deleted_at and deleted_by without removing the record."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
     async with app.router.lifespan_context(app):
@@ -364,15 +377,15 @@ async def test_alarm_soft_delete(engine, sessionmaker, seeded_db, fake_redis, se
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert delete_resp.status_code == 204
+            expect(delete_resp.status_code == 204)
 
     # Verify in DB: record still exists but deleted_at is set
     async with sessionmaker() as session:
         alarm = await session.get(Alarm, alarm_id)
-        assert alarm is not None
-        assert alarm.deleted_at is not None
-        assert alarm.deleted_by is not None
-        assert alarm.deleted_by == "admin"
+        expect(alarm is not None)
+        expect(alarm.deleted_at is not None)
+        expect(alarm.deleted_by is not None)
+        expect(alarm.deleted_by == "admin")
 
 
 async def test_alarm_soft_delete_idempotent_returns_not_found(
@@ -383,7 +396,7 @@ async def test_alarm_soft_delete_idempotent_returns_not_found(
     The new security model makes get_alarm_or_404 return 404 for soft-deleted
     alarms, so the second delete attempt is treated as if the alarm does not exist.
     """
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
     async with app.router.lifespan_context(app):
@@ -395,18 +408,18 @@ async def test_alarm_soft_delete_idempotent_returns_not_found(
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert first.status_code == 204
+            expect(first.status_code == 204)
 
             second = await client.delete(
                 f"/v1/alarms/{alarm_id}",
                 headers=_admin_headers(),
             )
-            assert second.status_code == 404
+            expect(second.status_code == 404)
 
 
 async def test_alarm_delete_nonexistent_returns_404(engine, seeded_db, fake_redis, settings):
     """Deleting a nonexistent alarm returns 404."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     missing_id = uuid.uuid4()
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
@@ -418,4 +431,4 @@ async def test_alarm_delete_nonexistent_returns_404(engine, seeded_db, fake_redi
                 headers=_admin_headers(),
             )
 
-    assert response.status_code == 404
+    expect(response.status_code == 404)

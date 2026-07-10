@@ -36,6 +36,20 @@ router = APIRouter(prefix="/v1/alarms", dependencies=[Depends(require_admin)])
 logger = logging.getLogger("alarm_broker")
 
 
+async def _process_bulk_alarm(
+    alarm: Alarm,
+    process_alarm: Callable[[Alarm], Coroutine[Any, Any, bool]],
+) -> bool | None:
+    try:
+        return await process_alarm(alarm)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_409_CONFLICT:
+            return None
+        raise
+    except ConflictError:
+        return None
+
+
 async def _execute_bulk_operation(
     session: AsyncSession,
     alarm_ids: list[uuid.UUID],
@@ -65,17 +79,10 @@ async def _execute_bulk_operation(
             missing.append(alarm_id)
             continue
 
-        try:
-            was_changed = await process_alarm(alarm)
-        except HTTPException as exc:
-            if exc.status_code == status.HTTP_409_CONFLICT:
-                unchanged += 1
-                continue
-            raise
-        except ConflictError:
+        was_changed = await _process_bulk_alarm(alarm, process_alarm)
+        if was_changed is None:
             unchanged += 1
             continue
-
         if was_changed:
             changed += 1
             if after_change:

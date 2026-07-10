@@ -42,9 +42,11 @@ make test
 ### Code Quality
 
 ```bash
-make lint    # Format and lint check
-make audit   # Security audit
-make clean   # Clean up
+make lint                    # Ruff format check and lint
+python -m mypy services/alarm_broker/alarm_broker
+make audit                   # Ruff, Bandit, and project-scoped pip-audit
+make package-check           # Build the Python wheel
+make clean                   # Remove generated caches and build outputs
 ```
 
 ### Running Specific Tests
@@ -129,6 +131,7 @@ All configuration is via environment variables. See `.env.example` for all optio
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `ENABLE_API_DOCS` | No | `false` | Enable `/docs` and `/redoc` |
 | `YELK_IP_ALLOWLIST` | No | - | Comma-separated IPs/CIDRs for Yealink |
+| `YEALINK_DEVICE_TOKEN` | Seed data | - | Device token consumed by `deploy/seed.example.yaml` |
 | `RATE_LIMIT_PER_MINUTE` | No | `10` | Rate limit per device token |
 
 See `.env.example` for Zammad, SMS, Signal, and webhook configuration.
@@ -161,6 +164,7 @@ alarm-broker/
 |----------|--------|-------------|
 | `/healthz` | GET | Liveness check |
 | `/readyz` | GET | Readiness check (DB + Redis) |
+| `/healthz/details` | GET | Detailed dependency and connector status |
 | `/v1/yealink/alarm` | GET | Yealink alarm trigger |
 | `/a/{ack_token}` | GET/POST | Alarm acknowledgment UI |
 | `/admin/login` | GET/POST | Admin login form that sets a session cookie |
@@ -176,15 +180,26 @@ alarm-broker/
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/v1/alarms` | GET | List alarms (paginated) |
+| `/v1/alarms/export` | GET | Export alarms as CSV |
+| `/v1/alarms/stats` | GET | Alarm statistics |
 | `/v1/alarms/{id}` | GET | Get alarm details |
+| `/v1/alarms/{id}` | PATCH | Update alarm fields |
+| `/v1/alarms/{id}` | DELETE | Soft-delete an alarm |
 | `/v1/alarms/{id}/ack` | POST | Acknowledge alarm |
 | `/v1/alarms/{id}/resolve` | POST | Resolve alarm |
 | `/v1/alarms/{id}/cancel` | POST | Cancel alarm |
+| `/v1/alarms/{id}/notes` | GET/POST | Read or add alarm notes |
 | `/v1/alarms/bulk/ack` | POST | Bulk acknowledge |
 | `/v1/alarms/bulk/resolve` | POST | Bulk resolve |
 | `/v1/alarms/bulk/cancel` | POST | Bulk cancel |
 | `/metrics` | GET | Prometheus-style metrics |
+| `/v1/admin/devices` | POST | Create device mapping |
+| `/v1/admin/escalation-policy` | POST | Create escalation policy |
 | `/v1/admin/seed` | POST | Load seed data |
+| `/v1/simulation/status` | GET | Simulation status when enabled |
+| `/v1/simulation/notifications` | GET | Simulation notification log when enabled |
+| `/v1/simulation/notifications/clear` | POST | Clear simulation notification log |
+| `/v1/simulation/seed` | POST | Return simulation seed metadata |
 
 Cookie behavior:
 

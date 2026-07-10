@@ -8,43 +8,39 @@ from alarm_broker.db.models import Alarm, AlarmStatus
 from alarm_broker.types import EnrichedAlarmContext
 
 _TEMPLATE: Template = load_template("ack.html")
+_STATUS_DESCRIPTIONS = {
+    AlarmStatus.TRIGGERED: "Alarm aktiv -- wartet auf Übernahme.",
+    AlarmStatus.ACKNOWLEDGED: "Alarm übernommen -- wird bearbeitet.",
+    AlarmStatus.RESOLVED: "Alarm abgeschlossen.",
+    AlarmStatus.CANCELLED: "Alarm storniert.",
+}
+_INFO_MESSAGES = {
+    AlarmStatus.TRIGGERED: "Bitte quittiere den Alarm, wenn du die Übernahme bestätigst.",
+    AlarmStatus.ACKNOWLEDGED: (
+        "Dieser Alarm wurde erfolgreich übernommen. Das Einsatzteam wurde benachrichtigt."
+    ),
+    AlarmStatus.RESOLVED: "Dieser Alarm ist bereits gelöst. Keine weitere Aktion erforderlich.",
+    AlarmStatus.CANCELLED: "Dieser Alarm wurde storniert. Keine weitere Aktion erforderlich.",
+}
+_INFO_CLASSES = {
+    AlarmStatus.TRIGGERED: "warning",
+    AlarmStatus.ACKNOWLEDGED: "success",
+    AlarmStatus.RESOLVED: "success",
+    AlarmStatus.CANCELLED: "",
+}
 
 
-def render_ack_page(alarm: Alarm, enriched: EnrichedAlarmContext, *, csrf_token: str = "") -> str:
-    person = escape(str(enriched.get("person_name") or (alarm.person_id or "-")), quote=True)
-    room = escape(str(enriched.get("room_label") or (alarm.room_id or "-")), quote=True)
-    created = escape(alarm.created_at.isoformat(), quote=True)
-    status_label = escape(alarm.status.value, quote=True)
+def _escaped_label(value: object | None, fallback: str = "-") -> str:
+    return escape(str(value or fallback), quote=True)
 
-    is_triggered = alarm.status == AlarmStatus.TRIGGERED
-    status_descriptions = {
-        AlarmStatus.TRIGGERED: "Alarm aktiv -- wartet auf Übernahme.",
-        AlarmStatus.ACKNOWLEDGED: "Alarm übernommen -- wird bearbeitet.",
-        AlarmStatus.RESOLVED: "Alarm abgeschlossen.",
-        AlarmStatus.CANCELLED: "Alarm storniert.",
-    }
-    info_messages = {
-        AlarmStatus.TRIGGERED: "Bitte quittiere den Alarm, wenn du die Übernahme bestätigst.",
-        AlarmStatus.ACKNOWLEDGED: (
-            "Dieser Alarm wurde erfolgreich übernommen. Das Einsatzteam wurde benachrichtigt."
-        ),
-        AlarmStatus.RESOLVED: "Dieser Alarm ist bereits gelöst. Keine weitere Aktion erforderlich.",
-        AlarmStatus.CANCELLED: "Dieser Alarm wurde storniert. Keine weitere Aktion erforderlich.",
-    }
-    info_classes = {
-        AlarmStatus.TRIGGERED: "warning",
-        AlarmStatus.ACKNOWLEDGED: "success",
-        AlarmStatus.RESOLVED: "success",
-        AlarmStatus.CANCELLED: "",
-    }
 
+def _render_ack_form(csrf_token: str) -> str:
     csrf_field = (
         f'<input type="hidden" name="csrf_token" value="{escape(csrf_token, quote=True)}">'
         if csrf_token
         else ""
     )
-    form_block = (
-        f"""
+    return f"""
     <form method="post" onsubmit="return lockSubmit(this)" aria-label="Alarm quittieren">
       {csrf_field}
       <label for="acked_by">Dein Name (optional)
@@ -61,24 +57,28 @@ def render_ack_page(alarm: Alarm, enriched: EnrichedAlarmContext, *, csrf_token:
       <p class="hint" id="name-hint">Die Seite aktualisiert nach dem Absenden automatisch.</p>
     </form>
 """
-        if is_triggered
-        else ""
-    )
+
+
+def render_ack_page(alarm: Alarm, enriched: EnrichedAlarmContext, *, csrf_token: str = "") -> str:
+    is_triggered = alarm.status == AlarmStatus.TRIGGERED
+    title = "Alarm übernehmen" if is_triggered else "Alarm"
 
     return _TEMPLATE.substitute(
-        title="Alarm übernehmen" if is_triggered else "Alarm",
-        headline="Alarm übernehmen" if is_triggered else "Alarm",
-        status_label=status_label,
+        title=title,
+        headline=title,
+        status_label=escape(alarm.status.value, quote=True),
         status_color="#b45309" if is_triggered else "#047857",
         status_badge_class=escape(alarm.status.value, quote=True),
-        status_description=escape(status_descriptions.get(alarm.status, "Alarmstatus"), quote=True),
-        person=person,
-        room=room,
-        created=created,
-        info_class=escape(info_classes.get(alarm.status, ""), quote=True),
+        status_description=escape(
+            _STATUS_DESCRIPTIONS.get(alarm.status, "Alarmstatus"), quote=True
+        ),
+        person=_escaped_label(enriched.get("person_name") or alarm.person_id),
+        room=_escaped_label(enriched.get("room_label") or alarm.room_id),
+        created=escape(alarm.created_at.isoformat(), quote=True),
+        info_class=escape(_INFO_CLASSES.get(alarm.status, ""), quote=True),
         info_message=escape(
-            info_messages.get(alarm.status, "Dieser Alarm wurde bereits bearbeitet."),
+            _INFO_MESSAGES.get(alarm.status, "Dieser Alarm wurde bereits bearbeitet."),
             quote=True,
         ),
-        form_block=form_block,
+        form_block=_render_ack_form(csrf_token) if is_triggered else "",
     )

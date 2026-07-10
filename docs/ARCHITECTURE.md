@@ -2,13 +2,13 @@
 
 ## Scope and intent
 
-The system is intentionally designed as a hardened PoC:
+The system is a release-candidate reference implementation with:
 - stable core flow,
 - clear auditability,
 - secure defaults,
 - additive, backward-compatible API evolution.
 
-It is not a complete production platform yet.
+It is not validated for safety-critical, security-critical, or compliance-critical production use.
 
 ## Runtime components
 

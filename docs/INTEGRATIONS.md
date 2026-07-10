@@ -10,7 +10,7 @@ Example:
 
 ```ini
 alarm.number = 8800
-action_url.alarm.trigger = https://alarm.example.org/v1/yealink/alarm?token=YLK_T54W_3F9A
+action_url.alarm.trigger = https://alarm.example.org/v1/yealink/alarm?token=<device-token>
 alarm.button.ring.enable = 0
 ```
 

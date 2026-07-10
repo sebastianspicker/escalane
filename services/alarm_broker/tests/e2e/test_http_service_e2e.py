@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import asyncio
+import os
 import re
 import socket
 import uuid
@@ -19,11 +25,12 @@ from alarm_broker.db.base import Base
 from alarm_broker.db.models import Alarm
 from alarm_broker.db.session import create_sessionmaker
 from alarm_broker.settings import Settings
+from tests.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, TEST_DEVICE_TOKEN
 from tests.helpers import FakeRedis
 
 pytestmark = pytest.mark.e2e
 
-ADMIN_KEY = "e2e-admin-key"
+ADMIN_KEY = TEST_ADMIN_API_KEY
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SEED_FILE = REPO_ROOT / "deploy" / "seed.example.yaml"
 
@@ -54,6 +61,8 @@ def _bound_loopback_socket() -> socket.socket:
 
 @pytest_asyncio.fixture
 async def served_app(tmp_path: Path) -> AsyncIterator[ServedApp]:
+    previous_device_token = os.environ.get("YEALINK_DEVICE_TOKEN")
+    os.environ["YEALINK_DEVICE_TOKEN"] = TEST_DEVICE_TOKEN
     db_path = tmp_path / "alarm-broker-e2e.sqlite"
     engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
     async with engine.begin() as conn:
@@ -64,7 +73,7 @@ async def served_app(tmp_path: Path) -> AsyncIterator[ServedApp]:
         redis_url="redis://e2e-fake/0",
         base_url="http://127.0.0.1",
         admin_api_key=ADMIN_KEY,
-        zammad_api_token="",
+        zammad_api_token=EMPTY_SECRET_VALUE,
         sendxms_enabled=False,
         signal_enabled=False,
         signal_target_group_id="e2e-signal-group",
@@ -87,6 +96,10 @@ async def served_app(tmp_path: Path) -> AsyncIterator[ServedApp]:
             sessionmaker=create_sessionmaker(engine),
         )
     finally:
+        if previous_device_token is None:
+            os.environ.pop("YEALINK_DEVICE_TOKEN", None)
+        else:
+            os.environ["YEALINK_DEVICE_TOKEN"] = previous_device_token
         server.should_exit = True
         await asyncio.wait_for(task, timeout=5)
         await fake_redis.close()
@@ -96,16 +109,16 @@ async def served_app(tmp_path: Path) -> AsyncIterator[ServedApp]:
 async def _ack_token_for_alarm(served_app: ServedApp, alarm_id: uuid.UUID) -> str:
     async with served_app.sessionmaker() as session:
         alarm = await session.get(Alarm, alarm_id)
-        assert alarm is not None
-        assert alarm.ack_token is not None
+        expect(alarm is not None)
+        expect(alarm.ack_token is not None)
         return alarm.ack_token
 
 
 async def _submit_ack_form(client: httpx.AsyncClient, ack_token: str) -> httpx.Response:
     ack_page = await client.get(f"/a/{ack_token}")
-    assert ack_page.status_code == 200, ack_page.text
+    expect(ack_page.status_code == 200, ack_page.text)
     match = re.search(r'name="csrf_token"\s+value="([^"]+)"', ack_page.text)
-    assert match is not None
+    expect(match is not None)
 
     return await client.post(
         f"/a/{ack_token}",
@@ -121,45 +134,45 @@ async def test_served_http_trigger_ack_and_admin_dashboard(served_app: ServedApp
     headers = {"X-Admin-Key": ADMIN_KEY}
     async with httpx.AsyncClient(base_url=served_app.base_url, timeout=5.0) as client:
         health = await client.get("/healthz")
-        assert health.status_code == 200
-        assert health.json() == {"ok": "true"}
+        expect(health.status_code == 200)
+        expect(health.json() == {"ok": "true"})
 
         ready = await client.get("/readyz")
-        assert ready.status_code == 200
-        assert ready.json()["ok"] == "true"
+        expect(ready.status_code == 200)
+        expect(ready.json()["ok"] == "true")
 
         seed = await client.post(
             "/v1/admin/seed",
             headers={**headers, "Content-Type": "application/x-yaml"},
             content=SEED_FILE.read_bytes(),
         )
-        assert seed.status_code == 200, seed.text
+        expect(seed.status_code == 200, seed.text)
 
-        trigger = await client.get("/v1/yealink/alarm", params={"token": "YLK_T54W_3F9A"})
-        assert trigger.status_code == 200, trigger.text
+        trigger = await client.get("/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN})
+        expect(trigger.status_code == 200, trigger.text)
         alarm_id = uuid.UUID(trigger.json()["alarm_id"])
 
         detail = await client.get(f"/v1/alarms/{alarm_id}", headers=headers)
-        assert detail.status_code == 200, detail.text
-        assert detail.json()["status"] == "triggered"
+        expect(detail.status_code == 200, detail.text)
+        expect(detail.json()["status"] == "triggered")
 
         ack_token = await _ack_token_for_alarm(served_app, alarm_id)
         ack_response = await _submit_ack_form(client, ack_token)
-        assert ack_response.status_code == 200, ack_response.text
+        expect(ack_response.status_code == 200, ack_response.text)
 
         acknowledged = await client.get(f"/v1/alarms/{alarm_id}", headers=headers)
-        assert acknowledged.status_code == 200, acknowledged.text
-        assert acknowledged.json()["status"] == "acknowledged"
-        assert acknowledged.json()["acked_by"] == "E2E Responder"
+        expect(acknowledged.status_code == 200, acknowledged.text)
+        expect(acknowledged.json()["status"] == "acknowledged")
+        expect(acknowledged.json()["acked_by"] == "E2E Responder")
 
         login = await client.post(
             "/admin/login",
             data={"admin_key": ADMIN_KEY},
             follow_redirects=False,
         )
-        assert login.status_code == 303, login.text
+        expect(login.status_code == 303, login.text)
 
         dashboard = await client.get("/admin")
-        assert dashboard.status_code == 200, dashboard.text
-        assert str(alarm_id)[:8] in dashboard.text
-        assert "acknowledged" in dashboard.text
+        expect(dashboard.status_code == 200, dashboard.text)
+        expect(str(alarm_id)[:8] in dashboard.text)
+        expect("acknowledged" in dashboard.text)

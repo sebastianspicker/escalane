@@ -9,6 +9,11 @@ Covers:
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 
@@ -21,8 +26,10 @@ from alarm_broker.db.models import Alarm, AlarmNotification, AlarmStatus
 from alarm_broker.worker.tasks import alarm_acked, alarm_created, escalate
 
 try:
+    from tests.constants import TEST_ADMIN_API_KEY, value_for_test
     from tests.helpers import FakeRedis
 except ModuleNotFoundError:
+    from constants import TEST_ADMIN_API_KEY, value_for_test
     from helpers import FakeRedis
 
 
@@ -30,7 +37,7 @@ except ModuleNotFoundError:
 # Helpers
 # ---------------------------------------------------------------------------
 
-ADMIN_HEADERS = {"X-Admin-Key": "dev-admin-key"}
+ADMIN_HEADERS = {"X-Admin-Key": TEST_ADMIN_API_KEY}
 
 
 def _make_alarm(alarm_id: uuid.UUID | None = None, **overrides) -> Alarm:
@@ -46,7 +53,7 @@ def _make_alarm(alarm_id: uuid.UUID | None = None, **overrides) -> Alarm:
         device_id="ylk-t5-10023",
         severity="P0",
         silent=True,
-        ack_token="tok-" + uuid.uuid4().hex[:8],
+        ack_token=value_for_test("worker-coverage") + uuid.uuid4().hex[:8],
         created_at=datetime.now(UTC),
         meta={},
     )
@@ -86,9 +93,9 @@ async def test_alarm_created_full_flow(sessionmaker, seeded_db, settings):
     # Verify the alarm now has a zammad_ticket_id set
     async with sessionmaker() as session:
         alarm = await session.get(Alarm, alarm_id)
-        assert alarm is not None
-        assert alarm.zammad_ticket_id is not None
-        assert isinstance(alarm.zammad_ticket_id, int)
+        expect(alarm is not None)
+        expect(alarm.zammad_ticket_id is not None)
+        expect(isinstance(alarm.zammad_ticket_id, int))
 
     # Verify notification audit logs were created
     async with sessionmaker() as session:
@@ -97,9 +104,9 @@ async def test_alarm_created_full_flow(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-        assert len(rows) >= 1
+        expect(len(rows) >= 1)
         channels = {r.channel for r in rows}
-        assert "zammad" in channels
+        expect("zammad" in channels)
 
 
 async def test_alarm_created_missing_alarm(sessionmaker, seeded_db, settings):
@@ -131,7 +138,7 @@ async def test_escalate_missing_alarm(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == fake_id)
             )
         ).all()
-        assert len(rows) == 0
+        expect(len(rows) == 0)
 
 
 async def test_escalate_triggered_alarm_sends_notifications(sessionmaker, seeded_db, settings):
@@ -181,10 +188,10 @@ async def test_alarm_acked_adds_zammad_note(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-        assert len(rows) >= 1
+        expect(len(rows) >= 1)
         ack_rows = [r for r in rows if r.channel == "zammad"]
-        assert len(ack_rows) >= 1
-        assert ack_rows[0].result == "ok"
+        expect(len(ack_rows) >= 1)
+        expect(ack_rows[0].result == "ok")
 
 
 async def test_alarm_acked_no_zammad_ticket(sessionmaker, seeded_db, settings):
@@ -207,7 +214,7 @@ async def test_alarm_acked_no_zammad_ticket(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-        assert len(rows) == 0
+        expect(len(rows) == 0)
 
 
 async def test_alarm_acked_missing_alarm(sessionmaker, seeded_db, settings):
@@ -243,7 +250,7 @@ async def test_alarm_acked_without_note(sessionmaker, seeded_db, settings):
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
             )
         ).all()
-        assert len(rows) >= 1
+        expect(len(rows) >= 1)
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +262,7 @@ async def test_soft_deleted_alarm_excluded_from_list(
     engine, sessionmaker, seeded_db, fake_redis, settings
 ):
     """Soft-deleted alarms (deleted_at set) do not appear in GET /v1/alarms."""
-    settings.admin_api_key = "dev-admin-key"
+    settings.admin_api_key = TEST_ADMIN_API_KEY
     now = datetime.now(UTC)
     alarm_id = uuid.uuid4()
 
@@ -280,11 +287,11 @@ async def test_soft_deleted_alarm_excluded_from_list(
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/v1/alarms", headers=ADMIN_HEADERS)
 
-    assert response.status_code == 200
+    expect(response.status_code == 200)
     data = response.json()
     returned_ids = {item["id"] for item in data}
 
     # The soft-deleted alarm must not appear
-    assert str(alarm_id) not in returned_ids
+    expect(str(alarm_id) not in returned_ids)
     # The visible alarm must appear
-    assert str(visible_id) in returned_ids
+    expect(str(visible_id) in returned_ids)

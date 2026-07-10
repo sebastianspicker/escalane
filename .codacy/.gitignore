@@ -1,1 +1,6 @@
+# Codacy CLI state
+cli-config.yaml
+codacy.yaml
 generated/
+logs/
+tools-configs/

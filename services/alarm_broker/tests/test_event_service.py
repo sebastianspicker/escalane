@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import logging
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -36,8 +41,8 @@ async def test_enqueue_alarm_acked_event_success():
         logger=_LOGGER,
     )
 
-    assert result.success is True
-    assert result.error is None
+    expect(result.success is True)
+    expect(result.error is None)
 
 
 async def test_enqueue_alarm_acked_event_error():
@@ -56,8 +61,8 @@ async def test_enqueue_alarm_acked_event_error():
             logger=_LOGGER,
         )
 
-    assert result.success is False
-    assert "redis down" in (result.error or "")
+    expect(result.success is False)
+    expect("redis down" in (result.error or ""))
 
 
 async def test_enqueue_alarm_acked_event_no_acked_by():
@@ -73,7 +78,7 @@ async def test_enqueue_alarm_acked_event_no_acked_by():
         logger=_LOGGER,
     )
 
-    assert result.success is True
+    expect(result.success is True)
 
 
 # ── enqueue_alarm_created_event ───────────────────────────────────────
@@ -89,7 +94,7 @@ async def test_enqueue_alarm_created_event_success():
         logger=_LOGGER,
     )
 
-    assert result.success is True
+    expect(result.success is True)
 
 
 async def test_enqueue_alarm_created_event_error():
@@ -106,8 +111,8 @@ async def test_enqueue_alarm_created_event_error():
             logger=_LOGGER,
         )
 
-    assert result.success is False
-    assert "broker unreachable" in (result.error or "")
+    expect(result.success is False)
+    expect("broker unreachable" in (result.error or ""))
 
 
 # ── enqueue_alarm_state_changed_event ─────────────────────────────────
@@ -125,7 +130,7 @@ async def test_enqueue_alarm_state_changed_event_success():
         old_state="triggered",
     )
 
-    assert result.success is True
+    expect(result.success is True)
 
 
 async def test_enqueue_alarm_state_changed_event_error():
@@ -143,8 +148,8 @@ async def test_enqueue_alarm_state_changed_event_error():
             logger=_LOGGER,
         )
 
-    assert result.success is False
-    assert "timeout" in (result.error or "")
+    expect(result.success is False)
+    expect("timeout" in (result.error or ""))
 
 
 # ── EventResult ────────────────────────────────────────────────────────
@@ -152,10 +157,10 @@ async def test_enqueue_alarm_state_changed_event_error():
 
 def test_event_result_defaults():
     r = EventResult(success=True)
-    assert r.error is None
+    expect(r.error is None)
 
 
 def test_event_result_failure():
     r = EventResult(success=False, error="oops")
-    assert r.success is False
-    assert r.error == "oops"
+    expect(r.success is False)
+    expect(r.error == "oops")

@@ -2,12 +2,13 @@
 
 ## Supported Versions
 
-We release patches for security vulnerabilities. The following versions are currently supported:
+We release patches for security vulnerabilities on the current release-candidate
+line. Older tagged releases are not maintained.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.x   | :white_check_mark: |
-| 0.1.x   | :x:                |
+| Version | Supported |
+| ------- | --------- |
+| Current default branch / release candidate | :white_check_mark: |
+| Older tags | :x: |
 
 ## Reporting a Vulnerability
 
@@ -67,20 +68,24 @@ Example:
 WEBHOOK_ALLOWED_HOSTS=hooks.example.org,webhook.internal.example.org
 ```
 
-Wildcards are not supported. `ALLOW_HTTP_WEBHOOKS` still controls whether `http://` webhook URLs are accepted, but HTTP webhook hosts must also be allowlisted.
+Wildcards are not supported by default. If an operator needs broader matching
+for a controlled deployment, they must add an explicit host-validation change
+and review the SSRF impact before enabling it. `ALLOW_HTTP_WEBHOOKS` still
+controls whether `http://` webhook URLs are accepted, but HTTP webhook hosts
+must also be allowlisted.
 
 ## Best Practices
 
 1. **Use HTTPS in production** - Configure a reverse proxy with TLS
 2. **Trust proxies explicitly** - Set `TRUSTED_PROXY_CIDRS` before relying on forwarded HTTPS or client IP headers
-2. **Generate strong API keys** - Use random keys with sufficient entropy:
+3. **Generate strong API keys** - Use random keys with sufficient entropy:
    ```bash
    python -c "import secrets; print(secrets.token_urlsafe(32))"
    ```
-3. **Restrict network access** - Use firewall rules to limit access to necessary IPs
-4. **Regular updates** - Keep dependencies up to date
-5. **Monitor logs** - Watch for unusual activity
-6. **Backup regularly** - Maintain database backups
+4. **Restrict network access** - Use firewall rules to limit access to necessary IPs
+5. **Regular updates** - Keep dependencies up to date
+6. **Monitor logs** - Watch for unusual activity
+7. **Backup regularly** - Maintain database backups
 
 ## Dependencies Security
 

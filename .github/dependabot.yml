@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/services/alarm_broker"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-runtime:
+        dependency-type: "production"
+        patterns:
+          - "*"
+      python-dev:
+        dependency-type: "development"
+        patterns:
+          - "*"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"

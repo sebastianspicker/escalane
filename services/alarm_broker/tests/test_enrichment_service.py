@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 
@@ -46,10 +51,10 @@ async def test_full_enrichment(sessionmaker: async_sessionmaker, seeded_db: None
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] == "Person X"
-    assert result["room_label"] == "Raum 1.23"
-    assert result["site_name"] == "Standort BG"
-    assert result["severity"] == "P0"
+    expect(result["person_name"] == "Person X")
+    expect(result["room_label"] == "Raum 1.23")
+    expect(result["site_name"] == "Standort BG")
+    expect(result["severity"] == "P0")
 
 
 async def test_missing_person_falls_back_to_person_id(
@@ -64,9 +69,9 @@ async def test_missing_person_falls_back_to_person_id(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] == "unknown-person"
-    assert result["room_label"] == "Raum 1.23"
-    assert result["site_name"] == "Standort BG"
+    expect(result["person_name"] == "unknown-person")
+    expect(result["room_label"] == "Raum 1.23")
+    expect(result["site_name"] == "Standort BG")
 
 
 async def test_missing_room_falls_back_to_room_id(
@@ -81,9 +86,9 @@ async def test_missing_room_falls_back_to_room_id(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] == "Person X"
-    assert result["room_label"] == "nonexistent-room"
-    assert result["site_name"] == "Standort BG"
+    expect(result["person_name"] == "Person X")
+    expect(result["room_label"] == "nonexistent-room")
+    expect(result["site_name"] == "Standort BG")
 
 
 async def test_alarm_with_no_person_or_room(sessionmaker: async_sessionmaker, seeded_db: None):
@@ -96,10 +101,10 @@ async def test_alarm_with_no_person_or_room(sessionmaker: async_sessionmaker, se
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] is None
-    assert result["room_label"] is None
-    assert result["site_name"] is None
-    assert result["severity"] == "P0"
+    expect(result["person_name"] is None)
+    expect(result["room_label"] is None)
+    expect(result["site_name"] is None)
+    expect(result["severity"] == "P0")
 
 
 async def test_enrichment_preserves_severity(sessionmaker: async_sessionmaker, seeded_db: None):
@@ -112,7 +117,7 @@ async def test_enrichment_preserves_severity(sessionmaker: async_sessionmaker, s
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["severity"] == "P2"
+    expect(result["severity"] == "P2")
 
 
 async def test_missing_site_falls_back_to_room_site_id(
@@ -133,9 +138,9 @@ async def test_missing_site_falls_back_to_room_site_id(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] is None
-    assert result["room_label"] == "Raum 1.23"
-    assert result["site_name"] == "Standort BG"
+    expect(result["person_name"] is None)
+    expect(result["room_label"] == "Raum 1.23")
+    expect(result["site_name"] == "Standort BG")
 
 
 async def test_missing_room_and_unknown_site_falls_back_to_alarm_site_id(
@@ -150,9 +155,9 @@ async def test_missing_room_and_unknown_site_falls_back_to_alarm_site_id(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["person_name"] == "Person X"
-    assert result["room_label"] == "nonexistent-room"
-    assert result["site_name"] == "missing-site"
+    expect(result["person_name"] == "Person X")
+    expect(result["room_label"] == "nonexistent-room")
+    expect(result["site_name"] == "missing-site")
 
 
 async def test_room_found_site_row_missing_falls_back_to_room_site_id(
@@ -178,9 +183,9 @@ async def test_room_found_site_row_missing_falls_back_to_room_site_id(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["room_label"] == "Orphan Room"
+    expect(result["room_label"] == "Orphan Room")
     # Site row does not exist → falls back to room.site_id
-    assert result["site_name"] == orphan_site_id
+    expect(result["site_name"] == orphan_site_id)
 
 
 async def test_no_room_id_known_site_id_resolves(sessionmaker: async_sessionmaker, seeded_db: None):
@@ -193,8 +198,8 @@ async def test_no_room_id_known_site_id_resolves(sessionmaker: async_sessionmake
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["room_label"] is None
-    assert result["site_name"] == "Standort BG"
+    expect(result["room_label"] is None)
+    expect(result["site_name"] == "Standort BG")
 
 
 async def test_no_room_id_unknown_site_id_falls_back(
@@ -210,5 +215,5 @@ async def test_no_room_id_unknown_site_id_falls_back(
 
         result = await enrich_alarm_context(session, alarm)
 
-    assert result["room_label"] is None
-    assert result["site_name"] == "nonexistent-site"
+    expect(result["room_label"] is None)
+    expect(result["site_name"] == "nonexistent-site")

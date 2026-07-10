@@ -1,12 +1,15 @@
 # Build stage
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS builder
+
+ARG BUILD_ESSENTIAL_VERSION=12.*
+ARG LIBPQ_DEV_VERSION=17.*
 
 WORKDIR /build
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
+    build-essential="${BUILD_ESSENTIAL_VERSION}" \
+    libpq-dev="${LIBPQ_DEV_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
@@ -18,11 +21,13 @@ COPY services/alarm_broker/ /build/
 RUN pip install --no-cache-dir /build
 
 # Production stage
-FROM python:3.12-slim AS production
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS production
+
+ARG LIBPQ5_VERSION=17.*
 
 # Install runtime library for PostgreSQL
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
+    libpq5="${LIBPQ5_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user

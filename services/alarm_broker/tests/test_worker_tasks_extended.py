@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
@@ -20,8 +25,10 @@ from alarm_broker.worker.tasks import (
 )
 
 try:
+    from tests.constants import value_for_test
     from tests.helpers import FakeRedis
 except ModuleNotFoundError:
+    from constants import value_for_test
     from helpers import FakeRedis
 
 
@@ -37,7 +44,7 @@ def _make_alarm(alarm_id: uuid.UUID | None = None, **overrides) -> Alarm:
         device_id="ylk-t5-10023",
         severity="P0",
         silent=True,
-        ack_token="tok-" + uuid.uuid4().hex[:8],
+        ack_token=value_for_test("worker-tasks-extended") + uuid.uuid4().hex[:8],
         created_at=datetime.now(UTC),
         meta={},
     )
@@ -274,7 +281,7 @@ async def test_recover_incomplete_alarm_events_skips_complete_alarm(
 
     # Should not raise; no recovery jobs should be enqueued
     await recover_incomplete_alarm_events(ctx)
-    assert ctx["redis"].jobs == []
+    expect(ctx["redis"].jobs == [])
 
 
 # ── alarm_created: escalation schedule schedules future steps ─────────
@@ -305,7 +312,7 @@ async def test_alarm_created_schedules_escalation_steps(sessionmaker, seeded_db,
 
     # The FakeRedis should have an "escalate" job enqueued
     job_names = [name for name, _args in ctx["redis"].jobs]
-    assert "escalate" in job_names
+    expect("escalate" in job_names)
 
 
 # ── escalate: alarm has no ack_token ─────────────────────────────────

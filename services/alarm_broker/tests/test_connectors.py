@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import httpx
 import pytest
 import respx
@@ -9,6 +14,11 @@ import respx
 from alarm_broker.connectors.sendxms import SendXmsClient, SendXmsConfig
 from alarm_broker.connectors.signal import SignalClient, SignalConfig
 from alarm_broker.connectors.zammad import ZammadClient, ZammadConfig
+
+try:
+    from tests.constants import EMPTY_SECRET_VALUE, TEST_SMS_KEY, TEST_ZAMMAD_TOKEN
+except ModuleNotFoundError:
+    from constants import EMPTY_SECRET_VALUE, TEST_SMS_KEY, TEST_ZAMMAD_TOKEN
 
 # ---------------------------------------------------------------------------
 # a) test_zammad_create_ticket
@@ -20,7 +30,7 @@ async def test_zammad_create_ticket():
     config = ZammadConfig(
         enabled=True,
         base_url="https://zammad.example.test",
-        api_token="test-token-123",
+        api_token=TEST_ZAMMAD_TOKEN,
         group="Notfallstelle",
         state_id_new=1,
         customer="guess:alarm@example.org",
@@ -32,12 +42,12 @@ async def test_zammad_create_ticket():
         with respx.mock(assert_all_called=True) as mock_router:
 
             def _check_request(request: httpx.Request) -> httpx.Response:
-                assert request.headers["Authorization"] == "Bearer test-token-123"
+                expect(request.headers["Authorization"] == f"Bearer {TEST_ZAMMAD_TOKEN}")
                 import json
 
                 body = json.loads(request.content)
-                assert body["title"] == "Test Alarm Ticket"
-                assert body["group"] == "Notfallstelle"
+                expect(body["title"] == "Test Alarm Ticket")
+                expect(body["group"] == "Notfallstelle")
                 return httpx.Response(200, json={"id": 42, "title": "Test Alarm Ticket"})
 
             mock_router.post("https://zammad.example.test/api/v1/tickets").mock(
@@ -60,7 +70,7 @@ async def test_zammad_create_ticket():
                 }
             )
 
-    assert ticket_id == 42
+    expect(ticket_id == 42)
 
 
 async def test_zammad_add_internal_note():
@@ -68,7 +78,7 @@ async def test_zammad_add_internal_note():
     config = ZammadConfig(
         enabled=True,
         base_url="https://zammad.example.test",
-        api_token="test-token-123",
+        api_token=TEST_ZAMMAD_TOKEN,
     )
 
     async with httpx.AsyncClient() as http:
@@ -80,8 +90,8 @@ async def test_zammad_add_internal_note():
                 import json
 
                 body = json.loads(request.content)
-                assert body["article"]["subject"] == "Alarm quittiert"
-                assert body["article"]["internal"] is True
+                expect(body["article"]["subject"] == "Alarm quittiert")
+                expect(body["article"]["internal"] is True)
                 return httpx.Response(200, json={"ok": True})
 
             mock_router.put("https://zammad.example.test/api/v1/tickets/42").mock(
@@ -101,7 +111,7 @@ async def test_sendxms_send_sms():
     config = SendXmsConfig(
         enabled=True,
         base_url="https://api.sendxms.test",
-        api_key="sms-api-key",
+        api_key=TEST_SMS_KEY,
         from_name="Notfall",
         send_path="/send",
     )
@@ -112,13 +122,13 @@ async def test_sendxms_send_sms():
         with respx.mock(assert_all_called=True) as mock_router:
 
             def _check_request(request: httpx.Request) -> httpx.Response:
-                assert "Bearer sms-api-key" in request.headers.get("Authorization", "")
+                expect(f"Bearer {TEST_SMS_KEY}" in request.headers.get("Authorization", ""))
                 import json
 
                 body = json.loads(request.content)
-                assert body["to"] == "+491234567"
-                assert body["message"] == "NOTFALLALARM: Test"
-                assert body["from"] == "Notfall"
+                expect(body["to"] == "+491234567")
+                expect(body["message"] == "NOTFALLALARM: Test")
+                expect(body["from"] == "Notfall")
                 return httpx.Response(200, json={"ok": True})
 
             mock_router.post("https://api.sendxms.test/send").mock(side_effect=_check_request)
@@ -131,7 +141,7 @@ async def test_sendxms_disabled_noop():
     config = SendXmsConfig(
         enabled=False,
         base_url="https://api.sendxms.test",
-        api_key="sms-api-key",
+        api_key=TEST_SMS_KEY,
     )
 
     async with httpx.AsyncClient() as http:
@@ -141,7 +151,7 @@ async def test_sendxms_disabled_noop():
             mock_router.post("https://api.sendxms.test/send").respond(200)
             await client.send_sms("+491234567", "Should not be sent")
             # Route should NOT have been called
-            assert not mock_router.routes[0].called
+            expect(not mock_router.routes[0].called)
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +177,8 @@ async def test_signal_send_group_message():
                 import json
 
                 body = json.loads(request.content)
-                assert body["message"] == "NOTFALLALARM: Test message"
-                assert body["groupId"] == "custom-group-123"
+                expect(body["message"] == "NOTFALLALARM: Test message")
+                expect(body["groupId"] == "custom-group-123")
                 return httpx.Response(200, json={"ok": True})
 
             mock_router.post("https://signal-cli.test/v2/send").mock(side_effect=_check_request)
@@ -196,7 +206,7 @@ async def test_signal_uses_default_group_id():
                 import json
 
                 body = json.loads(request.content)
-                assert body["groupId"] == "default-group-id"
+                expect(body["groupId"] == "default-group-id")
                 return httpx.Response(200, json={"ok": True})
 
             mock_router.post("https://signal-cli.test/v2/send").mock(side_effect=_check_request)
@@ -218,7 +228,7 @@ async def test_signal_disabled_noop():
         with respx.mock as mock_router:
             mock_router.post("https://signal-cli.test/v2/send").respond(200)
             await client.send_group_message("Should not be sent")
-            assert not mock_router.routes[0].called
+            expect(not mock_router.routes[0].called)
 
 
 # ---------------------------------------------------------------------------
@@ -244,9 +254,9 @@ async def test_zammad_disabled_not_enabled():
     config = ZammadConfig(
         enabled=True,
         base_url="https://zammad.example.test",
-        api_token="",  # empty -> disabled
+        api_token=EMPTY_SECRET_VALUE,  # empty -> disabled
     )
 
     async with httpx.AsyncClient() as http:
         client = ZammadClient(http=http, config=config)
-        assert client.enabled() is False
+        expect(client.enabled() is False)

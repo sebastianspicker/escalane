@@ -13,9 +13,11 @@ from alarm_broker.db.session import create_sessionmaker
 from alarm_broker.settings import Settings
 
 try:
-    from tests.helpers import FakeRedis, ack_with_csrf, admin_login, trigger_alarm  # noqa: F401
+    from tests.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, TEST_DEVICE_TOKEN
+    from tests.helpers import FakeRedis
 except ModuleNotFoundError:
-    from helpers import FakeRedis, ack_with_csrf, admin_login, trigger_alarm  # noqa: F401
+    from constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, TEST_DEVICE_TOKEN
+    from helpers import FakeRedis
 
 
 @pytest.fixture
@@ -50,7 +52,7 @@ async def seeded_db(sessionmaker: async_sessionmaker) -> None:
                 vendor="yealink",
                 model_family="T5",
                 account_ext="10023",
-                device_token="YLK_T54W_3F9A",
+                device_token=TEST_DEVICE_TOKEN,
                 person_id="ma-012",
                 room_id="bg-1.23",
             )
@@ -64,9 +66,9 @@ def settings() -> Settings:
         database_url="sqlite+aiosqlite:///:memory:",
         redis_url="redis://fake/0",
         base_url="http://localhost:8080",
-        admin_api_key="dev-admin-key",
+        admin_api_key=TEST_ADMIN_API_KEY,
         rate_limit_per_minute=10,
-        zammad_api_token="",
+        zammad_api_token=EMPTY_SECRET_VALUE,
         sendxms_enabled=False,
         signal_enabled=False,
     )

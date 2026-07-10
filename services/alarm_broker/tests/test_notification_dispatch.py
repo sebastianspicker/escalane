@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import uuid
 from datetime import UTC, datetime
 
@@ -19,6 +24,11 @@ from alarm_broker.db.models import (
 )
 from alarm_broker.services.notification_service import NotificationService, log_notification
 from alarm_broker.types import EnrichedAlarmContext
+
+try:
+    from tests.constants import value_for_test
+except ModuleNotFoundError:
+    from constants import value_for_test
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -38,7 +48,7 @@ def _make_alarm(alarm_id: uuid.UUID | None = None) -> Alarm:
         device_id="ylk-t5-10023",
         severity="P0",
         silent=True,
-        ack_token="tok-" + uuid.uuid4().hex[:8],
+        ack_token=value_for_test("notification-dispatch") + uuid.uuid4().hex[:8],
         created_at=datetime.now(UTC),
         meta={},
     )
@@ -59,6 +69,52 @@ def _mock_notification_service() -> NotificationService:
         sendxms=MockSendXmsClient(),
         signal=MockSignalClient(),
     )
+
+
+async def _add_default_escalation_targets(session) -> None:
+    session.add(EscalationPolicy(id="default", name="Default Policy"))
+    session.add(
+        EscalationTarget(
+            id="tgt-sms-2",
+            label="SMS Target",
+            channel="sms",
+            address="+491111",
+            enabled=True,
+        )
+    )
+    session.add(
+        EscalationTarget(
+            id="tgt-signal-2",
+            label="Signal Group",
+            channel="signal",
+            address="group-xyz",
+            enabled=True,
+        )
+    )
+    session.add(
+        EscalationStep(policy_id="default", step_no=0, after_seconds=0, target_id="tgt-sms-2")
+    )
+    session.add(
+        EscalationStep(policy_id="default", step_no=0, after_seconds=0, target_id="tgt-signal-2")
+    )
+
+
+async def _send_stage_zero_notifications(sessionmaker, alarm_id: uuid.UUID):
+    svc = _mock_notification_service()
+    async with sessionmaker() as session:
+        alarm = await session.get(Alarm, alarm_id)
+        await svc.send(
+            session=session,
+            alarm=alarm,
+            enriched=_enriched(),
+            step_no=0,
+            ack_url="http://localhost:8080/a/tok-dispatch",
+        )
+        return (
+            await session.scalars(
+                select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
+            )
+        ).all()
 
 
 # ---------------------------------------------------------------------------
@@ -89,11 +145,11 @@ async def test_log_notification_writes_to_db(sessionmaker, seeded_db):
             .where(AlarmNotification.channel == "sms")
         )
 
-    assert row is not None
-    assert row.result == "ok"
-    assert row.error is None
-    assert row.target_id == "tgt-1"
-    assert row.payload["body"] == "hello"
+    expect(row is not None)
+    expect(row.result == "ok")
+    expect(row.error is None)
+    expect(row.target_id == "tgt-1")
+    expect(row.payload["body"] == "hello")
 
 
 # ---------------------------------------------------------------------------
@@ -113,14 +169,14 @@ async def test_build_notification_payload():
         ack_url="http://localhost:8080/a/tok-abc",
     )
 
-    assert payload["alarm_id"] == str(alarm.id)
-    assert payload["step_no"] == 0
-    assert payload["priority"] == 3  # P0 -> 3
-    assert "NOTFALLALARM" in payload["title"]
-    assert "Person X" in payload["title"]
-    assert "Raum 1.23" in payload["title"]
-    assert "Person X" in payload["body"]
-    assert isinstance(payload["tags"], list)
+    expect(payload["alarm_id"] == str(alarm.id))
+    expect(payload["step_no"] == 0)
+    expect(payload["priority"] == 3)  # P0 -> 3
+    expect("NOTFALLALARM" in payload["title"])
+    expect("Person X" in payload["title"])
+    expect("Raum 1.23" in payload["title"])
+    expect("Person X" in payload["body"])
+    expect(isinstance(payload["tags"], list))
 
 
 # ---------------------------------------------------------------------------
@@ -141,14 +197,14 @@ async def test_build_zammad_ticket_payload():
     )
     zammad_payload = svc._build_zammad_ticket_payload(notification_payload)
 
-    assert zammad_payload["title"] == notification_payload["title"]
-    assert zammad_payload["priority_id"] == notification_payload["priority"]
-    assert "group" in zammad_payload
-    assert "state_id" in zammad_payload
-    assert "customer_id" in zammad_payload
-    assert zammad_payload["article"]["body"] == notification_payload["body"]
-    assert zammad_payload["article"]["type"] == "note"
-    assert zammad_payload["article"]["internal"] is True
+    expect(zammad_payload["title"] == notification_payload["title"])
+    expect(zammad_payload["priority_id"] == notification_payload["priority"])
+    expect("group" in zammad_payload)
+    expect("state_id" in zammad_payload)
+    expect("customer_id" in zammad_payload)
+    expect(zammad_payload["article"]["body"] == notification_payload["body"])
+    expect(zammad_payload["article"]["type"] == "note")
+    expect(zammad_payload["article"]["internal"] is True)
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +261,9 @@ async def test_get_escalation_targets(sessionmaker, seeded_db):
         targets = await svc._get_escalation_targets(session, "default", 0)
 
     # Only enabled targets should be returned
-    assert len(targets) == 2
+    expect(len(targets) == 2)
     channels = {t.channel for t in targets}
-    assert channels == {"sms", "signal"}
+    expect(channels == {"sms", "signal"})
 
 
 # ---------------------------------------------------------------------------
@@ -220,64 +276,15 @@ async def test_send_dispatches_to_channels(sessionmaker, seeded_db):
 
     async with sessionmaker() as session:
         session.add(_make_alarm(alarm_id))
-        session.add(EscalationPolicy(id="default", name="Default Policy"))
-        session.add(
-            EscalationTarget(
-                id="tgt-sms-2",
-                label="SMS Target",
-                channel="sms",
-                address="+491111",
-                enabled=True,
-            )
-        )
-        session.add(
-            EscalationTarget(
-                id="tgt-signal-2",
-                label="Signal Group",
-                channel="signal",
-                address="group-xyz",
-                enabled=True,
-            )
-        )
-        session.add(
-            EscalationStep(policy_id="default", step_no=0, after_seconds=0, target_id="tgt-sms-2")
-        )
-        session.add(
-            EscalationStep(
-                policy_id="default", step_no=0, after_seconds=0, target_id="tgt-signal-2"
-            )
-        )
+        await _add_default_escalation_targets(session)
         await session.commit()
 
-    mock_zammad = MockZammadClient()
-    mock_sendxms = MockSendXmsClient()
-    mock_signal = MockSignalClient()
-    svc = NotificationService(zammad=mock_zammad, sendxms=mock_sendxms, signal=mock_signal)
-
-    async with sessionmaker() as session:
-        alarm = await session.get(Alarm, alarm_id)
-        enriched = _enriched()
-
-        await svc.send(
-            session=session,
-            alarm=alarm,
-            enriched=enriched,
-            step_no=0,
-            ack_url="http://localhost:8080/a/tok-dispatch",
-        )
-
-        # Verify notification rows were logged
-        rows = (
-            await session.scalars(
-                select(AlarmNotification).where(AlarmNotification.alarm_id == alarm_id)
-            )
-        ).all()
-
-    assert len(rows) == 2
+    rows = await _send_stage_zero_notifications(sessionmaker, alarm_id)
+    expect(len(rows) == 2)
     channels = {r.channel for r in rows}
-    assert "sms" in channels
-    assert "signal" in channels
-    assert all(r.result == "ok" for r in rows)
+    expect("sms" in channels)
+    expect("signal" in channels)
+    expect(all(r.result == "ok" for r in rows))
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +308,8 @@ async def test_handle_zammad_ticket_success(sessionmaker, seeded_db):
             session, alarm, enriched, ack_url="http://localhost:8080/a/tok-z", settings=None
         )
 
-    assert ticket_id is not None
-    assert isinstance(ticket_id, int)
+    expect(ticket_id is not None)
+    expect(isinstance(ticket_id, int))
 
     async with sessionmaker() as session:
         row = await session.scalar(
@@ -310,10 +317,10 @@ async def test_handle_zammad_ticket_success(sessionmaker, seeded_db):
             .where(AlarmNotification.alarm_id == alarm_id)
             .where(AlarmNotification.channel == "zammad")
         )
-    assert row is not None
-    assert row.result == "ok"
-    assert row.payload["action"] == "create_ticket"
-    assert row.payload["ticket_id"] == ticket_id
+    expect(row is not None)
+    expect(row.result == "ok")
+    expect(row.payload["action"] == "create_ticket")
+    expect(row.payload["ticket_id"] == ticket_id)
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +359,7 @@ async def test_handle_zammad_ticket_failure(sessionmaker, seeded_db):
             session, alarm, enriched, ack_url="http://localhost:8080/a/tok-fail", settings=None
         )
 
-    assert ticket_id is None
+    expect(ticket_id is None)
 
     async with sessionmaker() as session:
         row = await session.scalar(
@@ -360,6 +367,6 @@ async def test_handle_zammad_ticket_failure(sessionmaker, seeded_db):
             .where(AlarmNotification.alarm_id == alarm_id)
             .where(AlarmNotification.channel == "zammad")
         )
-    assert row is not None
-    assert row.result == "error"
-    assert "connection refused" in row.error.lower()
+    expect(row is not None)
+    expect(row.result == "error")
+    expect("connection refused" in row.error.lower())

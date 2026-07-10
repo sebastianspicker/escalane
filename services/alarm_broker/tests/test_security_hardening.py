@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from tests.assertions import expect
+except ModuleNotFoundError:
+    from assertions import expect
+
 import re
 import uuid
 from pathlib import Path
@@ -13,6 +18,16 @@ from alarm_broker.core.rate_limit import rate_limit_key
 from alarm_broker.db.models import Alarm, AlarmStatus, Person
 from alarm_broker.seed import apply_seed
 from alarm_broker.settings import Settings
+
+try:
+    from tests.constants import (
+        EMPTY_SECRET_VALUE,
+        TEST_ADMIN_API_KEY,
+        TEST_DEVICE_TOKEN,
+        value_for_test,
+    )
+except ModuleNotFoundError:
+    from constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, TEST_DEVICE_TOKEN, value_for_test
 
 pytestmark = [pytest.mark.security]
 
@@ -33,11 +48,11 @@ async def test_untrusted_x_forwarded_for_does_not_bypass_ip_allowlist(
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
                 "/v1/yealink/alarm",
-                params={"token": "YLK_T54W_3F9A"},
+                params={"token": TEST_DEVICE_TOKEN},
                 headers={"x-forwarded-for": "203.0.113.10"},
             )
 
-    assert resp.status_code == 403
+    expect(resp.status_code == 403)
 
 
 async def test_trusted_proxy_allows_forwarded_client_ip(engine, seeded_db, fake_redis, settings):
@@ -59,11 +74,11 @@ async def test_trusted_proxy_allows_forwarded_client_ip(engine, seeded_db, fake_
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
                 "/v1/yealink/alarm",
-                params={"token": "YLK_T54W_3F9A"},
+                params={"token": TEST_DEVICE_TOKEN},
                 headers={"x-forwarded-for": "203.0.113.10"},
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
 
 
 async def test_ack_page_escapes_untrusted_html(
@@ -71,11 +86,11 @@ async def test_ack_page_escapes_untrusted_html(
 ):
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
     alarm_id = uuid.uuid4()
-    ack_token = "ack-xss-token"
+    ack_token = value_for_test("ack-xss")
 
     async with sessionmaker() as session:
         person = await session.get(Person, "ma-012")
-        assert person is not None
+        expect(person is not None)
         person.display_name = '<script>alert("x")</script>'
         session.add(
             Alarm(
@@ -100,9 +115,9 @@ async def test_ack_page_escapes_untrusted_html(
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(f"/a/{ack_token}")
 
-    assert resp.status_code == 200
-    assert '<script>alert("x")</script>' not in resp.text
-    assert "&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in resp.text
+    expect(resp.status_code == 200)
+    expect('<script>alert("x")</script>' not in resp.text)
+    expect("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in resp.text)
 
 
 async def test_ack_page_sets_no_store_and_security_headers(
@@ -113,29 +128,29 @@ async def test_ack_page_sets_no_store_and_security_headers(
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            trigger = await client.get("/v1/yealink/alarm", params={"token": "YLK_T54W_3F9A"})
-            assert trigger.status_code == 200
+            trigger = await client.get("/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN})
+            expect(trigger.status_code == 200)
             alarm_id = uuid.UUID(trigger.json()["alarm_id"])
 
             async with sessionmaker() as session:
                 alarm = await session.get(Alarm, alarm_id)
-                assert alarm is not None
-                assert alarm.ack_token is not None
+                expect(alarm is not None)
+                expect(alarm.ack_token is not None)
                 ack_token = alarm.ack_token
 
             resp = await client.get(f"/a/{ack_token}")
 
-    assert resp.status_code == 200
-    assert resp.headers.get("Cache-Control") == "no-store"
-    assert resp.headers.get("Pragma") == "no-cache"
-    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
-    assert resp.headers.get("X-Frame-Options") == "DENY"
-    assert resp.headers.get("Referrer-Policy") == "no-referrer"
+    expect(resp.status_code == 200)
+    expect(resp.headers.get("Cache-Control") == "no-store")
+    expect(resp.headers.get("Pragma") == "no-cache")
+    expect(resp.headers.get("X-Content-Type-Options") == "nosniff")
+    expect(resp.headers.get("X-Frame-Options") == "DENY")
+    expect(resp.headers.get("Referrer-Policy") == "no-referrer")
     csp = resp.headers.get("Content-Security-Policy", "")
-    assert "object-src 'none'" in csp
-    assert "base-uri 'self'" in csp
-    assert "form-action 'self'" in csp
-    assert "frame-ancestors 'none'" in csp
+    expect("object-src 'none'" in csp)
+    expect("base-uri 'self'" in csp)
+    expect("form-action 'self'" in csp)
+    expect("frame-ancestors 'none'" in csp)
 
 
 async def test_admin_login_failed_attempts_are_rate_limited(
@@ -155,7 +170,7 @@ async def test_admin_login_failed_attempts_are_rate_limited(
                 )
                 statuses.append(resp.status_code)
 
-    assert statuses == [401, 401, 401, 401, 401, 429]
+    expect(statuses == [401, 401, 401, 401, 401, 429])
 
 
 async def test_admin_login_success_clears_failed_attempt_counter(
@@ -172,14 +187,14 @@ async def test_admin_login_success_clears_failed_attempt_counter(
                     data={"admin_key": "wrong-admin-key"},
                     follow_redirects=False,
                 )
-                assert resp.status_code == 401
+                expect(resp.status_code == 401)
 
             ok = await client.post(
                 "/admin/login",
                 data={"admin_key": settings.admin_api_key},
                 follow_redirects=False,
             )
-            assert ok.status_code == 303
+            expect(ok.status_code == 303)
 
             retry = await client.post(
                 "/admin/login",
@@ -187,7 +202,7 @@ async def test_admin_login_success_clears_failed_attempt_counter(
                 follow_redirects=False,
             )
 
-    assert retry.status_code == 401
+    expect(retry.status_code == 401)
 
 
 async def test_ack_form_rejects_oversized_note(
@@ -198,18 +213,18 @@ async def test_ack_form_rejects_oversized_note(
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            trigger = await client.get("/v1/yealink/alarm", params={"token": "YLK_T54W_3F9A"})
-            assert trigger.status_code == 200
+            trigger = await client.get("/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN})
+            expect(trigger.status_code == 200)
             alarm_id = uuid.UUID(trigger.json()["alarm_id"])
 
             async with sessionmaker() as session:
                 alarm = await session.get(Alarm, alarm_id)
-                assert alarm is not None
-                assert alarm.ack_token is not None
+                expect(alarm is not None)
+                expect(alarm.ack_token is not None)
                 ack_token = alarm.ack_token
 
             get_resp = await client.get(f"/a/{ack_token}")
-            assert get_resp.status_code == 200
+            expect(get_resp.status_code == 200)
             match = re.search(r'name="csrf_token"\s+value="([^"]+)"', get_resp.text)
             csrf_value = match.group(1) if match else ""
 
@@ -218,14 +233,14 @@ async def test_ack_form_rejects_oversized_note(
                 data={"acked_by": "Tester", "note": "x" * 2001, "csrf_token": csrf_value},
             )
 
-    assert resp.status_code == 422
+    expect(resp.status_code == 422)
 
 
 def test_rate_limit_key_does_not_include_raw_token() -> None:
     key = rate_limit_key("TOPSECRET_DEVICE_TOKEN", 42)
 
-    assert key.startswith("rl:")
-    assert "TOPSECRET_DEVICE_TOKEN" not in key
+    expect(key.startswith("rl:"))
+    expect("TOPSECRET_DEVICE_TOKEN" not in key)
 
 
 async def test_docs_and_openapi_disabled_by_default(engine, seeded_db, fake_redis):
@@ -234,8 +249,8 @@ async def test_docs_and_openapi_disabled_by_default(engine, seeded_db, fake_redi
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="dev-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -249,8 +264,8 @@ async def test_docs_and_openapi_disabled_by_default(engine, seeded_db, fake_redi
             docs = await client.get("/docs")
             openapi = await client.get("/openapi.json")
 
-    assert docs.status_code == 404
-    assert openapi.status_code == 404
+    expect(docs.status_code == 404)
+    expect(openapi.status_code == 404)
 
 
 def test_default_admin_api_key_is_not_empty_in_dev(monkeypatch) -> None:
@@ -262,7 +277,7 @@ def test_default_admin_api_key_is_not_empty_in_dev(monkeypatch) -> None:
     """
     monkeypatch.setenv("ADMIN_API_KEY", "change-me-admin-key")
     monkeypatch.setenv("SIMULATION_ENABLED", "true")
-    assert Settings().admin_api_key != ""
+    expect(Settings().admin_api_key != "")
 
 
 async def test_invalid_alarm_id_rejected_with_422(engine, seeded_db, fake_redis) -> None:
@@ -271,8 +286,8 @@ async def test_invalid_alarm_id_rejected_with_422(engine, seeded_db, fake_redis)
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -285,16 +300,16 @@ async def test_invalid_alarm_id_rejected_with_422(engine, seeded_db, fake_redis)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             get_resp = await client.get(
                 "/v1/alarms/not-a-uuid",
-                headers={"X-Admin-Key": "test-admin-key"},
+                headers={"X-Admin-Key": TEST_ADMIN_API_KEY},
             )
             post_resp = await client.post(
                 "/v1/alarms/not-a-uuid/ack",
-                headers={"X-Admin-Key": "test-admin-key"},
+                headers={"X-Admin-Key": TEST_ADMIN_API_KEY},
                 json={},
             )
 
-    assert get_resp.status_code == 422
-    assert post_resp.status_code == 422
+    expect(get_resp.status_code == 422)
+    expect(post_resp.status_code == 422)
 
 
 async def test_invalid_allowlist_config_fails_closed_without_500(
@@ -311,9 +326,9 @@ async def test_invalid_allowlist_config_fails_closed_without_500(
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            resp = await client.get("/v1/yealink/alarm", params={"token": "YLK_T54W_3F9A"})
+            resp = await client.get("/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN})
 
-    assert resp.status_code == 403
+    expect(resp.status_code == 403)
 
 
 async def test_invalid_trusted_proxy_config_is_ignored_without_500(
@@ -332,17 +347,17 @@ async def test_invalid_trusted_proxy_config_is_ignored_without_500(
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
                 "/v1/yealink/alarm",
-                params={"token": "YLK_T54W_3F9A"},
+                params={"token": TEST_DEVICE_TOKEN},
                 headers={"x-forwarded-for": "203.0.113.10"},
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
 
 
 def test_env_example_does_not_ship_static_admin_secret() -> None:
     env_example = Path(__file__).resolve().parents[3] / ".env.example"
     text = env_example.read_text(encoding="utf-8")
-    assert "ADMIN_API_KEY=dev-admin-key" not in text
+    expect(f"ADMIN_API_KEY={TEST_ADMIN_API_KEY}" not in text)
 
 
 async def test_admin_seed_invalid_json_returns_400(engine, seeded_db, fake_redis) -> None:
@@ -351,8 +366,8 @@ async def test_admin_seed_invalid_json_returns_400(engine, seeded_db, fake_redis
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -366,13 +381,13 @@ async def test_admin_seed_invalid_json_returns_400(engine, seeded_db, fake_redis
             resp = await client.post(
                 "/v1/admin/seed",
                 headers={
-                    "X-Admin-Key": "test-admin-key",
+                    "X-Admin-Key": TEST_ADMIN_API_KEY,
                     "Content-Type": "application/json",
                 },
                 content=b"{invalid-json",
             )
 
-    assert resp.status_code == 400
+    expect(resp.status_code == 400)
 
 
 async def test_admin_seed_invalid_yaml_returns_400(engine, seeded_db, fake_redis) -> None:
@@ -381,8 +396,8 @@ async def test_admin_seed_invalid_yaml_returns_400(engine, seeded_db, fake_redis
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -396,13 +411,13 @@ async def test_admin_seed_invalid_yaml_returns_400(engine, seeded_db, fake_redis
             resp = await client.post(
                 "/v1/admin/seed",
                 headers={
-                    "X-Admin-Key": "test-admin-key",
+                    "X-Admin-Key": TEST_ADMIN_API_KEY,
                     "Content-Type": "application/x-yaml",
                 },
                 content=b"foo: [\n",
             )
 
-    assert resp.status_code == 400
+    expect(resp.status_code == 400)
 
 
 async def test_admin_seed_accepts_application_yaml_content_type(
@@ -413,8 +428,8 @@ async def test_admin_seed_accepts_application_yaml_content_type(
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -428,13 +443,13 @@ async def test_admin_seed_accepts_application_yaml_content_type(
             resp = await client.post(
                 "/v1/admin/seed",
                 headers={
-                    "X-Admin-Key": "test-admin-key",
+                    "X-Admin-Key": TEST_ADMIN_API_KEY,
                     "Content-Type": "application/yaml",
                 },
                 content=b"sites: []\nrooms: []\n",
             )
 
-    assert resp.status_code == 200
+    expect(resp.status_code == 200)
 
 
 async def test_policy_rejects_missing_target_references(engine, seeded_db, fake_redis) -> None:
@@ -443,8 +458,8 @@ async def test_policy_rejects_missing_target_references(engine, seeded_db, fake_
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -472,28 +487,28 @@ async def test_policy_rejects_missing_target_references(engine, seeded_db, fake_
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post(
                 "/v1/admin/escalation-policy",
-                headers={"X-Admin-Key": "test-admin-key"},
+                headers={"X-Admin-Key": TEST_ADMIN_API_KEY},
                 json=payload,
             )
 
-    assert resp.status_code == 400
+    expect(resp.status_code == 400)
 
 
 def test_default_zammad_api_token_is_empty(monkeypatch) -> None:
-    monkeypatch.setenv("ADMIN_API_KEY", "test-admin-key")
+    monkeypatch.setenv("ADMIN_API_KEY", TEST_ADMIN_API_KEY)
     monkeypatch.setenv("SIMULATION_ENABLED", "true")
-    assert Settings().zammad_api_token == ""
+    expect(Settings().zammad_api_token == EMPTY_SECRET_VALUE)
 
 
 def test_env_example_does_not_ship_static_zammad_token() -> None:
     env_example = Path(__file__).resolve().parents[3] / ".env.example"
     text = env_example.read_text(encoding="utf-8")
-    assert "ZAMMAD_API_TOKEN=change-me" not in text
+    expect("ZAMMAD_API_TOKEN=change-me" not in text)
 
 
 def test_ip_allowlist_ipv6_host_entry_matches_only_exact_host() -> None:
-    assert ip_allowed("2001:db8::1", "2001:db8::1")
-    assert not ip_allowed("2001:db8::2", "2001:db8::1")
+    expect(ip_allowed("2001:db8::1", "2001:db8::1"))
+    expect(not ip_allowed("2001:db8::2", "2001:db8::1"))
 
 
 async def test_policy_duplicate_step_target_rejected(engine, seeded_db, fake_redis) -> None:
@@ -502,8 +517,8 @@ async def test_policy_duplicate_step_target_rejected(engine, seeded_db, fake_red
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -531,11 +546,11 @@ async def test_policy_duplicate_step_target_rejected(engine, seeded_db, fake_red
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post(
                 "/v1/admin/escalation-policy",
-                headers={"X-Admin-Key": "test-admin-key"},
+                headers={"X-Admin-Key": TEST_ADMIN_API_KEY},
                 json=payload,
             )
 
-    assert resp.status_code == 400
+    expect(resp.status_code == 400)
 
 
 async def test_admin_seed_invalid_structure_returns_400(engine, seeded_db, fake_redis) -> None:
@@ -544,8 +559,8 @@ async def test_admin_seed_invalid_structure_returns_400(engine, seeded_db, fake_
             database_url="sqlite+aiosqlite:///:memory:",
             redis_url="redis://fake/0",
             base_url="http://localhost:8080",
-            admin_api_key="test-admin-key",
-            zammad_api_token="",
+            admin_api_key=TEST_ADMIN_API_KEY,
+            zammad_api_token=EMPTY_SECRET_VALUE,
             sendxms_enabled=False,
             signal_enabled=False,
         ),
@@ -559,13 +574,13 @@ async def test_admin_seed_invalid_structure_returns_400(engine, seeded_db, fake_
             resp = await client.post(
                 "/v1/admin/seed",
                 headers={
-                    "X-Admin-Key": "test-admin-key",
+                    "X-Admin-Key": TEST_ADMIN_API_KEY,
                     "Content-Type": "application/json",
                 },
                 json={"sites": [{}]},
             )
 
-    assert resp.status_code == 400
+    expect(resp.status_code == 400)
 
 
 async def test_seed_env_false_expands_to_boolean_false(sessionmaker, settings, monkeypatch) -> None:
@@ -580,5 +595,5 @@ async def test_seed_env_false_expands_to_boolean_false(sessionmaker, settings, m
         await apply_seed(session, raw, settings)
         person = await session.get(Person, "p1")
 
-    assert person is not None
-    assert person.active is False
+    expect(person is not None)
+    expect(person.active is False)
