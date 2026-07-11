@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import secrets
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,7 @@ from alarm_broker.api.deps import (
     get_session,
     is_secure_request,
 )
+from alarm_broker.api.i18n import SUPPORTED_LOCALES, normalise_locale
 from alarm_broker.api.schemas import AckIn
 from alarm_broker.core.rate_limit import minute_bucket, rate_limit_key
 from alarm_broker.services.ack_ui import render_ack_page
@@ -40,6 +41,15 @@ _CSRF_COOKIE_NAME = "csrf_token"
 
 _ACK_RATE_MAX = 10
 _ACK_RATE_WINDOW = 60  # seconds
+
+
+def _locale(request: Request, explicit: str | None) -> str:
+    if explicit in SUPPORTED_LOCALES:
+        return explicit
+    persisted = request.cookies.get("ui_locale")
+    if persisted in SUPPORTED_LOCALES:
+        return persisted
+    return normalise_locale(request.headers.get("accept-language"))
 
 
 def _ack_rate_limit_key(client_ip: str) -> str:
@@ -122,6 +132,7 @@ async def _enqueue_ack_followups(request: Request, redis, alarm, payload: AckIn)
 async def ack_page(
     request: Request,
     ack_token: str,
+    lang: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     """Render the acknowledgement page and issue a one-hour CSRF cookie."""
@@ -137,7 +148,14 @@ async def ack_page(
 
     enriched = await enrich_alarm_context(session, alarm)
     csrf_token = secrets.token_hex(32)
-    html = render_ack_page(alarm, enriched, csrf_token=csrf_token)
+    selected_locale = _locale(request, lang)
+    html = render_ack_page(
+        alarm,
+        enriched,
+        ack_action=f"/a/{ack_token}?lang={selected_locale}",
+        locale=selected_locale,
+        csrf_token=csrf_token,
+    )
     response = HTMLResponse(html)
     response.set_cookie(
         key=_CSRF_COOKIE_NAME,
@@ -147,6 +165,8 @@ async def ack_page(
         samesite="strict",
         max_age=3600,
     )
+    if lang in SUPPORTED_LOCALES:
+        response.set_cookie("ui_locale", selected_locale, max_age=31_536_000, samesite="lax")
     return response
 
 
@@ -154,6 +174,7 @@ async def ack_page(
 async def ack_submit(
     request: Request,
     ack_token: str,
+    lang: str | None = Query(default=None),
     csrf_token: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
@@ -170,7 +191,31 @@ async def ack_submit(
 
     form = await request.form()
     _validate_csrf(csrf_token, str(form.get("csrf_token", "")))
-    payload = _parse_ack_payload(form)
+    selected_locale = _locale(request, lang)
+    try:
+        payload = _parse_ack_payload(form)
+    except HTTPException as exc:
+        enriched = await enrich_alarm_context(session, alarm)
+        message = (
+            "Name or note is too long. Check the fields and try again."
+            if selected_locale == "en"
+            else "Name oder Notiz ist zu lang. Prüfen Sie die Felder und versuchen Sie es erneut."
+        )
+        return HTMLResponse(
+            render_ack_page(
+                alarm,
+                enriched,
+                ack_action=f"/a/{ack_token}?lang={selected_locale}",
+                locale=selected_locale,
+                csrf_token=str(form.get("csrf_token", "")),
+                error=message,
+                values={
+                    "acked_by": str(form.get("acked_by", ""))[:120],
+                    "note": str(form.get("note", ""))[:2000],
+                },
+            ),
+            status_code=exc.status_code,
+        )
 
     changed = await acknowledge_alarm(
         session,
@@ -182,4 +227,11 @@ async def ack_submit(
         await _enqueue_ack_followups(request, redis, alarm, payload)
 
     enriched = await enrich_alarm_context(session, alarm)
-    return HTMLResponse(render_ack_page(alarm, enriched))
+    return HTMLResponse(
+        render_ack_page(
+            alarm,
+            enriched,
+            ack_action=f"/a/{ack_token}?lang={selected_locale}",
+            locale=selected_locale,
+        )
+    )

@@ -61,7 +61,7 @@ async def _load_only_alarm(sessionmaker) -> Alarm:
 async def _ack_alarm_via_page(client, ack_token: str) -> None:
     r3 = await client.get(f"/a/{ack_token}")
     expect(r3.status_code == 200)
-    expect("Alarm übernehmen" in r3.text)
+    expect("Acknowledge alarm" in r3.text)
     r4 = await ack_with_csrf(client, ack_token, acked_by="Tester", note="On my way")
     expect(r4.status_code == 200)
 

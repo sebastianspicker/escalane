@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Bilingual Jinja operator console with named Redis sessions, CSRF-protected form actions, deep-linkable alarm details, configuration, system, simulation, and activity views
+- Versioned and deactivatable master data with redacted administrative audit events
+- Packaged same-origin browser assets, safe revision polling, and Playwright browser-flow coverage
+- Deterministic public repository hygiene check for private, local-only, and generated files
+
+### Changed
+- Responder acknowledgement now uses localized, mobile-first HTML recovery states and progressive enhancement
+- Content Security Policy now permits only same-origin scripts, styles, and connections
+- Wheel smoke verification checks the actual Jinja templates and browser assets
+- API, health, and operator-system views now report the package version from one shared source
+
 ### Removed
 - Unused settings/env examples for `SENDXMS_MODE`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`, and `SIMULATION_SEED_URL`
 - Dead `alarm.resolved` / `alarm.cancelled` event publisher helpers and no-op worker dispatch branches
+- Obsolete `string.Template` loader and admin-template compatibility shim
 
 ## [0.2.0] - 2026-04-19
 

@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from alarm_broker import __version__
 from alarm_broker.api.deps import get_app_settings, get_redis, get_sessionmaker, require_admin
 from alarm_broker.core.metrics import render_prometheus_metrics
 from alarm_broker.settings import Settings
@@ -89,7 +90,7 @@ async def healthz_details(
     details: dict[str, Any] = {
         "application": {
             "name": "alarm-broker",
-            "version": "0.1.0",
+            "version": __version__,
             "uptime_seconds": round(_get_uptime(), 2),
             "timestamp": datetime.now(UTC).isoformat(),
         },

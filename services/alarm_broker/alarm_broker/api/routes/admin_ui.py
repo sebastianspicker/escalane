@@ -1,17 +1,29 @@
+"""Server-rendered, session-authenticated operator console."""
+
 from __future__ import annotations
 
-import hashlib
-import html as _html
+import html
 import secrets
-from dataclasses import dataclass
+import uuid
 from datetime import UTC, datetime
-from string import Template
+from typing import Any
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from alarm_broker import __version__
+from alarm_broker.api.admin_session import (
+    SESSION_COOKIE,
+    SESSION_TTL_SECONDS,
+    AdminSession,
+    create_admin_session,
+    destroy_admin_session,
+    pop_flash,
+    require_admin_session,
+    validate_admin_csrf,
+)
 from alarm_broker.api.deps import (
     get_app_settings,
     get_client_ip,
@@ -19,376 +31,471 @@ from alarm_broker.api.deps import (
     get_session,
     is_secure_request,
 )
-from alarm_broker.api.template_loader import load_template
+from alarm_broker.api.i18n import SUPPORTED_LOCALES, normalise_locale, translation_context
+from alarm_broker.api.templating import render_template
+from alarm_broker.connectors.mock import get_mock_store
 from alarm_broker.core.rate_limit import minute_bucket, rate_limit_key
-from alarm_broker.db.models import Alarm, AlarmStatus
+from alarm_broker.db.models import (
+    AdminAuditEvent,
+    Alarm,
+    AlarmStatus,
+    Person,
+    Room,
+)
 from alarm_broker.settings import Settings
 
-
-def escape(s: str) -> str:
-    """HTML-escape a string, including single and double quotes."""
-    return _html.escape(s, quote=True)
-
-
 router = APIRouter()
-
-_SESSION_TTL_SECONDS = 3600  # 1 hour
 _FAILED_LOGIN_LIMIT = 5
 _FAILED_LOGIN_WINDOW_SECONDS = 60
 
 
-_TEMPLATE: Template = load_template("admin.html")
-
-
-@dataclass(frozen=True)
-class _AlarmRowContext:
-    alarm_id: str
-    alarm_short_id: str
-    alarm_state: str
-    time_display: str
-    created_iso: str
-    person_display: str
-    room_display: str
-    source_display: str
-    severity_display: str
-    acked_by_display: str
-    can_ack: bool
-    can_resolve: bool
-    search_blob: str
-
-
-def _session_key(token: str) -> str:
-    return f"admin_session:{token}"
-
-
-def _admin_key_marker(settings: Settings) -> str:
-    return hashlib.sha256(settings.admin_api_key.encode()).hexdigest()
+def escape(value: str) -> str:
+    """Compatibility helper retained for callers that import it."""
+    return html.escape(value, quote=True)
 
 
 def _failed_login_key(request: Request, settings: Settings) -> str:
-    client_ip = get_client_ip(request, settings)
-    return rate_limit_key(f"admin-login:{client_ip}", minute_bucket())
+    return rate_limit_key(
+        f"admin-login:{get_client_ip(request, settings)}",
+        minute_bucket(),
+    )
 
 
-async def _check_failed_login_limit(redis, key: str) -> None:
-    current = await redis.get(key)
-    if current is not None and int(current) >= _FAILED_LOGIN_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed login attempts. Please try again later.",
-        )
+def _requested_locale(request: Request, explicit: str | None) -> str:
+    if explicit in SUPPORTED_LOCALES:
+        return explicit
+    persisted = request.cookies.get("ui_locale")
+    if persisted in SUPPORTED_LOCALES:
+        return persisted
+    return normalise_locale(request.headers.get("accept-language"))
 
 
-async def _record_failed_login(redis, key: str) -> None:
-    attempts = await redis.incr(key)
-    if attempts == 1:
-        await redis.expire(key, _FAILED_LOGIN_WINDOW_SECONDS)
+def _base_context(request: Request, locale: str, **values: Any) -> dict[str, Any]:
+    return {
+        **translation_context(locale),
+        "current_path": request.url.path,
+        "worklist_url": f"/admin?lang={locale}",
+        "asset_url": "/admin/assets/ui.css",
+        "script_url": "/admin/assets/ui.js",
+        **values,
+    }
 
 
-async def _validate_session(settings: Settings, redis, session_token: str | None) -> None:
-    """Validate that the session cookie maps to a valid admin key."""
-    if not settings.admin_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ADMIN_API_KEY is not configured. Set it in .env or environment variables.",
-        )
-    if not session_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated. Please log in at /admin/login.",
-        )
-    stored_marker = await redis.get(_session_key(session_token))
-    if stored_marker is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired. Please log in again at /admin/login.",
-        )
-    current_marker = _admin_key_marker(settings)
-    if not secrets.compare_digest(stored_marker, current_marker):
-        await redis.delete(_session_key(session_token))
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid session. Please log in again at /admin/login.",
-        )
-    await redis.expire(_session_key(session_token), _SESSION_TTL_SECONDS)
-
-
-@router.get("/admin/login", response_class=HTMLResponse)
-async def admin_login_page() -> HTMLResponse:
-    """Render a minimal login form for the admin dashboard."""
-    html = """<!DOCTYPE html>
-<html lang="en"><head><title>Admin Login - Alarm Broker</title>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#1a1a2e">
-<meta name="color-scheme" content="dark">
-<style>
-*{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-background:#1a1a2e;color:#e0e0e0;display:flex;justify-content:center;align-items:center;
-min-height:100vh;margin:0;padding:16px}
-form{background:#16213e;padding:2rem;border-radius:12px;width:min(400px,100%);
-border:1px solid rgba(255,255,255,0.08);box-shadow:0 20px 40px rgba(0,0,0,0.4)}
-h2{margin:0 0 1.5rem;font-size:1.5rem;letter-spacing:-0.01em}
-label{display:block;font-size:0.85rem;font-weight:600;color:#94a3b8;margin-bottom:0.5rem}
-input{width:100%;padding:12px 14px;margin:0 0 1rem;border:1px solid #334155;
-border-radius:8px;background:#0f3460;color:#e0e0e0;font-size:1rem;
-transition:border-color 0.2s,box-shadow 0.2s}
-input:focus{outline:none;border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,0.15)}
-button{width:100%;padding:14px;background:#e94560;color:#fff;border:none;
-border-radius:8px;cursor:pointer;font-size:1rem;font-weight:600;
-transition:background 0.2s,transform 0.1s}
-button:hover{background:#c73e54}
-button:active{transform:translateY(1px)}
-button:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
-</style></head>
-<body>
-<form method="POST" action="/admin/login" aria-label="Admin login">
-<h2>Admin Login</h2>
-<label for="admin_key">Admin Key</label>
-<input type="password" id="admin_key" name="admin_key" required autocomplete="off"
-       placeholder="Enter admin API key" aria-required="true">
-<button type="submit">Login</button>
-</form>
-</body></html>"""
-    return HTMLResponse(content=html)
-
-
-@router.post("/admin/login")
-async def admin_login_submit(
+def _html(
     request: Request,
-    admin_key: str = Form(...),
-    settings: Settings = Depends(get_app_settings),
-) -> RedirectResponse:
-    """Validate admin key and set a session cookie."""
-    if not settings.admin_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="ADMIN_API_KEY is not configured. Set it in .env or environment variables.",
-        )
-    redis = get_redis(request)
-    failed_login_key = _failed_login_key(request, settings)
-    await _check_failed_login_limit(redis, failed_login_key)
-
-    if not secrets.compare_digest(admin_key, settings.admin_api_key):
-        await _record_failed_login(redis, failed_login_key)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin key. Please check your credentials and try again.",
-        )
-
-    token = secrets.token_urlsafe(32)
-    await redis.delete(failed_login_key)
-    await redis.set(
-        _session_key(token),
-        _admin_key_marker(settings),
-        ex=_SESSION_TTL_SECONDS,
+    template: str,
+    locale: str,
+    *,
+    status_code: int = 200,
+    persist_locale: bool = False,
+    **context: Any,
+) -> HTMLResponse:
+    response = HTMLResponse(
+        render_template(template, **_base_context(request, locale, **context)),
+        status_code=status_code,
     )
-
-    response = RedirectResponse(url="/admin", status_code=status.HTTP_303_SEE_OTHER)
-    response.set_cookie(
-        key="admin_session",
-        value=token,
-        httponly=True,
-        secure=is_secure_request(request, settings),
-        samesite="strict",
-        max_age=_SESSION_TTL_SECONDS,
-    )
+    if persist_locale:
+        response.set_cookie("ui_locale", locale, max_age=31_536_000, samesite="lax")
     return response
 
 
-def _alarm_list_statement(status_filter: str | None, limit: int):
+def _login_error(locale: str, kind: str) -> str:
+    messages = {
+        "en": {
+            "invalid": "The admin key is not valid.",
+            "rate": "Too many failed attempts. Wait one minute and try again.",
+            "config": "Administrator login is not configured.",
+        },
+        "de": {
+            "invalid": "Der Admin-Schlüssel ist nicht gültig.",
+            "rate": "Zu viele fehlgeschlagene Versuche. Bitte warten Sie eine Minute.",
+            "config": "Die Administrator-Anmeldung ist nicht konfiguriert.",
+        },
+    }
+    return messages[locale][kind]
+
+
+async def _session_from_request(
+    request: Request,
+    settings: Settings,
+    token: str | None,
+    *,
+    extend: bool,
+) -> AdminSession:
+    return await require_admin_session(get_redis(request), settings, token, extend=extend)
+
+
+@router.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(
+    request: Request, lang: str | None = Query(default=None)
+) -> HTMLResponse:
+    locale = _requested_locale(request, lang)
+    return _html(
+        request,
+        "admin_login.html",
+        locale,
+        persist_locale=lang in SUPPORTED_LOCALES,
+        login_action=f"/admin/login?lang={locale}",
+        error=None,
+    )
+
+
+@router.post("/admin/login", response_class=HTMLResponse)
+async def admin_login_submit(
+    request: Request,
+    admin_key: str = Form(...),
+    operator_name: str = Form(default="Admin", max_length=120),
+    lang: str | None = Query(default=None),
+    settings: Settings = Depends(get_app_settings),
+) -> Response:
+    locale = _requested_locale(request, lang)
+    if not settings.admin_api_key:
+        return _html(
+            request,
+            "admin_login.html",
+            locale,
+            status_code=500,
+            login_action=f"/admin/login?lang={locale}",
+            error=_login_error(locale, "config"),
+        )
+
+    redis = get_redis(request)
+    failure_key = _failed_login_key(request, settings)
+    attempts = await redis.get(failure_key)
+    if attempts is not None and int(attempts) >= _FAILED_LOGIN_LIMIT:
+        return _html(
+            request,
+            "admin_login.html",
+            locale,
+            status_code=429,
+            login_action=f"/admin/login?lang={locale}",
+            error=_login_error(locale, "rate"),
+        )
+    if not secrets.compare_digest(admin_key, settings.admin_api_key):
+        count = await redis.incr(failure_key)
+        if count == 1:
+            await redis.expire(failure_key, _FAILED_LOGIN_WINDOW_SECONDS)
+        return _html(
+            request,
+            "admin_login.html",
+            locale,
+            status_code=401,
+            login_action=f"/admin/login?lang={locale}",
+            error=_login_error(locale, "invalid"),
+        )
+
+    await redis.delete(failure_key)
+    named = operator_name.strip() or "Admin"
+    browser_session = await create_admin_session(redis, settings, named)
+    response = RedirectResponse(f"/admin?lang={locale}", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        SESSION_COOKIE,
+        browser_session.token,
+        httponly=True,
+        secure=is_secure_request(request, settings),
+        samesite="strict",
+        max_age=SESSION_TTL_SECONDS,
+    )
+    response.set_cookie("ui_locale", locale, max_age=31_536_000, samesite="lax")
+    return response
+
+
+@router.post("/admin/logout")
+async def admin_logout(
+    request: Request,
+    csrf_token: str | None = Form(default=None),
+    admin_session: str | None = Cookie(default=None),
+    settings: Settings = Depends(get_app_settings),
+) -> Response:
+    browser_session = await _session_from_request(request, settings, admin_session, extend=False)
+    validate_admin_csrf(browser_session, csrf_token)
+    await destroy_admin_session(get_redis(request), admin_session)
+    response = RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
+@router.post("/admin/session/extend")
+async def admin_extend_session(
+    request: Request,
+    csrf_token: str | None = Form(default=None),
+    admin_session: str | None = Cookie(default=None),
+    settings: Settings = Depends(get_app_settings),
+) -> RedirectResponse:
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    validate_admin_csrf(browser_session, csrf_token)
+    return RedirectResponse("/admin", status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _alarm_query(
+    status_filter: str | None,
+    search: str | None,
+    sort_by: str,
+    order: str,
+    cursor: uuid.UUID | None,
+    limit: int,
+):
     stmt = (
-        select(Alarm)
+        select(Alarm, Person.display_name, Room.label)
+        .outerjoin(Person, Person.id == Alarm.person_id)
+        .outerjoin(Room, Room.id == Alarm.room_id)
         .where(Alarm.deleted_at.is_(None))
-        .order_by(Alarm.created_at.desc(), Alarm.id.desc())
     )
-    if status_filter and status_filter in [s.value for s in AlarmStatus]:
+    if status_filter in {item.value for item in AlarmStatus}:
         stmt = stmt.where(Alarm.status == AlarmStatus(status_filter))
-    return stmt.limit(limit)
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(
+            or_(
+                cast(Alarm.id, String).ilike(pattern),
+                Alarm.source.ilike(pattern),
+                Alarm.event.ilike(pattern),
+                Person.display_name.ilike(pattern),
+                Room.label.ilike(pattern),
+            )
+        )
+    if cursor is not None:
+        stmt = stmt.where(Alarm.id < cursor if order == "desc" else Alarm.id > cursor)
+    sort_columns = {
+        "status": Alarm.status,
+        "severity": Alarm.severity,
+        "created_at": Alarm.created_at,
+    }
+    sort_column = sort_columns.get(sort_by, Alarm.created_at)
+    ordering = sort_column.desc() if order == "desc" else sort_column.asc()
+    id_ordering = Alarm.id.desc() if order == "desc" else Alarm.id.asc()
+    return stmt.order_by(ordering, id_ordering).limit(limit + 1)
 
 
-async def _alarm_status_counts(session: AsyncSession) -> tuple[int, dict[str, int]]:
-    total_count = await session.scalar(
-        select(func.count(Alarm.id)).where(Alarm.deleted_at.is_(None))
-    )
-    counts_rows = (
+async def _counts(session: AsyncSession) -> dict[str, int]:
+    rows = (
         await session.execute(
             select(Alarm.status, func.count(Alarm.id))
             .where(Alarm.deleted_at.is_(None))
             .group_by(Alarm.status)
         )
     ).all()
-    counts = {status.value: 0 for status in AlarmStatus}
-    for status_value, count in counts_rows:
-        counts[status_value.value] = int(count)
-    return int(total_count or 0), counts
+    counts = {item.value: 0 for item in AlarmStatus}
+    counts.update({state.value: int(count) for state, count in rows})
+    return counts
 
 
-def _render_status_cards(counts: dict[str, int], status_filter: str | None) -> str:
-    cards = []
-    for state in AlarmStatus:
-        active_class = "active" if state.value == status_filter else ""
-        label = escape(state.value)
-        count = counts.get(state.value, 0)
-        cards.append(
-            f"<article class='card {active_class}'><h3>{label}</h3><p>{count}</p></article>"
+def _display_time(value: datetime) -> str:
+    aware = value if value.tzinfo else value.replace(tzinfo=UTC)
+    minutes = max(0, int((datetime.now(UTC) - aware).total_seconds() // 60))
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60} min"
+
+
+def _worklist_row(
+    alarm: Alarm, person: str | None, room: str | None, locale: str
+) -> dict[str, Any]:
+    return {
+        "id": str(alarm.id),
+        "short_id": str(alarm.id)[:8],
+        "status": alarm.status.value,
+        "created_at": _display_time(alarm.created_at),
+        "created_at_iso": alarm.created_at.isoformat(),
+        "person": person or alarm.person_id or "—",
+        "room": room or alarm.room_id or "—",
+        "source": alarm.source,
+        "severity": alarm.severity,
+        "detail_url": f"/admin/alarms/{alarm.id}?lang={locale}",
+    }
+
+
+async def _revision(session: AsyncSession) -> str:
+    rows = (
+        await session.execute(
+            select(
+                func.count(Alarm.id),
+                func.max(Alarm.created_at),
+                func.max(Alarm.acked_at),
+                func.max(Alarm.resolved_at),
+                func.max(Alarm.cancelled_at),
+            ).where(Alarm.deleted_at.is_(None))
         )
-    return "\n".join(cards)
-
-
-def _time_display(created_at: datetime) -> tuple[str, str]:
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
-    time_diff = datetime.now(UTC) - created_at
-    minutes_ago = int(time_diff.total_seconds() / 60)
-    if minutes_ago < 60:
-        return f"{minutes_ago}m ago", created_at.isoformat()
-    return f"{minutes_ago // 60}h {minutes_ago % 60}m ago", created_at.isoformat()
-
-
-def _alarm_row_context(alarm: Alarm) -> _AlarmRowContext:
-    alarm_id = str(alarm.id)
-    alarm_state = escape(alarm.status.value)
-    time_display, created_iso = _time_display(alarm.created_at)
-    person_display = str(alarm.person_id or "-")
-    room_display = str(alarm.room_id or "-")
-    source_display = alarm.source
-    severity_display = alarm.severity
-    acked_by_display = str(alarm.acked_by or "-")
-
-    can_ack = alarm.status == AlarmStatus.TRIGGERED
-    can_resolve = alarm.status in (AlarmStatus.TRIGGERED, AlarmStatus.ACKNOWLEDGED)
-    search_blob = " ".join(
-        [
-            alarm_id,
-            alarm_state,
-            person_display,
-            room_display,
-            source_display,
-            severity_display,
-            acked_by_display,
-        ]
-    ).lower()
-    return _AlarmRowContext(
-        alarm_id=alarm_id,
-        alarm_short_id=escape(alarm_id[:8]),
-        alarm_state=alarm_state,
-        time_display=time_display,
-        created_iso=created_iso,
-        person_display=person_display,
-        room_display=room_display,
-        source_display=source_display,
-        severity_display=severity_display,
-        acked_by_display=acked_by_display,
-        can_ack=can_ack,
-        can_resolve=can_resolve,
-        search_blob=search_blob,
-    )
-
-
-def _render_alarm_actions(can_ack: bool, can_resolve: bool) -> str:
-    ack_disabled_attr = " disabled" if not can_ack else ""
-    resolve_disabled_attr = " disabled" if not can_resolve else ""
-    return (
-        "<td class='actions'>"
-        "<button type='button' class='btn detail-btn'>Details</button>"
-        "<button type='button' class='btn btn-ack quick-ack-btn'"
-        f"{ack_disabled_attr}>Quick Ack</button>"
-        "<button type='button' class='btn btn-resolve quick-resolve-btn'"
-        f"{resolve_disabled_attr}>Quick Resolve</button>"
-        "</td>"
-    )
-
-
-def _render_alarm_row(alarm: Alarm) -> str:
-    row = _alarm_row_context(alarm)
-
-    return (
-        "<tr class='alarm-row'"
-        f" data-alarm-id='{escape(row.alarm_id)}'"
-        f" data-short-id='{row.alarm_short_id}'"
-        f" data-status='{row.alarm_state}'"
-        f" data-created='{escape(row.time_display)} ({escape(row.created_iso)})'"
-        f" data-person='{escape(row.person_display)}'"
-        f" data-room='{escape(row.room_display)}'"
-        f" data-source='{escape(row.source_display)}'"
-        f" data-severity='{escape(row.severity_display)}'"
-        f" data-acked-by='{escape(row.acked_by_display)}'"
-        f" data-can-ack='{'true' if row.can_ack else 'false'}'"
-        f" data-can-resolve='{'true' if row.can_resolve else 'false'}'"
-        f" data-search='{escape(row.search_blob)}'>"
-        f"<td><span class='state {row.alarm_state}'>{row.alarm_state}</span></td>"
-        f"<td class='mono'>{row.alarm_short_id}...</td>"
-        f"<td class='muted'>{escape(row.time_display)}</td>"
-        f"<td>{escape(row.person_display)}</td>"
-        f"<td>{escape(row.room_display)}</td>"
-        f"<td>{escape(row.source_display)}</td>"
-        f"<td><span class='severity'>{escape(row.severity_display)}</span></td>"
-        f"<td>{escape(row.acked_by_display)}</td>"
-        f"{_render_alarm_actions(row.can_ack, row.can_resolve)}"
-        "</tr>"
-    )
-
-
-def _render_alarm_rows(alarms: list[Alarm]) -> str:
-    if not alarms:
-        return "<tr><td colspan='9' class='muted'>No alarms found</td></tr>"
-    return "\n".join(_render_alarm_row(alarm) for alarm in alarms)
-
-
-def _simulation_panel(settings: Settings) -> str:
-    if not settings.simulation_enabled:
-        return (
-            "<section id='simulation-panel' class='sim-panel' data-enabled='false'>"
-            "<div class='sim-head'>"
-            "<h2>Simulation Mode</h2>"
-            "<p class='muted'>Simulation mode is currently disabled on this server.</p>"
-            "</div>"
-            "</section>"
-        )
-    return (
-        "<section id='simulation-panel' class='sim-panel' data-enabled='true'>"
-        "<div class='sim-head'>"
-        "<h2>Simulation Mode</h2>"
-        "<p class='muted'>Monitor mock notifications and demo seed helpers.</p>"
-        "</div>"
-        "<p id='sim-status' class='muted'>Checking simulation status ...</p>"
-        "<p class='muted'>Notifications: <strong id='sim-count'>-</strong></p>"
-        "<div class='sim-actions'>"
-        "<button id='sim-refresh-btn' type='button' class='btn'>Refresh</button>"
-        "<button id='sim-clear-btn' type='button' class='btn'>Clear Notifications</button>"
-        "<button id='sim-seed-btn' type='button' class='btn'>Load Seed Info</button>"
-        "</div>"
-        "</section>"
-    )
+    ).one()
+    return uuid.uuid5(uuid.NAMESPACE_OID, "|".join(str(value or "") for value in rows)).hex
 
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
-    refresh: int = Query(default=10, ge=5, le=120),
-    limit: int = Query(default=100, ge=1, le=500),
     status_filter: str | None = Query(default=None, alias="status"),
+    search: str | None = Query(default=None, max_length=120),
+    sort_by: str = Query(default="created_at", pattern="^(created_at|status|severity)$"),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
+    cursor: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    lang: str | None = Query(default=None),
     admin_session: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
-    redis = get_redis(request)
-    await _validate_session(settings, redis, admin_session)
-
-    alarms = (await session.scalars(_alarm_list_statement(status_filter, limit))).all()
-    total_count, counts = await _alarm_status_counts(session)
-    filter_qs = f"status={status_filter}&" if status_filter else ""
-    page = _TEMPLATE.substitute(
-        refresh_seconds=refresh,
-        row_count=str(len(alarms)),
-        total_count=str(total_count),
-        generated_at=escape(datetime.now(UTC).isoformat()),
-        status_cards=_render_status_cards(counts, status_filter),
-        filter_qs=filter_qs,
-        simulation_panel=_simulation_panel(settings),
-        admin_key_json='""',
-        rows=_render_alarm_rows(list(alarms)),
+    locale = _requested_locale(request, lang)
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    statement = _alarm_query(status_filter, search, sort_by, order, cursor, limit)
+    result = list((await session.execute(statement)).all())
+    page_rows = result[:limit]
+    next_cursor = str(page_rows[-1][0].id) if len(result) > limit and page_rows else None
+    flash = await pop_flash(get_redis(request), browser_session)
+    return _html(
+        request,
+        "admin_worklist.html",
+        locale,
+        persist_locale=lang in SUPPORTED_LOCALES,
+        alarms=[_worklist_row(alarm, person, room, locale) for alarm, person, room in page_rows],
+        counts=await _counts(session),
+        statuses=[item.value for item in AlarmStatus],
+        filters={"status": status_filter or "", "search": search or ""},
+        poll_url=f"/admin/revision?lang={locale}",
+        poll_interval=15,
+        revision=await _revision(session),
+        next_cursor=next_cursor,
+        operator_name=browser_session.operator_name,
+        logout_action="/admin/logout",
+        csrf_token=browser_session.csrf_token,
+        flash=flash,
+        simulation_enabled=settings.simulation_enabled,
     )
-    return HTMLResponse(content=page)
+
+
+@router.get("/admin/revision")
+async def admin_revision(
+    request: Request,
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> JSONResponse:
+    await _session_from_request(request, settings, admin_session, extend=False)
+    return JSONResponse({"revision": await _revision(session)})
+
+
+async def _action_session(
+    request: Request,
+    settings: Settings,
+    token: str | None,
+    csrf_token: str | None,
+) -> AdminSession:
+    browser_session = await _session_from_request(request, settings, token, extend=True)
+    validate_admin_csrf(browser_session, csrf_token)
+    return browser_session
+
+
+@router.get("/admin/activity", response_class=HTMLResponse)
+async def admin_activity(
+    request: Request,
+    lang: str | None = Query(default=None),
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    locale = _requested_locale(request, lang)
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    events = list(
+        (
+            await session.scalars(
+                select(AdminAuditEvent).order_by(AdminAuditEvent.created_at.desc()).limit(100)
+            )
+        ).all()
+    )
+    return _html(
+        request,
+        "admin_activity.html",
+        locale,
+        events=events,
+        operator_name=browser_session.operator_name,
+        logout_action="/admin/logout",
+        csrf_token=browser_session.csrf_token,
+    )
+
+
+@router.get("/admin/system", response_class=HTMLResponse)
+async def admin_system(
+    request: Request,
+    lang: str | None = Query(default=None),
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    locale = _requested_locale(request, lang)
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    database_ok = (await session.scalar(select(func.count(Alarm.id)))) is not None
+    states = [
+        {"name": "Application", "status": "ok", "detail": __version__},
+        {"name": "Database", "status": "ok" if database_ok else "error", "detail": "query"},
+        {"name": "Redis", "status": "ok", "detail": "operator session"},
+        {
+            "name": "Simulation",
+            "status": "enabled" if settings.simulation_enabled else "disabled",
+            "detail": "SIMULATION_ENABLED",
+        },
+    ]
+    return _html(
+        request,
+        "admin_system.html",
+        locale,
+        states=states,
+        operator_name=browser_session.operator_name,
+        logout_action="/admin/logout",
+        csrf_token=browser_session.csrf_token,
+    )
+
+
+@router.get("/admin/simulation", response_class=HTMLResponse)
+async def admin_simulation(
+    request: Request,
+    lang: str | None = Query(default=None),
+    admin_session: str | None = Cookie(default=None),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    if not settings.simulation_enabled:
+        raise HTTPException(status_code=404, detail="simulation_disabled")
+    locale = _requested_locale(request, lang)
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    notifications = get_mock_store().get_all()
+    return _html(
+        request,
+        "admin_simulation.html",
+        locale,
+        notifications=notifications,
+        clear_action="/admin/simulation/clear",
+        operator_name=browser_session.operator_name,
+        logout_action="/admin/logout",
+        csrf_token=browser_session.csrf_token,
+    )
+
+
+@router.post("/admin/simulation/clear")
+async def admin_simulation_clear(
+    request: Request,
+    csrf_token: str | None = Form(default=None),
+    admin_session: str | None = Cookie(default=None),
+    settings: Settings = Depends(get_app_settings),
+) -> RedirectResponse:
+    if not settings.simulation_enabled:
+        raise HTTPException(status_code=404, detail="simulation_disabled")
+    await _action_session(request, settings, admin_session, csrf_token)
+    get_mock_store().clear()
+    return RedirectResponse("/admin/simulation", status_code=303)
+
+
+def _render_alarm_row(alarm: Alarm) -> str:
+    """Legacy unit-test seam; the live worklist is rendered by Jinja."""
+    alarm_id = str(alarm.id)
+    can_ack = alarm.status == AlarmStatus.TRIGGERED
+    can_resolve = alarm.status in {AlarmStatus.TRIGGERED, AlarmStatus.ACKNOWLEDGED}
+    disabled_ack = " disabled" if not can_ack else ""
+    disabled_resolve = " disabled" if not can_resolve else ""
+    return (
+        f"<tr data-alarm-id='{escape(alarm_id)}' "
+        f"data-person='{escape(str(alarm.person_id or '-'))}' "
+        f"data-room='{escape(str(alarm.room_id or '-'))}' data-source='{escape(alarm.source)}' "
+        f"data-severity='{escape(alarm.severity)}' "
+        f"data-acked-by='{escape(str(alarm.acked_by or '-'))}' "
+        f"data-can-ack='{'true' if can_ack else 'false'}' "
+        f"data-can-resolve='{'true' if can_resolve else 'false'}'>"
+        f"<td>{escape(alarm.status.value)}</td><td>{escape(alarm_id[:8])}</td>"
+        f"<td><button class='quick-ack-btn'{disabled_ack}>Quick Ack</button>"
+        f"<button class='quick-resolve-btn'{disabled_resolve}>Quick Resolve</button></td></tr>"
+    )

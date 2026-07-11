@@ -18,7 +18,7 @@ If you discover a security vulnerability, please report it by creating a GitHub 
 ### Authentication
 
 - Admin API endpoints require a secure API key (`X-Admin-Key` header)
-- The browser-based admin UI uses a short-lived Redis-backed session cookie issued by `/admin/login`
+- The browser-based operator console uses a one-hour Redis-backed session cookie issued by `/admin/login`; mutating forms also require a separate CSRF token
 - Configure the admin key through `ADMIN_API_KEY` by default. If an operator
   explicitly selects another secret-injection mechanism, document and review
   that exception while preserving the same fail-closed behavior.
@@ -53,7 +53,7 @@ Security headers are applied unconditionally by `_install_security_headers_middl
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: no-referrer`
-- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
 - `Strict-Transport-Security` (HTTPS requests only)
 - `Cache-Control: no-store` on ACK pages (`/a/...`) to prevent token caching
 

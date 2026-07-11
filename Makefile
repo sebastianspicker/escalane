@@ -1,4 +1,4 @@
-.PHONY: test e2e test-postgres-smoke package-check lint lint-fix format format-check audit clean install dev demo-prepare demo-screens
+.PHONY: test e2e browser-e2e test-postgres-smoke package-check hygiene-check lint lint-fix format format-check audit clean install dev demo-prepare demo-screens
 
 # Development
 install:
@@ -14,11 +14,17 @@ test:
 e2e:
 	cd services/alarm_broker && python -m pytest -q tests/e2e --tb=short
 
+browser-e2e:
+	cd services/alarm_broker && python -m pytest -q tests/e2e/test_browser_ui.py --tb=short
+
 test-postgres-smoke:
 	cd services/alarm_broker && alembic upgrade head && pytest -q tests/test_postgres_smoke.py --tb=short
 
 package-check:
 	cd services/alarm_broker && python -m build --wheel
+
+hygiene-check:
+	git ls-files --cached --others --exclude-standard -z | python scripts/verify_public_hygiene.py --null
 
 test-verbose:
 	cd services/alarm_broker && python -m pytest -v -m "not e2e" --cov=alarm_broker --cov-report=term-missing

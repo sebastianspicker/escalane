@@ -117,7 +117,8 @@ async def test_ack_page_escapes_untrusted_html(
 
     expect(resp.status_code == 200)
     expect('<script>alert("x")</script>' not in resp.text)
-    expect("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;" in resp.text)
+    expect("&lt;script&gt;alert(" in resp.text)
+    expect("&lt;/script&gt;" in resp.text)
 
 
 async def test_ack_page_sets_no_store_and_security_headers(

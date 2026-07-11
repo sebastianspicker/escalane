@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -28,7 +29,7 @@ SHOT_FILENAMES: list[str] = [
     "01-admin-overview.png",
     "02-admin-triggered-alarm.png",
     "03-admin-search-filter.png",
-    "04-admin-detail-modal.png",
+    "04-admin-alarm-detail.png",
     "05-admin-quick-acknowledged.png",
     "06-ack-page-triggered-mobile.png",
     "07-ack-page-acknowledged-mobile.png",
@@ -118,10 +119,11 @@ def _admin_headers(admin_key: str) -> dict[str, str]:
 
 def _login_admin_ui(page: Any, base_url: str, admin_key: str) -> None:
     page.goto(f"{base_url}/admin/login", wait_until="networkidle")
+    page.fill("#operator_name", "Demo Operator")
     page.fill("#admin_key", admin_key)
     page.click("button[type='submit']")
     page.wait_for_url(f"{base_url}/admin*")
-    page.wait_for_selector("#alarm-search")
+    page.wait_for_selector("#search")
 
 
 def _require_ok(result: HttpResult, message: str) -> None:
@@ -139,21 +141,28 @@ def _trigger_alarm(base_url: str, token: str, timeout: float) -> str:
     return str(result.json_body["alarm_id"])
 
 
-def _get_alarm(
+def _ack_token_from_simulation(
     base_url: str, admin_key: str, alarm_id: str, timeout: float
-) -> dict[str, Any]:
+) -> str:
     result = _http_json(
         "GET",
-        f"{base_url}/v1/alarms/{alarm_id}",
+        f"{base_url}/v1/simulation/notifications",
         headers=_admin_headers(admin_key),
         timeout=timeout,
     )
-    _require_ok(result, f"Failed to fetch alarm {alarm_id}")
-    if not isinstance(result.json_body, dict):
-        raise DemoCaptureError(
-            f"Alarm details for {alarm_id} not in JSON object format."
-        )
-    return result.json_body
+    _require_ok(result, "Failed to read simulation notifications")
+    payload = result.json_body if isinstance(result.json_body, dict) else {}
+    notifications = payload.get("notifications", [])
+    for notification in notifications if isinstance(notifications, list) else []:
+        encoded = json.dumps(notification)
+        if alarm_id not in encoded:
+            continue
+        match = re.search(r"/a/([A-Za-z0-9_-]+)", encoded)
+        if match:
+            return match.group(1)
+    raise DemoCaptureError(
+        "Simulation notifications did not contain the alarm ACK link."
+    )
 
 
 def _resolve_alarm(
@@ -254,7 +263,9 @@ def _wait_for_simulation_notifications(
     )
 
 
-def _prepare_real_capture(config: CaptureConfig) -> tuple[str, list[Path], str, str, str]:
+def _prepare_real_capture(
+    config: CaptureConfig,
+) -> tuple[str, list[Path], str, str, str]:
     base_url = _normalize_base_url(config.base_url)
     _ensure_output_dir(config.output_dir)
 
@@ -278,57 +289,19 @@ def _prepare_real_capture(config: CaptureConfig) -> tuple[str, list[Path], str, 
     alarm_secondary = _trigger_alarm(
         base_url, DEMO_TOKENS["secondary"], config.timeout_seconds
     )
-    alarm_secondary_data = _get_alarm(
-        base_url,
-        config.admin_key,
-        alarm_secondary,
-        config.timeout_seconds,
+    _wait_for_simulation_notifications(base_url, config.admin_key, config.wait_seconds)
+    ack_token_secondary = _ack_token_from_simulation(
+        base_url, config.admin_key, alarm_secondary, config.timeout_seconds
     )
-    ack_token_secondary = alarm_secondary_data.get("ack_token")
-    if not isinstance(ack_token_secondary, str) or not ack_token_secondary:
-        raise DemoCaptureError(f"Missing ack_token for alarm {alarm_secondary}.")
     return base_url, output_paths, alarm_primary, alarm_secondary, ack_token_secondary
 
 
 def _open_first_alarm_detail(page: Any) -> None:
-    if page.locator("tr.alarm-row").count() == 0:
-        raise DemoCaptureError("No alarm rows found to open detail modal.")
-    # Set modal state directly from row dataset to avoid UI click flakiness.
-    page.evaluate(
-        """
-        () => {
-          const row = document.querySelector('tr.alarm-row');
-          if (!row) {
-            throw new Error('No alarm row found');
-          }
-          const modal = document.getElementById('alarm-detail-modal');
-          const subtitle = document.getElementById('detail-modal-subtitle');
-          const pairs = [
-            ['detail-alarm-id', row.dataset.alarmId],
-            ['detail-status', row.dataset.status],
-            ['detail-created', row.dataset.created],
-            ['detail-person', row.dataset.person],
-            ['detail-room', row.dataset.room],
-            ['detail-source', row.dataset.source],
-            ['detail-severity', row.dataset.severity],
-            ['detail-acked-by', row.dataset.ackedBy],
-          ];
-          if (!modal || !subtitle) {
-            throw new Error('Modal structure not found');
-          }
-          for (const [id, value] of pairs) {
-            const el = document.getElementById(id);
-            if (el) {
-              el.textContent = value || '-';
-            }
-          }
-          subtitle.textContent = 'Alarm ' + (row.dataset.shortId || row.dataset.alarmId || '-');
-          modal.hidden = false;
-          modal.setAttribute('aria-hidden', 'false');
-        }
-        """
-    )
-    page.wait_for_selector("#alarm-detail-modal:not([hidden])")
+    details = page.get_by_role("link", name="Details").first
+    if details.count() == 0:
+        raise DemoCaptureError("No alarm rows found to open detail page.")
+    details.click()
+    page.wait_for_selector(".detail-card")
 
 
 def _capture_desktop_alarm_views(
@@ -338,15 +311,16 @@ def _capture_desktop_alarm_views(
     output_paths: list[Path],
 ) -> None:
     page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
-    page.wait_for_selector("#alarm-search")
+    page.wait_for_selector("#search")
     page.screenshot(path=str(output_paths[0]), full_page=True)
 
     page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
-    page.wait_for_selector("tr.alarm-row")
+    page.wait_for_selector("a[href*='/admin/alarms/']")
     page.screenshot(path=str(output_paths[1]), full_page=True)
 
-    page.fill("#alarm-search", "library")
-    page.wait_for_timeout(250)
+    page.fill("#search", "library")
+    page.click(".filters button[type='submit']")
+    page.wait_for_load_state("networkidle")
     page.screenshot(path=str(output_paths[2]), full_page=True)
 
     _open_first_alarm_detail(page)
@@ -370,7 +344,7 @@ def _capture_mobile_ack_views(
     ack_page.fill("#note", "Taking over response.")
     ack_page.click("button[type='submit']")
     ack_page.wait_for_load_state("networkidle")
-    ack_page.wait_for_selector(".status-badge.acknowledged")
+    ack_page.wait_for_selector(".status--acknowledged")
     ack_page.screenshot(path=str(output_paths[6]), full_page=True)
     return mobile
 
@@ -384,8 +358,8 @@ def _capture_simulation_views(
     output_paths: list[Path],
 ) -> None:
     _wait_for_simulation_notifications(base_url, config.admin_key, config.wait_seconds)
-    page.goto(admin_url, wait_until="networkidle")
-    page.wait_for_selector("#simulation-panel[data-enabled='true']")
+    page.goto(f"{base_url}/admin/simulation", wait_until="networkidle")
+    page.wait_for_selector("h1")
     page.screenshot(path=str(output_paths[8]), full_page=True)
 
     clear_result = _http_json(
@@ -397,8 +371,8 @@ def _capture_simulation_views(
     )
     _require_ok(clear_result, "Failed to clear simulation notifications")
 
-    page.goto(admin_url, wait_until="networkidle")
-    page.wait_for_selector("#simulation-panel[data-enabled='true']")
+    page.goto(f"{base_url}/admin/simulation", wait_until="networkidle")
+    page.wait_for_selector("h1")
     page.screenshot(path=str(output_paths[9]), full_page=True)
 
 
@@ -414,7 +388,7 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
     base_url, output_paths, alarm_primary, alarm_secondary, ack_token_secondary = (
         _prepare_real_capture(config)
     )
-    admin_url = f"{base_url}/admin?refresh=120"
+    admin_url = f"{base_url}/admin?lang=en"
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=config.headless)
@@ -423,11 +397,13 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
         page = desktop.new_page()
         _login_admin_ui(page, base_url, config.admin_key)
 
-        _capture_desktop_alarm_views(page, admin_url=admin_url, output_paths=output_paths)
+        _capture_desktop_alarm_views(
+            page, admin_url=admin_url, output_paths=output_paths
+        )
 
         _ack_alarm(base_url, config.admin_key, alarm_primary, config.timeout_seconds)
         page.goto(f"{admin_url}&status=acknowledged", wait_until="networkidle")
-        page.wait_for_selector("tr.alarm-row")
+        page.wait_for_selector("a[href*='/admin/alarms/']")
         page.screenshot(path=str(output_paths[4]), full_page=True)
 
         mobile = _capture_mobile_ack_views(
@@ -441,7 +417,7 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
             base_url, config.admin_key, alarm_secondary, config.timeout_seconds
         )
         page.goto(f"{admin_url}&status=resolved", wait_until="networkidle")
-        page.wait_for_selector("tr.alarm-row")
+        page.wait_for_selector("a[href*='/admin/alarms/']")
         page.screenshot(path=str(output_paths[7]), full_page=True)
 
         _capture_simulation_views(

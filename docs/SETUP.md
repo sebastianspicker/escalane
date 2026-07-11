@@ -44,6 +44,7 @@ make test
 ```bash
 make lint                    # Ruff format check and lint
 python -m mypy services/alarm_broker/alarm_broker
+make hygiene-check           # Public-file boundary and private-path check
 make audit                   # Ruff, Bandit, and project-scoped pip-audit
 make package-check           # Build the Python wheel
 make clean                   # Remove generated caches and build outputs
@@ -173,7 +174,14 @@ alarm-broker/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/admin` | GET | Admin dashboard (requires the `admin_session` cookie from `/admin/login`) |
+| `/admin` | GET | Filtered alarm worklist (requires the named `admin_session`) |
+| `/admin/alarms/{id}` | GET | Alarm detail, lifecycle, notes, and delivery history |
+| `/admin/configuration/{resource}` | GET/POST | Versioned master data, default policy, and import workflows |
+| `/admin/simulation` | GET/POST | Mock delivery view when simulation is enabled |
+| `/admin/system` | GET | Exact application and dependency state |
+| `/admin/activity` | GET | Redacted administrative activity |
+| `/admin/assets/ui.css` | GET | Packaged same-origin interface styles |
+| `/admin/assets/ui.js` | GET | Optional progressive enhancement |
 
 ### Admin (require `X-Admin-Key` header)
 
@@ -214,3 +222,10 @@ Cookie behavior:
 4. Submit pull request
 
 Planning policy: keep long-lived planning in `docs/ROADMAP.md`. Do not create ad-hoc plan files.
+
+Public repository policy: keep credentials, generated browser artifacts,
+local tooling workspaces, operational exports/backups, archives, and
+machine-specific files out of the public candidate. `.gitignore` covers the
+expected local paths, while
+`make hygiene-check` checks tracked and non-ignored files for prohibited paths,
+credential/key formats, private-key headers, and absolute user-home paths.

@@ -85,9 +85,17 @@ async def _upsert_sites(session: AsyncSession, sites: list[dict[str, Any]]) -> N
     for site_data in sites:
         site = await session.get(Site, site_data["id"])
         if not site:
-            session.add(Site(id=site_data["id"], name=site_data["name"]))
+            session.add(
+                Site(
+                    id=site_data["id"],
+                    name=site_data["name"],
+                    active=_coerce_bool(site_data.get("active", True)),
+                )
+            )
         else:
             site.name = site_data["name"]
+            site.active = _coerce_bool(site_data.get("active", True))
+            site.version += 1
 
 
 async def _upsert_rooms(session: AsyncSession, rooms: list[dict[str, Any]]) -> None:
@@ -101,6 +109,7 @@ async def _upsert_rooms(session: AsyncSession, rooms: list[dict[str, Any]]) -> N
                     label=room_data["label"],
                     floor=room_data.get("floor"),
                     notes=room_data.get("notes"),
+                    active=_coerce_bool(room_data.get("active", True)),
                 )
             )
         else:
@@ -108,6 +117,8 @@ async def _upsert_rooms(session: AsyncSession, rooms: list[dict[str, Any]]) -> N
             room.label = room_data["label"]
             room.floor = room_data.get("floor")
             room.notes = room_data.get("notes")
+            room.active = _coerce_bool(room_data.get("active", True))
+            room.version += 1
 
 
 async def _upsert_persons(session: AsyncSession, persons: list[dict[str, Any]]) -> None:
@@ -130,6 +141,7 @@ async def _upsert_persons(session: AsyncSession, persons: list[dict[str, Any]]) 
             person.phone_mobile = person_data.get("phone_mobile")
             person.phone_ext = person_data.get("phone_ext")
             person.active = _coerce_bool(person_data.get("active", True))
+            person.version += 1
 
 
 async def _upsert_devices(session: AsyncSession, devices: list[dict[str, Any]]) -> None:
@@ -148,16 +160,18 @@ async def _upsert_devices(session: AsyncSession, devices: list[dict[str, Any]]) 
                     device_token=device_data["device_token"],
                     person_id=device_data.get("person_id"),
                     room_id=device_data.get("room_id"),
+                    active=_coerce_bool(device_data.get("active", True)),
                 )
             )
         else:
-            device.id = device_data.get("id", device.id)
             device.vendor = device_data.get("vendor", device.vendor)
             device.model_family = device_data.get("model_family", device.model_family)
             device.mac = device_data.get("mac")
             device.account_ext = device_data.get("account_ext")
             device.person_id = device_data.get("person_id")
             device.room_id = device_data.get("room_id")
+            device.active = _coerce_bool(device_data.get("active", True))
+            device.version += 1
 
 
 async def _upsert_policy(session: AsyncSession, policy: dict[str, Any] | None) -> None:
@@ -169,6 +183,7 @@ async def _upsert_policy(session: AsyncSession, policy: dict[str, Any] | None) -
             )
         else:
             esc_policy.name = policy.get("name", esc_policy.name)
+            esc_policy.version += 1
 
 
 async def _upsert_targets(session: AsyncSession, targets: list[dict[str, Any]]) -> None:

@@ -113,12 +113,9 @@ async def test_admin_dashboard_ack_resolve_capabilities(
 
     expect(resp.status_code == 200)
     html = resp.text
-    # Triggered alarm: can_ack=true, can_resolve=true
-    expect(f"data-alarm-id='{triggered_id}'" in html)
-    expect("data-can-ack='true'" in html)
-    expect("data-can-resolve='true'" in html)
-    # Resolved alarm: both disabled
-    expect("data-can-ack='false'" in html)
+    expect(f"/admin/alarms/{triggered_id}" in html)
+    expect(f"/admin/alarms/{acked_id}" in html)
+    expect(f"/admin/alarms/{resolved_id}" in html)
 
 
 async def test_admin_dashboard_time_display_hours(
@@ -145,7 +142,7 @@ async def test_admin_dashboard_time_display_hours(
             resp = await client.get("/admin")
 
     expect(resp.status_code == 200)
-    expect("2h " in resp.text)  # "2h 30m ago"
+    expect("2 h " in resp.text)
 
 
 async def test_admin_dashboard_simulation_enabled(
@@ -163,8 +160,7 @@ async def test_admin_dashboard_simulation_enabled(
             resp = await client.get("/admin")
 
     expect(resp.status_code == 200)
-    expect("data-enabled='true'" in resp.text)
-    expect("sim-refresh-btn" in resp.text)
+    expect('href="/admin/simulation"' in resp.text)
 
 
 async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis, settings):
@@ -180,8 +176,8 @@ async def test_admin_dashboard_simulation_disabled(engine, seeded_db, fake_redis
             resp = await client.get("/admin")
 
     expect(resp.status_code == 200)
-    expect("data-enabled='false'" in resp.text)
-    expect("currently disabled" in resp.text)
+    expect('href="/admin/simulation"' not in resp.text)
+    expect('href="/admin/system"' in resp.text)
 
 
 # ---------------------------------------------------------------------------

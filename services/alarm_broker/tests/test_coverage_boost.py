@@ -20,6 +20,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from alarm_broker import __version__
 from alarm_broker.api.main import create_app
 from alarm_broker.db.models import Alarm, AlarmStatus
 
@@ -322,7 +323,7 @@ async def test_admin_dashboard_empty_state(engine, seeded_db, fake_redis, settin
 
     expect(resp.status_code == 200)
     expect("text/html" in resp.headers["content-type"])
-    expect("No alarms found" in resp.text)
+    expect("No alarms match this view." in resp.text)
 
 
 # ---------------------------------------------------------------------------
@@ -345,6 +346,7 @@ async def test_healthz_details_returns_dependency_info(engine, seeded_db, fake_r
 
     # Application section
     expect(body["application"]["name"] == "alarm-broker")
+    expect(body["application"]["version"] == __version__)
     expect("uptime_seconds" in body["application"])
     expect("timestamp" in body["application"])
 

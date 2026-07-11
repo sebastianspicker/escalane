@@ -3,27 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "HARNESS_PRINCIPLES.md"
-      - "code_review.md"
-      - "docs/agent/**"
-      - "docs/archive/**"
-      - "archive/**"
-      - "vendor/**"
-      - "third_party/**"
-      - "third-party/**"
-      - "external/**"
   pull_request:
-    paths-ignore:
-      - "HARNESS_PRINCIPLES.md"
-      - "code_review.md"
-      - "docs/agent/**"
-      - "docs/archive/**"
-      - "archive/**"
-      - "vendor/**"
-      - "third_party/**"
-      - "third-party/**"
-      - "external/**"
 
 permissions:
   contents: read
@@ -45,6 +25,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
+
+      - name: Check public repository hygiene
+        run: git ls-files --cached --others --exclude-standard -z | python scripts/verify_public_hygiene.py --null
 
       - name: Install dependencies
         run: |
@@ -97,7 +80,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     needs: lint
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -113,7 +96,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e "services/alarm_broker[dev]"
 
-      - name: Run served HTTP E2E tests
+      - name: Install browser engines
+        run: python -m playwright install --with-deps chromium firefox webkit
+
+      - name: Run served HTTP and browser E2E tests
         run: cd services/alarm_broker && pytest -q tests/e2e --tb=short
 
   postgres-smoke:
@@ -220,7 +206,7 @@ jobs:
         run: |
           python -m venv /tmp/alarm-broker-wheel
           /tmp/alarm-broker-wheel/bin/pip install --quiet services/alarm_broker/dist/alarm_broker-*.whl
-          env -i HOME="$HOME" PATH="/tmp/alarm-broker-wheel/bin:/usr/bin:/bin" PYTHONPATH="" /tmp/alarm-broker-wheel/bin/python -c "import alarm_broker.services.ack_ui as ack_ui; import alarm_broker.api.routes.admin_ui as admin_ui; assert ack_ui._TEMPLATE.template; assert admin_ui._TEMPLATE.template"
+          env -i HOME="$HOME" PATH="/tmp/alarm-broker-wheel/bin:/usr/bin:/bin" PYTHONPATH="" /tmp/alarm-broker-wheel/bin/python -c "from importlib.resources import files; import alarm_broker.api.routes.admin_ui; import alarm_broker.services.ack_ui; root = files('alarm_broker.api'); assert root.joinpath('templates', 'base.html').is_file(); assert root.joinpath('templates', 'ack.html').is_file(); assert root.joinpath('assets', 'ui.css').is_file(); assert root.joinpath('assets', 'ui.js').is_file()"
 
   build:
     runs-on: ubuntu-latest

@@ -6,6 +6,13 @@
 # =============================================================================
 
 repos:
+  - repo: local
+    hooks:
+      - id: public-repository-hygiene
+        name: public repository hygiene
+        entry: python scripts/verify_public_hygiene.py
+        language: system
+
   # Ruff - Linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.0

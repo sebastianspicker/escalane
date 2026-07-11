@@ -4,13 +4,17 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from arq.connections import RedisSettings, create_pool
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from alarm_broker import __version__
 from alarm_broker.api.routes import ALL_ROUTERS
 from alarm_broker.core.errors import (
     AlarmBrokerError,
@@ -182,7 +186,8 @@ def _install_security_headers_middleware(app: FastAPI) -> None:
         csp_policy = (
             "default-src 'self'; "
             "script-src 'self'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self'; "
+            "connect-src 'self'; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "
@@ -200,6 +205,47 @@ def _install_security_headers_middleware(app: FastAPI) -> None:
 
 def _install_exception_handlers(app: FastAPI) -> None:
     """Install custom exception handlers for standardized error responses."""
+
+    @app.exception_handler(StarletteHTTPException)
+    async def browser_http_error_handler(request: Request, exc: StarletteHTTPException):
+        if not (request.url.path.startswith("/admin") or request.url.path.startswith("/a/")):
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        from alarm_broker.api.i18n import normalise_locale, translation_context
+        from alarm_broker.api.templating import render_template
+
+        locale = request.query_params.get("lang") or request.cookies.get("ui_locale")
+        if not locale:
+            locale = request.headers.get("accept-language")
+        locale = normalise_locale(locale)
+        known_messages = {
+            "csrf_invalid": {
+                "en": "Security validation failed. Reload the page and try again.",
+                "de": "Die Sicherheitsprüfung ist fehlgeschlagen. Laden Sie die Seite neu.",
+            },
+            "session_expired": {
+                "en": "Your session has expired. Sign in again.",
+                "de": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an.",
+            },
+            "login_required": {
+                "en": "Sign in to use the operator console.",
+                "de": "Melden Sie sich an, um die Alarmübersicht zu verwenden.",
+            },
+        }
+        message = known_messages.get(str(exc.detail), {}).get(locale)
+        if message is None:
+            message = str(exc.detail) if isinstance(exc.detail, str) else "Request failed"
+        context = {
+            **translation_context(locale),
+            "asset_url": "/admin/assets/ui.css",
+            "script_url": "/admin/assets/ui.js",
+            "worklist_url": "/admin",
+            "error": {
+                "message": message,
+                "reference": getattr(request.state, "request_id", None),
+                "return_url": "/admin/login" if exc.status_code == 401 else request.url.path,
+            },
+        }
+        return HTMLResponse(render_template("error.html", **context), status_code=exc.status_code)
 
     @app.exception_handler(ValidationError)
     async def validation_error_handler(request: Request, exc: ValidationError):
@@ -319,7 +365,7 @@ def create_app(
 
     app = FastAPI(
         title="alarm-broker",
-        version="0.1.0",
+        version=__version__,
         docs_url="/docs" if resolved_settings.enable_api_docs else None,
         redoc_url="/redoc" if resolved_settings.enable_api_docs else None,
         openapi_url="/openapi.json" if resolved_settings.enable_api_docs else None,
@@ -333,6 +379,13 @@ def create_app(
     _install_security_headers_middleware(app)
     _install_observability_middleware(app)
     _install_exception_handlers(app)
+
+    assets_dir = Path(__file__).with_name("assets")
+    app.mount(
+        "/admin/assets",
+        StaticFiles(directory=assets_dir, check_dir=False),
+        name="admin-assets",
+    )
 
     for router in ALL_ROUTERS:
         app.include_router(router)

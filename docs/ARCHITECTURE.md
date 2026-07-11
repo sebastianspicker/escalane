@@ -45,6 +45,11 @@ It is not validated for safety-critical, security-critical, or compliance-critic
 - `POST /v1/alarms/{alarm_id}/resolve`
 - `POST /v1/alarms/{alarm_id}/cancel`
 
+7. Operator console:
+- `POST /admin/login` exchanges the static admin key for a named Redis session,
+- `/admin/*` pages and form actions use that session plus CSRF protection,
+- user-initiated requests refresh the one-hour session; revision polling does not.
+
 ## Alarm lifecycle
 
 Allowed transitions:
@@ -67,10 +72,10 @@ Repeated transition to same target state is idempotent (`204`).
 ## Data model (PostgreSQL)
 
 Core tables:
-- **Master data**: `sites`, `rooms` (FK sites), `persons`, `devices` (token mapping)
-- **Escalation config**: `escalation_targets`, `escalation_policy`, `escalation_steps` (composite PK: policy_id, step_no, target_id)
+- **Master data**: versioned `sites`, `rooms` (FK sites), `persons`, and `devices` (token mapping), with explicit active state
+- **Escalation config**: versioned `escalation_policy`, `escalation_targets`, and `escalation_steps` (composite PK: policy_id, step_no, target_id)
 - **Alarms**: `alarms` (UUID PK, status lifecycle, context, integration fields, JSON meta)
-- **Audit**: `alarm_notifications` (channel, target_id, payload, result, error), `alarm_notes`
+- **Audit**: `alarm_notifications`, immutable `alarm_notes`, and redacted `admin_audit_events`
 
 `devices.device_token` is the inbound trigger anchor. `alarms.ack_token` provides the capability URL.
 
@@ -80,6 +85,11 @@ The API routes are split into focused modules:
 - `api/routes/alarms.py` — list, export, stats (read-only queries)
 - `api/routes/alarm_operations.py` — CRUD, state transitions, bulk operations
 - `api/routes/alarm_notes.py` — notes timeline
+- `api/routes/admin_ui.py` — named-session operator pages and form actions
+
+Browser HTML is rendered with autoescaped Jinja templates in `api/templates/`.
+Shared CSS and progressive JavaScript ship as package data from `api/assets/`;
+there are no external browser resources or inline behavior dependencies.
 
 Typed internal data uses `types.py` (`EnrichedAlarmContext`, `NotificationPayload`).
 
@@ -104,6 +114,8 @@ The ACK flow starts in `api/routes/ack.py`, but uses the same state-transition h
 - Resolve and cancel are alarm states, not separate worker event types. Downstream webhooks receive them through the generic `alarm.state_changed` event with `new_state`.
 - Notification delivery is best effort per channel. Failures are logged in `alarm_notifications` and metrics, but one failing connector should not block other channels.
 - `ack_token` is a capability URL. It is never logged as a raw path segment and the ACK page is sent with `Cache-Control: no-store`.
+- Inactive device or dependent master-data mappings fail through the same generic trigger response as unknown mappings.
+- Device tokens and escalation target addresses are write-only or masked in operator views and redacted from administrative audit events.
 
 ## Error handling
 
@@ -136,6 +148,7 @@ Prometheus metrics at `/metrics` expose HTTP request counts, alarm status gauges
 - Fail-closed admin auth when `ADMIN_API_KEY` is unset.
 - Token and IP validation on inbound trigger routes.
 - Escaped ACK HTML rendering.
+- Named Redis sessions and CSRF protection for browser mutations; the static admin key is never serialized into browser pages or storage.
 - Input validation on admin seed and escalation policy operations (Pydantic + ORM only).
 - HMAC-SHA256 signed webhook payloads.
 - CSV export formula injection protection.

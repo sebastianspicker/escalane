@@ -7,6 +7,7 @@ import hashlib
 import logging
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -18,7 +19,7 @@ from alarm_broker import constants
 from alarm_broker.core.idempotency import bucket_10s, idempotency_key
 from alarm_broker.core.rate_limit import rate_limit_key
 from alarm_broker.core.redis_atomic import compare_and_delete, redis_text
-from alarm_broker.db.models import Alarm, AlarmStatus, Device, Room
+from alarm_broker.db.models import Alarm, AlarmStatus, Device, Person, Room, Site
 from alarm_broker.services.event_service import (
     EventResult,
     enqueue_alarm_created_event,
@@ -243,10 +244,22 @@ class TriggerService:
             Tuple of (device, error_message)
         """
         device = await self._session.scalar(select(Device).where(Device.device_token == token))
-        if not device:
+        if device is None:
             return None, "Unknown token"
         if not device.person_id or not device.room_id:
             return None, "Device mapping incomplete"
+        if device.active is False:
+            return None, "Device mapping incomplete"
+        person = await self._session.get(Person, device.person_id)
+        room = await self._session.get(Room, device.room_id)
+        if person is not None and person.active is False:
+            return None, "Device mapping incomplete"
+        if room is not None and room.active is False:
+            return None, "Device mapping incomplete"
+        if room is not None:
+            site = await self._session.get(Site, room.site_id)
+            if site is not None and site.active is False:
+                return None, "Device mapping incomplete"
         return device, None
 
     async def create_alarm(
@@ -367,7 +380,7 @@ class TriggerService:
     async def _enqueue_event_with_retry(
         self,
         *,
-        enqueue: Any,
+        enqueue: Callable[[], Awaitable[EventResult]],
     ) -> EventResult:
         last_result = EventResult(success=False, error="enqueue did not run")
         for attempt in range(self._EVENT_ENQUEUE_ATTEMPTS):

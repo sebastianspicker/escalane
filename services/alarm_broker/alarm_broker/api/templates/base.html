@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{ locale|default('en') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f7f8">
+  <title>{% block title %}{{ t('product_name') }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ asset_url|default('/admin/assets/ui.css') }}">
+  <script src="{{ script_url|default('/admin/assets/ui.js') }}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">{{ t('skip_to_content') }}</a>
+  <header class="site-header">
+    <a class="brand" href="{{ worklist_url|default('/admin') }}">{{ t('product_name') }}</a>
+    {% if operator_name %}<details class="admin-nav" open><summary>{{ t('menu') }}</summary><nav aria-label="{{ t('admin') }}"><a href="/admin">{{ t('worklist') }}</a><a href="/admin/configuration/sites">{{ t('admin') }}</a>{% if simulation_enabled %}<a href="/admin/simulation">Simulation</a>{% endif %}<a href="/admin/system">System</a><a href="/admin/activity">{{ t('activity') }}</a></nav></details>{% endif %}
+    {% if operator_name %}<p class="operator-name">{{ operator_name }}</p>{% endif %}
+    {% if logout_action %}<form class="logout-form" method="post" action="{{ logout_action }}">{% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}<button type="submit">{{ t('sign_out') }}</button></form>{% endif %}
+    {% block header_actions %}{% endblock %}
+  </header>
+  <main id="content" tabindex="-1">{% block content %}{% endblock %}</main>
+  <footer class="site-footer">{{ t('product_name') }}</footer>
+</body>
+</html>

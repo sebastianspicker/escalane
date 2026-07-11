@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}System · {{ t('product_name') }}{% endblock %}
+{% block content %}<p><a href="{{ worklist_url }}">← {{ t('back_to_worklist') }}</a></p><h1>System</h1><dl class="definition-list">{% for state in states %}<div><dt>{{ state.name }}</dt><dd>{{ state.status }} — {{ state.detail }}</dd></div>{% endfor %}</dl>{% endblock %}

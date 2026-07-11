@@ -183,12 +183,9 @@ async def test_admin_ui_simulation_panel_state(engine, seeded_db, fake_redis, se
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             await admin_login(client, "dev-admin-key")
-            enabled_page = await client.get("/admin")
+            enabled_page = await client.get("/admin/simulation")
             expect(enabled_page.status_code == 200)
-            expect("id='simulation-panel'" in enabled_page.text)
-            expect("data-enabled='true'" in enabled_page.text)
-            expect("id='sim-refresh-btn'" in enabled_page.text)
-            expect("async function refreshSimulationStatus()" in enabled_page.text)
+            expect("<h1>Simulation</h1>" in enabled_page.text)
 
     settings.simulation_enabled = False
     app_disabled = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
@@ -196,8 +193,6 @@ async def test_admin_ui_simulation_panel_state(engine, seeded_db, fake_redis, se
         transport = ASGITransport(app=app_disabled)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             await admin_login(client, "dev-admin-key")
-            disabled_page = await client.get("/admin")
-            expect(disabled_page.status_code == 200)
-            expect("id='simulation-panel'" in disabled_page.text)
-            expect("data-enabled='false'" in disabled_page.text)
-            expect("Simulation mode is currently disabled on this server." in disabled_page.text)
+            disabled_page = await client.get("/admin/simulation")
+            expect(disabled_page.status_code == 404)
+            expect("simulation_disabled" in disabled_page.text)

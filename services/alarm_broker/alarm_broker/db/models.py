@@ -28,6 +28,10 @@ class Site(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     rooms: Mapped[list[Room]] = relationship(back_populates="site")
 
@@ -40,6 +44,10 @@ class Room(Base):
     label: Mapped[str] = mapped_column(String, nullable=False)
     floor: Mapped[str | None] = mapped_column(String, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     site: Mapped[Site] = relationship(back_populates="rooms")
 
@@ -55,6 +63,7 @@ class Person(Base):
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
 
 class Device(Base):
@@ -73,6 +82,10 @@ class Device(Base):
     person_id: Mapped[str | None] = mapped_column(ForeignKey("persons.id"), nullable=True)
     room_id: Mapped[str | None] = mapped_column(ForeignKey("rooms.id"), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     person: Mapped[Person | None] = relationship()
     room: Mapped[Room | None] = relationship()
@@ -95,6 +108,26 @@ class EscalationPolicy(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+
+
+class AdminAuditEvent(Base):
+    """Immutable, redacted record of an administrative master-data action."""
+
+    __tablename__ = "admin_audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    operator_name: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    resource_type: Mapped[str] = mapped_column(String, nullable=False)
+    resource_id: Mapped[str] = mapped_column(String, nullable=False)
+    changed_fields: Mapped[dict[str, Any]] = mapped_column(
+        MutableDict.as_mutable(JSON), nullable=False, default=dict
+    )
+    request_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class EscalationStep(Base):

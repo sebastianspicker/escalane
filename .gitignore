@@ -2,6 +2,8 @@
 **/.DS_Store
 **/Thumbs.db
 **/Desktop.ini
+**/._*
+.AppleDouble
 *.swp
 *.swo
 *~
@@ -16,14 +18,22 @@
 *.key
 *.p12
 *.pfx
+*.crt
+*.cer
+*.der
 *.jks
 *.keystore
+*.kdbx
+id_rsa
+id_ed25519
 credentials.json
 client_secret*.json
 service-account*.json
 .netrc
 .npmrc
 .pypirc
+/secrets/
+/credentials/
 
 # Python caches, reports, and build outputs
 __pycache__/
@@ -37,7 +47,13 @@ __pycache__/
 coverage.xml
 *.cover
 *.junit.xml
+*.sarif
 .hypothesis/
+.tox/
+.nox/
+.pytype/
+.pyre/
+.ipynb_checkpoints/
 htmlcov/
 coverage/
 .cache/
@@ -47,6 +63,9 @@ coverage/
 *.sqlite
 *.sqlite3
 *.db
+*.dump
+*.rdb
+*.aof
 
 .venv/
 venv/
@@ -61,18 +80,30 @@ progress.md
 reports/
 scratch/
 tmp/
+backups/
+exports/
 *.tmp
 *.temp
 *.bak
+*.patch
 
 # IDE and dependency caches
 .idea/
 .vscode/
 .fleet/
+.history/
 
 node_modules/
+playwright-report/
+test-results/
+blob-report/
+*.har
+*.webm
+trace.zip
 
 deploy/pgdata/
+/deploy/docker-compose.override.yml
+/deploy/docker-compose.override.yaml
 
 # Generated screenshot assets (regenerate with scripts/demo_capture.py)
 docs/assets/screenshots/*.png
@@ -86,6 +117,7 @@ docs/assets/screenshots/*.png
 /.codegraph/
 /.kilo/
 /.serena/
+/.impeccable/
 /.codacy/cli-config.yaml
 /.codacy/codacy.yaml
 /.codacy/generated/
@@ -101,4 +133,11 @@ docs/assets/screenshots/*.png
 /docs/agent/
 /docs/source-audit/
 /docs/archive/
+/archive/
+/vendor/
+/third_party/
+/third-party/
+/external/
+/private/
+/privat/
 /scripts/topology_inventory.sh

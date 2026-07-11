@@ -12,7 +12,7 @@
 - **Multi-channel fan-out** -- Notifies via Zammad (ticketing), SMS (generic HTTP connector), and Signal (signal-cli-rest-api)
 - **Capability-link ACK** -- Responders acknowledge alarms via a mobile-friendly `/a/{ack_token}` page (no login required)
 - **Escalation engine** -- Configurable escalation schedule with delayed Redis-backed jobs
-- **Admin dashboard** -- Real-time alarm overview with search, quick-ack, and detail modal (`/admin`)
+- **Bilingual operator console** -- Filtered alarm worklist, deep-linkable details, safe lifecycle actions, configuration, system state, and activity (`/admin`)
 - **Full audit trail** -- Every alarm state change and notification is persisted in PostgreSQL
 - **Prometheus metrics** -- Admin-protected `/metrics` endpoint for monitoring and alerting
 - **Idempotency & rate limiting** -- Deduplicates rapid triggers; prevents abuse
@@ -52,12 +52,12 @@ flowchart LR
   API -->|"enqueue_job('alarm_acked')"| R
   W -->|"Zammad internal note (ACK)"| Z
 
-  %% Admin flow (seeding/mapping + dashboard)
+  %% Admin flow (seeding/mapping + operator console)
   ADMIN["Admin (operator)"] -->|"X-Admin-Key /v1/admin/seed"| API
   ADMIN -->|"X-Admin-Key /v1/admin/devices"| API
   ADMIN -->|"X-Admin-Key /v1/admin/escalation-policy"| API
   ADMIN -->|"POST /admin/login → session cookie"| API
-  ADMIN -->|"session cookie GET /admin (dashboard)"| API
+  ADMIN -->|"session cookie GET /admin (operator console)"| API
 ```
 
 ### 2) Trigger flow (Yealink → API → DB → worker)
@@ -182,12 +182,14 @@ stateDiagram-v2
 - `docs/` – current public setup, operations, architecture, integration, and roadmap documentation
 - `services/alarm_broker/` – FastAPI API + arq worker + Alembic migrations
 - `deploy/` – Docker Compose + example seed file
+- `PRODUCT.md` and `DESIGN.md` – product intent and browser-interface conventions
 
 Current docs:
 - [docs/SETUP.md](docs/SETUP.md) — installation, configuration reference, dev workflow
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — monitoring, backups, troubleshooting
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data model, flows, lifecycle
 - [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Yealink/Zammad templates and connector notes
+- [docs/FRONTEND.md](docs/FRONTEND.md) — browser architecture and release checks
 - [docs/ROADMAP.md](docs/ROADMAP.md) — active release-candidate backlog
 
 ## How to read the code
@@ -200,7 +202,7 @@ Start with the vertical trigger path, then branch out:
 - `services/event_publisher.py` is the ARQ job wire contract. It enqueues `process_alarm_event` jobs with deterministic IDs so duplicate created/state events collapse at the queue layer.
 - `worker/tasks.py` is the background side of the flow: ticket creation, stage 0 notification fan-out, delayed escalation, ACK follow-up notes, state-change webhooks, and event-recovery scans.
 - `services/notification_service.py` converts an enriched alarm into channel payloads and audit rows for Zammad, SMS, Signal, and escalation-target webhooks.
-- `api/routes/ack.py` implements the capability-link ACK page. Possession of `ack_token` authorizes the ACK action, with CSRF and per-IP rate limiting around the browser form.
+- `api/routes/ack.py` implements the bilingual capability-link ACK page. Possession of `ack_token` authorizes the ACK action, with CSRF and per-IP rate limiting around the browser form. See [`docs/FRONTEND.md`](docs/FRONTEND.md) for the browser architecture and release checks.
 
 The core state transition rules live in `services/alarm_service.py`; the SQLAlchemy schema lives in `db/models.py`; shared request/response shapes live in `api/schemas.py`.
 
@@ -230,7 +232,7 @@ docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
 
 # 4. Load example seed data (devices, persons, rooms, escalation policy)
 curl -sS -X POST "http://localhost:8080/v1/admin/seed" \
-  -H "X-Admin-Key: change-me-admin-key" \
+  -H "X-Admin-Key: <admin-api-key>" \
   -H "Content-Type: application/x-yaml" \
   --data-binary @deploy/seed.example.yaml
 
@@ -241,16 +243,16 @@ curl -sS "http://localhost:8080/v1/yealink/alarm?token=<device-token>" | jq .
 curl -sS "http://localhost:8080/readyz" | jq .
 ```
 
-Open the **admin dashboard**: <http://localhost:8080/admin/login>
+Open the **operator console**: <http://localhost:8080/admin/login>
 
 Local development note: on plain `http://localhost:8080`, the admin session cookie and ACK CSRF cookie are intentionally emitted without the `Secure` flag so browser flows work locally. On HTTPS, or behind a trusted proxy forwarding `X-Forwarded-Proto: https`, those cookies are marked `Secure`.
 
 Metrics note: `/metrics` requires the `X-Admin-Key` header. For Prometheus, expose it through a trusted reverse proxy or scrape via a sidecar that injects the header.
 
-To acknowledge a local test alarm through the UI, log in to `/admin/login` and use
-the dashboard's **Quick Ack** action. The capability-link ACK page (`/a/<ack_token>`)
-is exercised by the E2E suite; in normal operation that link is distributed through
-the configured notification channels.
+To acknowledge a local test alarm through the UI, log in to `/admin/login`, open
+the alarm's **Details** page, and choose **Acknowledge**. The capability-link ACK
+page (`/a/<ack_token>`) is exercised by the E2E suite; in normal operation that
+link is distributed through the configured notification channels.
 
 ## Screenshots
 
@@ -258,6 +260,9 @@ the configured notification channels.
 
 Screenshot PNGs are generated locally with `make demo-screens` and intentionally
 ignored so the public repository does not carry bulky regenerated assets.
+The capture covers the 1440 px operator console and 390 px responder flow. Review
+the generated files in `docs/assets/screenshots/`; they are evidence for local
+review, not a cross-platform pixel-diff release gate.
 
 ## Configuration
 
@@ -272,16 +277,19 @@ Notes:
 ```bash
 make lint       # ruff format + check
 python -m mypy services/alarm_broker/alarm_broker
+make hygiene-check # reject private/generated files from the public candidate
 make test       # pytest with coverage (threshold: 93%)
 make e2e        # served HTTP E2E flow with temp SQLite + fake Redis
+make browser-e2e # Playwright browser flows (requires installed engines)
 make audit      # ruff + bandit + pip-audit
 ```
 
 **Quality gates** (all enforced in CI):
 - ruff format + lint
 - mypy strict type checking
+- public repository hygiene check
 - bandit security scanning
 - pytest with 93% coverage threshold
-- served HTTP E2E test for health, seed, trigger, ACK, and admin dashboard
-- wheel packaging smoke import
+- served HTTP and Chromium/Firefox/WebKit E2E browser flows
+- wheel packaging and packaged-resource smoke import
 - PostgreSQL + Alembic smoke path
