@@ -2,8 +2,7 @@
 
 ## Supported Versions
 
-We release patches for security vulnerabilities on the current release-candidate
-line. Older tagged releases are not maintained.
+We release patches for security vulnerabilities on the current release-candidate line. Older tagged releases are not maintained.
 
 | Version | Supported |
 | ------- | --------- |
@@ -20,7 +19,9 @@ If you discover a security vulnerability, please report it by creating a GitHub 
 
 - Admin API endpoints require a secure API key (`X-Admin-Key` header)
 - The browser-based admin UI uses a short-lived Redis-backed session cookie issued by `/admin/login`
-- Admin key must be configured via `ADMIN_API_KEY` environment variable
+- Configure the admin key through `ADMIN_API_KEY` by default. If an operator
+  explicitly selects another secret-injection mechanism, document and review
+  that exception while preserving the same fail-closed behavior.
 - `/metrics` is protected by the same admin API key requirement
 - Empty admin key fails closed: API endpoints reject access and admin login cannot establish a session
 
@@ -68,11 +69,13 @@ Example:
 WEBHOOK_ALLOWED_HOSTS=hooks.example.org,webhook.internal.example.org
 ```
 
-Wildcards are not supported by default. If an operator needs broader matching
-for a controlled deployment, they must add an explicit host-validation change
-and review the SSRF impact before enabling it. `ALLOW_HTTP_WEBHOOKS` still
-controls whether `http://` webhook URLs are accepted, but HTTP webhook hosts
-must also be allowlisted.
+Wildcards are disabled by default. Broader matching may be introduced when an
+operator explicitly requests it for a controlled deployment, documents the
+justification, implements explicit host validation, and obtains security-review
+confirmation of the SSRF impact. `ALLOW_HTTP_WEBHOOKS` still controls whether
+`http://` webhook URLs are accepted. Unless a reviewed deployment-specific
+policy replaces exact-host validation, HTTP delivery also requires the
+destination host in `WEBHOOK_ALLOWED_HOSTS`.
 
 ## Best Practices
 

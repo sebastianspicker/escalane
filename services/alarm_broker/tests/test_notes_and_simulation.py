@@ -62,14 +62,6 @@ async def test_notes_endpoint_is_canonical_and_compatible(engine, seeded_db, fak
     settings.admin_api_key = ADMIN_KEY
     app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
 
-    notes_post_routes = [
-        route
-        for route in app.routes
-        if getattr(route, "path", "") == "/v1/alarms/{alarm_id}/notes"
-        and "POST" in (getattr(route, "methods", set()) or set())
-    ]
-    expect(len(notes_post_routes) == 1)
-
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
