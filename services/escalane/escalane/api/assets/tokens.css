@@ -1,0 +1,129 @@
+/* Route Ledger design tokens — light + dark schemes. */
+:root {
+  color-scheme: light dark;
+
+  --rail: #0b1f28;
+  --rail-ink: #e8f0f2;
+  --rail-muted: #9bb0b8;
+  --rail-line: #1c3640;
+  --rail-strong: #06141a;
+
+  --canvas: #eef3f5;
+  --surface: #ffffff;
+  --surface-2: #f6f9fa;
+  --surface-subtle: #f6f9fa;
+  --surface-strong: #e4ebed;
+
+  --ink: #0c1b22;
+  --ink-soft: #243840;
+  --ink-muted: #5a6e76;
+  --muted: #5a6e76;
+  --faint: #8a9ba2;
+
+  --line: #cfd9dd;
+  --line-soft: #e4ebed;
+  --line-strong: #b5c3c8;
+
+  --signal: #0a6b7c;
+  --signal-soft: #d7eef2;
+  --signal-ink: #ffffff;
+
+  --triggered: #b42318;
+  --triggered-soft: #fdeceb;
+  --danger: #b42318;
+  --danger-surface: #fdeceb;
+
+  --acknowledged: #a35a00;
+  --acked: #a35a00;
+  --acked-soft: #fff3df;
+  --attention: #a35a00;
+
+  --resolved: #1f6f4a;
+  --resolved-soft: #e5f5ec;
+  --success: #1f6f4a;
+
+  --cancelled: #667780;
+  --cancelled-soft: #eef1f3;
+
+  --focus: #c47a00;
+  --p0: #b42318;
+  --p1: #a35a00;
+  --p2: #0a6b7c;
+
+  --nav: var(--rail);
+  --nav-strong: var(--rail-strong);
+  --nav-ink: var(--rail-ink);
+  --nav-muted: var(--rail-muted);
+
+  --radius: 8px;
+  --radius-panel: 8px;
+  --radius-control: 6px;
+  --radius-chip: 4px;
+
+  --sidebar: 14.5rem;
+  --content: 80rem;
+  --shadow-panel: 0 1px 0 rgb(12 27 34 / 4%);
+
+  --font-body: "Segoe UI", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-body);
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --rail: #0b1f28;
+    --rail-ink: #e8f0f2;
+    --rail-muted: #9bb0b8;
+    --rail-line: #1c3640;
+    --rail-strong: #06141a;
+
+    --canvas: #0c171e;
+    --surface: #12232d;
+    --surface-2: #172c37;
+    --surface-subtle: #172c37;
+    --surface-strong: #203946;
+
+    --ink: #edf4f6;
+    --ink-soft: #c5d4da;
+    --ink-muted: #b6c4c9;
+    --muted: #b6c4c9;
+    --faint: #8a9ba2;
+
+    --line: #3f5662;
+    --line-soft: #2a3f49;
+    --line-strong: #647a84;
+
+    --signal: #75d2e1;
+    --signal-soft: #163840;
+    --signal-ink: #06242b;
+
+    --triggered: #ffb4ab;
+    --triggered-soft: #402326;
+    --danger: #ffb4ab;
+    --danger-surface: #402326;
+
+    --acknowledged: #ffb95e;
+    --acked: #ffb95e;
+    --acked-soft: #3d2e14;
+    --attention: #f0bd58;
+
+    --resolved: #7bd59b;
+    --resolved-soft: #1a3d2c;
+    --success: #7bd59b;
+
+    --cancelled: #b6c4c9;
+    --cancelled-soft: #243038;
+
+    --focus: #ffc15b;
+    --p0: #ffb4ab;
+    --p1: #ffb95e;
+    --p2: #75d2e1;
+
+    --nav: var(--rail);
+    --nav-strong: var(--rail-strong);
+    --nav-ink: var(--rail-ink);
+    --nav-muted: var(--rail-muted);
+
+    --shadow-panel: 0 1px 0 rgb(0 0 0 / 20%);
+  }
+}

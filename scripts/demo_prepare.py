@@ -53,6 +53,8 @@ class DemoPrepareError(RuntimeError):
 
 @dataclass(frozen=True)
 class HttpResult:
+    """Store the response forms needed for actionable preparation errors."""
+
     status_code: int
     body: str
     json_body: dict[str, Any] | list[Any] | None
@@ -62,6 +64,7 @@ RequestFunc = Callable[[str, str, dict[str, str], bytes | None, float], HttpResu
 
 
 def _parse_http_url(url: str) -> parse.SplitResult:
+    """Parse an HTTP endpoint while rejecting unsupported or hostless URLs."""
     parsed = parse.urlsplit(url)
     if parsed.scheme not in {"http", "https"}:
         raise DemoPrepareError(f"URL must use http or https scheme: {url}")
@@ -71,6 +74,7 @@ def _parse_http_url(url: str) -> parse.SplitResult:
 
 
 def _http_target(parsed: parse.SplitResult) -> str:
+    """Rebuild the request target without leaking scheme or authority data."""
     path = parsed.path or "/"
     if parsed.query:
         return f"{path}?{parsed.query}"
@@ -84,6 +88,7 @@ def _request_json(
     body: bytes | None = None,
     timeout: float = 10.0,
 ) -> HttpResult:
+    """Perform one bounded HTTP request and decode JSON when possible."""
     parsed = _parse_http_url(url)
     connection_cls = (
         http.client.HTTPSConnection
@@ -118,10 +123,12 @@ def _request_json(
 
 
 def _normalize_base_url(base_url: str) -> str:
+    """Remove a trailing slash so endpoint concatenation remains predictable."""
     return base_url.rstrip("/")
 
 
 def _resolve_admin_key(cli_value: str | None) -> str:
+    """Resolve the admin key and reject empty credentials before preparation."""
     key = (cli_value or os.getenv("ADMIN_API_KEY") or "").strip()
     if not key:
         raise DemoPrepareError(
@@ -131,6 +138,7 @@ def _resolve_admin_key(cli_value: str | None) -> str:
 
 
 def _extract_detail(payload: dict[str, Any] | list[Any] | None) -> str | None:
+    """Extract a structured API error message when the response provides one."""
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, str):
@@ -144,6 +152,7 @@ def _require_ready(
     timeout_seconds: float,
     request_func: RequestFunc,
 ) -> HttpResult:
+    """Require readiness before mutating demo data or simulation state."""
     ready = request_func("GET", f"{base_url}/readyz", {}, None, timeout_seconds)
     if ready.status_code != 200:
         raise DemoPrepareError(
@@ -160,6 +169,7 @@ def _load_seed(
     timeout_seconds: float,
     request_func: RequestFunc,
 ) -> HttpResult:
+    """Load the deterministic seed and translate common failures for operators."""
     seed_result = request_func(
         "POST",
         f"{base_url}/v1/admin/seed",
@@ -177,7 +187,9 @@ def _load_seed(
     if seed_result.status_code == 401:
         raise DemoPrepareError("Seed request unauthorized (401). Check ADMIN_API_KEY.")
     if seed_result.status_code == 409:
-        raise DemoPrepareError(f"Seed request conflict (409): {detail or seed_result.body}")
+        raise DemoPrepareError(
+            f"Seed request conflict (409): {detail or seed_result.body}"
+        )
     raise DemoPrepareError(
         f"Seed request failed (HTTP {seed_result.status_code}): {detail or seed_result.body}"
     )
@@ -190,6 +202,7 @@ def _clear_simulation_notifications(
     timeout_seconds: float,
     request_func: RequestFunc,
 ) -> HttpResult:
+    """Clear old simulated deliveries so screenshots start from a known baseline."""
     clear_result = request_func(
         "POST",
         f"{base_url}/v1/simulation/notifications/clear",
@@ -205,7 +218,9 @@ def _clear_simulation_notifications(
 
     detail = _extract_detail(clear_result.json_body)
     if clear_result.status_code == 401:
-        raise DemoPrepareError("Simulation clear unauthorized (401). Check ADMIN_API_KEY.")
+        raise DemoPrepareError(
+            "Simulation clear unauthorized (401). Check ADMIN_API_KEY."
+        )
     if clear_result.status_code == 404:
         raise DemoPrepareError(
             "Simulation endpoint not found (404). "
@@ -225,6 +240,7 @@ def run_prepare(
     timeout_seconds: float = 10.0,
     request_func: RequestFunc = _request_json,
 ) -> dict[str, Any]:
+    """Prepare a repeatable demo baseline and return evidence for the caller."""
     resolved_base_url = _normalize_base_url(base_url)
     if not seed_file.exists():
         raise DemoPrepareError(f"Seed file not found: {seed_file}")
@@ -259,13 +275,14 @@ def run_prepare(
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Define the command-line interface for local demo preparation."""
     parser = argparse.ArgumentParser(
         description="Prepare local Mock University demo data and simulation state."
     )
     parser.add_argument(
         "--base-url",
         default="http://localhost:8080",
-        help="Alarm Broker base URL (default: http://localhost:8080).",
+        help="Escalane base URL (default: http://localhost:8080).",
     )
     parser.add_argument(
         "--admin-key",
@@ -287,6 +304,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run preparation and emit concise next-step guidance for operators."""
     parser = _build_parser()
     args = parser.parse_args(argv)
 

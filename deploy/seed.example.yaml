@@ -12,7 +12,7 @@ persons:
   - id: ma-012
     display_name: Person X
     role: Staff
-    phone_mobile: "+491700000000"
+    phone_mobile: "+000000000000"
     phone_ext: "10023"
     active: true
 
@@ -38,7 +38,7 @@ escalation_targets:
   - id: notfallstelle-sms
     label: Primary responders (SMS)
     channel: sms
-    address: "+491711111111"
+    address: "+000000000001"
     enabled: true
 
 escalation_steps:

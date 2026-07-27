@@ -1,295 +1,201 @@
-# alarm-broker (Release Candidate)
+![Escalane route mark](services/escalane/escalane/api/assets/escalane-mark.svg)
 
-[![CI](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml/badge.svg)](https://github.com/sebastianspicker/alarm-broker/actions/workflows/ci.yml)
+# Escalane
 
-> **NOTICE (Release Candidate)** -- This project is a **release candidate** and not yet validated for safety-critical, security-critical, or compliance-critical environments.
-> It is an open-source reference implementation for alarm intake, persistence, acknowledgement, notification fan-out, and escalation workflows.
-> No warranty is provided; you are responsible for risk assessment, hardening, monitoring, redundancy, and operational procedures before any production deployment.
+Escalane is a public-alpha alarm intake and escalation service. It accepts
+device triggers, records alarm state in PostgreSQL, queues delivery work in
+Redis, notifies configured destinations, and provides acknowledgement and
+operator workflows.
 
-## Features
+The repository is a reference implementation. It has not been validated for
+safety-critical, emergency-response, or compliance-critical use.
 
-- **Silent/panic alarm trigger** -- Receives HTTP triggers from Yealink emergency keys (or any HTTP client)
-- **Multi-channel fan-out** -- Notifies via Zammad (ticketing), SMS (generic HTTP connector), and Signal (signal-cli-rest-api)
-- **Capability-link ACK** -- Responders acknowledge alarms via a mobile-friendly `/a/{ack_token}` page (no login required)
-- **Escalation engine** -- Configurable escalation schedule with delayed Redis-backed jobs
-- **Bilingual operator console** -- Filtered alarm worklist, deep-linkable details, safe lifecycle actions, configuration, system state, and activity (`/admin`)
-- **Full audit trail** -- Every alarm state change and notification is persisted in PostgreSQL
-- **Prometheus metrics** -- Admin-protected `/metrics` endpoint for monitoring and alerting
-- **Idempotency & rate limiting** -- Deduplicates rapid triggers; prevents abuse
-- **Simulation mode** -- Demo mode with mock connectors for testing without live integrations
+## Current capabilities
 
-## Flow diagrams (Mermaid)
+- Yealink-compatible HTTP trigger intake with device tokens, source CIDR
+  allowlisting, and per-device rate limits
+- PostgreSQL-backed alarm lifecycle: `triggered`, `acknowledged`, `resolved`,
+  and `cancelled`
+- Redis and ARQ workers for notification delivery, delayed escalation, and
+  outbox recovery
+- Zammad, SendXMS, Signal REST bridge, and allowlisted generic webhook
+  connectors
+- Capability-link acknowledgement page for responders
+- Server-rendered operator console for alarms, notes, configuration, activity,
+  health details, and simulation data
+- Admin-key JSON API and optional OpenAPI documentation
+- Docker Compose deployment with PostgreSQL, Redis, a one-shot Alembic
+  migration, API, and worker services
 
-The diagrams below reflect the flow as implemented in this repository.
+## Current limitations
 
-### 1) System overview (runtime components)
-
-```mermaid
-flowchart LR
-  %% External trigger/source
-  Y["Yealink phone<br/>(Emergency key)"] -->|"HTTP GET /v1/yealink/alarm?token=..."| API["Alarm Broker API<br/>(FastAPI)"]
-
-  %% Core state & job infrastructure
-  API -->|"INSERT/UPDATE"| PG["PostgreSQL<br/>(alarms, mapping, audit)"]
-  API -->|"SET idempotency key (NX, EX)"| R["Redis<br/>(idempotency, rate limit, jobs)"]
-  API -->|"INCR rate-limit key"| R
-  API -->|"enqueue_job('alarm_created')"| R
-
-  %% Worker fan-out & escalation
-  R -->|"arq jobs"| W["Alarm Worker<br/>(arq)"]
-  W -->|"SELECT alarm + enrichment"| PG
-  W -->|"INSERT audit rows"| PG
-  W -->|"enqueue_job('escalate', _defer_by=...)"| R
-
-  %% Downstream connectors (best effort)
-  W -->|"create ticket / add note"| Z["Zammad API"]
-  W -->|"send message"| SMS["SMS provider<br/>(generic HTTP connector)"]
-  W -->|"send message"| SIG["Signal endpoint<br/>(signal-cli-rest-api)"]
-  W -->|"POST state-change event (HMAC-signed)"| WH["Webhook endpoint<br/>(WEBHOOK_URL, optional)"]
-
-  %% Responder acknowledgement flow
-  RESP["Responder<br/>(web browser)"] -->|"GET/POST /a/{ack_token}"| API
-  API -->|"enqueue_job('alarm_acked')"| R
-  W -->|"Zammad internal note (ACK)"| Z
-
-  %% Admin flow (seeding/mapping + operator console)
-  ADMIN["Admin (operator)"] -->|"X-Admin-Key /v1/admin/seed"| API
-  ADMIN -->|"X-Admin-Key /v1/admin/devices"| API
-  ADMIN -->|"X-Admin-Key /v1/admin/escalation-policy"| API
-  ADMIN -->|"POST /admin/login → session cookie"| API
-  ADMIN -->|"session cookie GET /admin (operator console)"| API
-```
-
-### 2) Trigger flow (Yealink → API → DB → worker)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Y as Yealink phone
-  participant API as Alarm Broker API (FastAPI)
-  participant R as Redis
-  participant PG as PostgreSQL
-  participant W as Alarm Worker (arq)
-  participant Z as Zammad
-  participant SMS as SMS provider
-  participant SIG as Signal endpoint
-
-  Y->>API: GET /v1/yealink/alarm?token=DEVICE_TOKEN
-  API->>R: GET idemp:sha256(token:bucket_10s)
-  alt idempotency key exists
-    R-->>API: alarm_id (existing)
-    API->>PG: SELECT alarms.id (by alarm_id)
-    API-->>Y: 200 {alarm_id, status}
-  else first request in bucket
-    API->>R: SET idemp:* = alarm_uuid NX EX 30
-    API->>R: INCR rl:token:minute_bucket (+ EXPIRE)
-    alt rate limit exceeded
-      API->>R: DEL idemp:*
-      API-->>Y: 429 Rate limit exceeded
-    else allowed
-      API->>PG: SELECT devices by device_token
-      alt unknown token
-        API->>R: DEL idemp:*
-        API-->>Y: 404 Unknown token
-      else unknown token or incomplete mapping
-        API->>R: DEL idemp:*
-        API-->>Y: 404 Unknown token
-      else ok
-        API->>PG: INSERT alarms(status=triggered, ack_token, meta, ...)
-        API->>PG: UPDATE devices.last_seen_at
-        API->>R: enqueue_job("alarm_created", alarm_id)
-        API-->>Y: 200 {alarm_id, status:"triggered"}
-      end
-    end
-  end
-
-  %% async fan-out
-  R-->>W: alarm_created(alarm_id)
-  W->>PG: SELECT alarm + enrichment (person/room/site)
-  W->>Z: POST /api/v1/tickets (best effort)
-  W->>SMS: send message (best effort)
-  W->>SIG: send message (best effort)
-  W->>PG: INSERT alarm_notifications (audit)
-  W->>R: enqueue_job("escalate", alarm_id, step_no, _defer_by=after_seconds)
-```
-
-### 3) Escalation loop (delayed jobs)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant R as Redis
-  participant W as Alarm Worker (arq)
-  participant PG as PostgreSQL
-  participant SMS as SMS provider
-  participant SIG as Signal endpoint
-
-  R-->>W: escalate(alarm_id, step_no) after delay
-  W->>PG: SELECT alarms.status
-  alt status != triggered
-    W-->>R: (no-op)
-  else status == triggered
-    W->>PG: SELECT escalation_steps(step_no) + targets
-    W->>SMS: send message (best effort)
-    W->>SIG: send message (best effort)
-    W->>PG: INSERT alarm_notifications (audit)
-  end
-```
-
-### 4) ACK flow (capability link)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as Responder (browser)
-  participant API as Alarm Broker API (FastAPI)
-  participant PG as PostgreSQL
-  participant R as Redis
-  participant W as Alarm Worker (arq)
-  participant Z as Zammad
-
-  U->>API: GET /a/{ack_token}
-  API->>PG: SELECT alarms by ack_token
-  API-->>U: HTML page ("Acknowledge" button)
-
-  U->>API: POST /a/{ack_token} (acked_by?, note?)
-  API->>PG: UPDATE alarms.status=acknowledged, acked_at, acked_by, meta.ack_note
-  API->>R: enqueue_job("alarm_acked", alarm_id, acked_by, note)
-  API-->>U: HTML page (already acknowledged)
-
-  R-->>W: alarm_acked(alarm_id, acked_by, note)
-  W->>PG: SELECT alarms.zammad_ticket_id
-  W->>Z: PUT /api/v1/tickets/{id} (internal note, best effort)
-  W->>PG: INSERT alarm_notifications (audit)
-```
-
-### 5) Alarm lifecycle (current implementation)
-
-```mermaid
-stateDiagram-v2
-  [*] --> triggered
-  triggered --> acknowledged: ACK (/a/{ack_token} or admin API)
-  triggered --> resolved: Resolve API
-  triggered --> cancelled: Cancel API
-  acknowledged --> resolved: Resolve API
-  acknowledged --> cancelled: Cancel API
-  resolved --> [*]
-  cancelled --> [*]
-```
-
-## Repository layout
-
-- `docs/` – current public setup, operations, architecture, integration, and roadmap documentation
-- `services/alarm_broker/` – FastAPI API + arq worker + Alembic migrations
-- `deploy/` – Docker Compose + example seed file
-- `PRODUCT.md` and `DESIGN.md` – product intent and browser-interface conventions
-
-Current docs:
-- [docs/SETUP.md](docs/SETUP.md) — installation, configuration reference, dev workflow
-- [docs/OPERATIONS.md](docs/OPERATIONS.md) — monitoring, backups, troubleshooting
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — data model, flows, lifecycle
-- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — Yealink/Zammad templates and connector notes
-- [docs/FRONTEND.md](docs/FRONTEND.md) — browser architecture and release checks
-- [docs/ROADMAP.md](docs/ROADMAP.md) — active release-candidate backlog
-
-## How to read the code
-
-Start with the vertical trigger path, then branch out:
-
-- `services/alarm_broker/alarm_broker/api/main.py` builds the FastAPI app, middleware, exception mapping, database engine, Redis pool, and route registration.
-- `api/routes/yealink.py` is the inbound alarm endpoint. It resolves the client IP, checks the Yealink allowlist, extracts the configured token query parameter, and delegates to `TriggerService`.
-- `services/trigger_service.py` owns trigger idempotency, rate limiting, device mapping checks, alarm persistence, and recovery metadata for downstream event publication.
-- `services/event_publisher.py` is the ARQ job wire contract. It enqueues `process_alarm_event` jobs with deterministic IDs so duplicate created/state events collapse at the queue layer.
-- `worker/tasks.py` is the background side of the flow: ticket creation, stage 0 notification fan-out, delayed escalation, ACK follow-up notes, state-change webhooks, and event-recovery scans.
-- `services/notification_service.py` converts an enriched alarm into channel payloads and audit rows for Zammad, SMS, Signal, and escalation-target webhooks.
-- `api/routes/ack.py` implements the bilingual capability-link ACK page. Possession of `ack_token` authorizes the ACK action, with CSRF and per-IP rate limiting around the browser form. See [`docs/FRONTEND.md`](docs/FRONTEND.md) for the browser architecture and release checks.
-
-The core state transition rules live in `services/alarm_service.py`; the SQLAlchemy schema lives in `db/models.py`; shared request/response shapes live in `api/schemas.py`.
-
-## Additional Resources
-
-- `SECURITY.md` - Security policy and best practices
-- `CHANGELOG.md` - Version history
+- The project is a public alpha and may change interfaces or operational
+  behavior before a stable release.
+- Delivery is at least once. A provider can receive a duplicate if delivery
+  succeeds but the local audit write fails.
+- Connector behavior depends on external systems and must be tested in the
+  target environment.
+- The included Compose file binds the API to loopback and does not provide TLS,
+  a reverse proxy, backup scheduling, or external monitoring.
+- Simulation mode uses local mock delivery and is not evidence of live
+  connector behavior.
+- The Python wheel is checked by CI but is not the documented deployment
+  artifact. Tagged releases publish a container image.
 
 ## Requirements
 
-- Docker Desktop
-- Python 3.12+ (optional for local dev; Docker is enough to run)
-- `jq` (optional, used by the example `curl` commands)
+For the Compose workflow:
 
-## Quickstart
+- Docker with the Compose plugin
+- `curl` for the verification examples
+
+For local development:
+
+- Python 3.14.x. CI uses Python 3.14.6.
+- GNU Make
+- PostgreSQL and Redis for integration and runtime checks
+- Playwright browser binaries for browser E2E tests
+
+## Quick start
+
+Create the local environment file from the repository template and set the
+required values:
 
 ```bash
-# 1. Configure environment
 cp .env.example .env
-# Set ADMIN_API_KEY and YEALINK_DEVICE_TOKEN in .env before loading seed data.
-
-# 2. Start all services (API + PostgreSQL + Redis + Worker)
-docker compose -f deploy/docker-compose.yml up -d --build
-
-# 3. Run database migrations
-docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
-
-# 4. Load example seed data (devices, persons, rooms, escalation policy)
-curl -sS -X POST "http://localhost:8080/v1/admin/seed" \
-  -H "X-Admin-Key: <admin-api-key>" \
-  -H "Content-Type: application/x-yaml" \
-  --data-binary @deploy/seed.example.yaml
-
-# 5. Trigger a test alarm
-curl -sS "http://localhost:8080/v1/yealink/alarm?token=<device-token>" | jq .
-
-# 6. Check readiness
-curl -sS "http://localhost:8080/readyz" | jq .
 ```
 
-Open the **operator console**: <http://localhost:8080/admin/login>
+For the sample seed, configure `POSTGRES_PASSWORD`, `DATABASE_URL`,
+`ADMIN_API_KEY`, `BASE_URL`, `YELK_IP_ALLOWLIST`, `YEALINK_DEVICE_TOKEN`,
+`SIGNAL_TARGET_GROUP_ID`, `ESCALATE_T1`, `ESCALATE_T2`, and `ESCALATE_T3`.
+Use `SIMULATION_ENABLED=true` with a loopback `BASE_URL` for a local mock
+workflow. Compose reads the root `.env`; it does not export those values into
+the interactive shell, so the HTTP examples use explicit placeholders.
 
-Local development note: on plain `http://localhost:8080`, the admin session cookie and ACK CSRF cookie are intentionally emitted without the `Secure` flag so browser flows work locally. On HTTPS, or behind a trusted proxy forwarding `X-Forwarded-Proto: https`, those cookies are marked `Secure`.
+Build and start the stack:
 
-Metrics note: `/metrics` requires the `X-Admin-Key` header. For Prometheus, expose it through a trusted reverse proxy or scrape via a sidecar that injects the header.
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+curl --fail http://127.0.0.1:8080/readyz
+```
 
-To acknowledge a local test alarm through the UI, log in to `/admin/login`, open
-the alarm's **Details** page, and choose **Acknowledge**. The capability-link ACK
-page (`/a/<ack_token>`) is exercised by the E2E suite; in normal operation that
-link is distributed through the configured notification channels.
+Load the sample configuration:
 
-## Screenshots
+```bash
+curl --fail \
+  -H "X-Admin-Key: <admin-api-key>" \
+  -H "Content-Type: application/yaml" \
+  --data-binary @deploy/seed.example.yaml \
+  http://127.0.0.1:8080/v1/admin/seed
+```
 
-> Mock university campus demo with simulated alarm data.
+Trigger the sample Yealink device:
 
-Screenshot PNGs are generated locally with `make demo-screens` and intentionally
-ignored so the public repository does not carry bulky regenerated assets.
-The capture covers the 1440 px operator console and 390 px responder flow. Review
-the generated files in `docs/assets/screenshots/`; they are evidence for local
-review, not a cross-platform pixel-diff release gate.
+```bash
+curl --get --fail \
+  --data-urlencode "token=<device-token>" \
+  http://127.0.0.1:8080/v1/yealink/alarm
+```
+
+Open `http://127.0.0.1:8080/admin/login` and sign in with
+`ADMIN_API_KEY`. See [Setup](docs/SETUP.md) for the complete configuration and
+installation procedure.
+
+## Browser interface
+
+![Operator alarm worklist with two triggered alarms, status totals, filters, and bulk actions](docs/assets/screenshots/01-admin-overview.png)
+
+![Triggered alarm detail with context, delivery activity, lifecycle actions, and note entry](docs/assets/screenshots/04-admin-alarm-detail.png)
+
+![Mobile responder page with alarm context, optional responder fields, and acknowledgement action](docs/assets/screenshots/06-ack-page-triggered-mobile.png)
+
+![Simulation delivery table with Zammad, Signal, and SMS results](docs/assets/screenshots/09-simulation-feed.png)
+
+These images use the repository's Mock University fixtures. The capture and
+review procedure is in
+[docs/assets/screenshots/README.md](docs/assets/screenshots/README.md).
 
 ## Configuration
 
-See `.env.example` for available variables (Zammad, SMS, Signal, escalation).
+Configuration is read from environment variables and an optional `.env` file.
+The authoritative variable list, defaults, validation rules, and connector
+requirements are in [docs/SETUP.md](docs/SETUP.md). Source validation lives in
+`services/escalane/escalane/settings.py`.
 
-Notes:
-- The SMS connector is intentionally generic and expects an HTTP endpoint (see `SENDXMS_*` variables).
-- Signal expects a `signal-cli-rest-api` compatible endpoint.
+OpenAPI routes are disabled by default. Set `ENABLE_API_DOCS=true` to expose
+`/docs`, `/redoc`, and `/openapi.json`.
 
-## Developer workflow (local)
+## Usage
 
-```bash
-make lint       # ruff format + check
-python -m mypy services/alarm_broker/alarm_broker
-make hygiene-check # reject private/generated files from the public candidate
-make test       # pytest with coverage (threshold: 93%)
-make e2e        # served HTTP E2E flow with temp SQLite + fake Redis
-make browser-e2e # Playwright browser flows (requires installed engines)
-make audit      # ruff + bandit + pip-audit
+The principal HTTP surfaces are:
+
+| Surface | Path | Access |
+|---|---|---|
+| Liveness | `/healthz` | Public |
+| Readiness | `/readyz` | Public |
+| Yealink trigger | `/v1/yealink/alarm` | Device token and source allowlist |
+| Responder acknowledgement | `/a/{ack_token}` | Capability token |
+| Operator sign-in | `/admin/login` | Admin key |
+| Operator console | `/admin` | Session and CSRF protection |
+| Alarm JSON API | `/v1/alarms` | `X-Admin-Key` |
+| Admin JSON API | `/v1/admin` | `X-Admin-Key` |
+| Metrics and health details | `/metrics`, `/healthz/details` | `X-Admin-Key` |
+| Simulation API | `/v1/simulation` | `X-Admin-Key`, simulation mode only |
+
+See [Integration notes](docs/INTEGRATIONS.md) for ingress and connector
+contracts and [Operations](docs/OPERATIONS.md) for runtime procedures.
+
+## Repository structure
+
+```text
+.
+├── deploy/                    Compose definition and sample seed
+├── docs/                      Architecture, setup, operations, and release guides
+├── scripts/                   Validation, container smoke, and screenshot tools
+├── services/escalane/
+│   ├── alembic/               Database migrations
+│   ├── escalane/              Application package
+│   ├── tests/                 Unit, integration, security, repository, and E2E tests
+│   └── pyproject.toml         Package and tool configuration
+├── Dockerfile                 Runtime image
+└── Makefile                   Development and validation commands
 ```
 
-**Quality gates** (all enforced in CI):
-- ruff format + lint
-- mypy strict type checking
-- public repository hygiene check
-- bandit security scanning
-- pytest with 93% coverage threshold
-- served HTTP and Chromium/Firefox/WebKit E2E browser flows
-- wheel packaging and packaged-resource smoke import
-- PostgreSQL + Alembic smoke path
+## Development and testing
+
+```bash
+make install
+make lint
+make test
+make e2e
+make hygiene-check
+```
+
+`make dev` installs development dependencies and runs the verbose test suite.
+It does not start the API. See [Contributing](CONTRIBUTING.md) for the complete
+workflow and [Frontend](docs/FRONTEND.md) for browser-specific checks.
+
+## Deployment and operation
+
+The checked-in Compose deployment runs PostgreSQL 16, Redis 7, the Alembic
+migration, the API, and the ARQ worker. The three application services share
+the image selected by `ESCALANE_IMAGE`.
+
+Use [Setup](docs/SETUP.md) for installation and immutable-image deployment,
+[Operations](docs/OPERATIONS.md) for health, backups, upgrades, and
+troubleshooting, and [Releasing](docs/RELEASING.md) for the tag workflow.
+
+## Security
+
+Do not expose the service directly to an untrusted network. Terminate TLS at a
+reverse proxy, restrict ingress, configure trusted proxy CIDRs, use random
+credentials, and treat acknowledgement URLs as bearer capabilities. Review
+[SECURITY.md](SECURITY.md) before deployment.
+
+## Contributing and support
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development expectations,
+[SUPPORT.md](SUPPORT.md) for issue routing, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for participation rules.
+
+The project is licensed under the [MIT License](LICENSE).

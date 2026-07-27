@@ -1,155 +1,123 @@
-# Alarm Broker Architecture
+# Architecture
 
-## Scope and intent
-
-The system is a release-candidate reference implementation with:
-- stable core flow,
-- clear auditability,
-- secure defaults,
-- additive, backward-compatible API evolution.
-
-It is not validated for safety-critical, security-critical, or compliance-critical production use.
+Escalane is a FastAPI service with server-rendered operator pages, a
+PostgreSQL data store, Redis-backed queues and sessions, and an ARQ worker.
 
 ## Runtime components
 
-- FastAPI API service (`alarm_broker.api`)
-- arq worker (`alarm_broker.worker`)
-- PostgreSQL (state + audit)
-- Redis (idempotency, rate limiting, jobs)
-- Connector clients:
-  - Zammad
-  - SMS provider (generic HTTP)
-  - Signal endpoint (signal-cli-rest-api compatible)
+| Component | Responsibility |
+|---|---|
+| FastAPI API | Trigger intake, acknowledgement, admin API, operator pages, health, and metrics |
+| PostgreSQL | Alarm state, configuration, audit data, and event outbox |
+| Redis | ARQ jobs, browser sessions, idempotency, and rate limits |
+| ARQ worker | Notification delivery, escalation scheduling, callbacks, and outbox recovery |
+| Jinja assets | Server-rendered HTML, CSS, JavaScript, and SVG |
+| Alembic | Ordered database schema migrations |
 
-## End-to-end flow
+`deploy/docker-compose.yml` runs these as PostgreSQL, Redis, migration, API,
+and worker services. Migration, API, and worker use one image reference.
 
-1. Trigger source (Yealink webhook) calls:
-- `GET /v1/yealink/alarm?token=<device_token>`
+## Trigger and delivery flow
 
-2. API validates:
-- source IP allowlist,
-- idempotency bucket,
-- per-token rate limits,
-- device mapping consistency.
+1. `GET /v1/yealink/alarm` validates the source address, query parameter, and
+   device token.
+2. `TriggerService.process_trigger` loads the device context and creates or
+   reuses the alarm transactionally.
+3. The transaction records an ordered event in `alarm_event_outbox`.
+4. The publisher enqueues `process_alarm_event` in Redis.
+5. The worker sends initial notifications, schedules escalation steps, and
+   records bounded delivery results.
+6. Later state changes can enqueue follow-up delivery and a signed webhook
+   callback.
 
-3. API persists `alarms` row with `status=triggered`, `ack_token`, metadata, then enqueues `alarm_created`.
+The outbox publishes only the earliest pending event for each alarm. Recovery
+runs once per minute to retry unpublished rows. External delivery is at least
+once, so provider-side idempotency remains important.
 
-4. Worker enriches alarm context (person/room/site), sends stage 0 notifications, and schedules escalation jobs.
+## Acknowledgement flow
 
-5. ACK flow:
-- `GET /a/{ack_token}` renders responder page,
-- `POST /a/{ack_token}` acknowledges alarm and enqueues `alarm_acked`.
+Each alarm has a unique acknowledgement token. `GET /a/{ack_token}` renders the
+responder page. `POST /a/{ack_token}` validates the form and performs the
+lifecycle transition. Possession of the token authorizes this route, so the
+URL is a bearer capability and must not be logged or shared beyond the
+responder.
 
-6. Admin lifecycle/API:
-- `POST /v1/alarms/{alarm_id}/ack`
-- `POST /v1/alarms/{alarm_id}/resolve`
-- `POST /v1/alarms/{alarm_id}/cancel`
-
-7. Operator console:
-- `POST /admin/login` exchanges the static admin key for a named Redis session,
-- `/admin/*` pages and form actions use that session plus CSRF protection,
-- user-initiated requests refresh the one-hour session; revision polling does not.
+Operator API and browser actions use separate admin-key or session
+authorization paths.
 
 ## Alarm lifecycle
 
-Allowed transitions:
-- `triggered -> acknowledged`
-- `triggered -> resolved`
-- `triggered -> cancelled`
-- `acknowledged -> resolved`
-- `acknowledged -> cancelled`
+| State | Meaning |
+|---|---|
+| `triggered` | Active and not yet acknowledged |
+| `acknowledged` | A responder or operator accepted the alarm |
+| `resolved` | The incident was completed |
+| `cancelled` | The alarm was cancelled |
 
-Invalid transitions are rejected with `409`.
-Repeated transition to same target state is idempotent (`204`).
+Lifecycle changes use compare-and-set service methods and write audit events.
+Deletion is a separate operator action and is not another lifecycle state.
 
-## Operational endpoints
+## HTTP surfaces
 
-- `GET /healthz`: basic liveness
-- `GET /readyz`: DB + Redis readiness
+Public functional routes cover liveness, readiness, device trigger, responder
+acknowledgement, and operator sign-in. Packaged assets are served at
+`/admin/assets/*`. Admin JSON routes use `X-Admin-Key`. Authenticated browser
+routes use a Redis-backed session and CSRF tokens.
 
-`/readyz` returns `503` if one dependency is unavailable.
+`ENABLE_API_DOCS=true` enables `/docs`, `/redoc`, and `/openapi.json`.
 
-## Data model (PostgreSQL)
+Router assembly is defined in
+`services/escalane/escalane/api/routes/__init__.py`. Application construction,
+middleware, assets, and lifespan resources are owned by
+`services/escalane/escalane/api/main.py`.
 
-Core tables:
-- **Master data**: versioned `sites`, `rooms` (FK sites), `persons`, and `devices` (token mapping), with explicit active state
-- **Escalation config**: versioned `escalation_policy`, `escalation_targets`, and `escalation_steps` (composite PK: policy_id, step_no, target_id)
-- **Alarms**: `alarms` (UUID PK, status lifecycle, context, integration fields, JSON meta)
-- **Audit**: `alarm_notifications`, immutable `alarm_notes`, and redacted `admin_audit_events`
+## Data model
 
-`devices.device_token` is the inbound trigger anchor. `alarms.ack_token` provides the capability URL.
+The models in `services/escalane/escalane/db/models.py` cover:
 
-## Module organization
+- sites, rooms, people, and devices
+- escalation policies, steps, and targets
+- alarms, notes, and notification audits
+- ordered alarm event outbox rows
 
-The API routes are split into focused modules:
-- `api/routes/alarms.py` — list, export, stats (read-only queries)
-- `api/routes/alarm_operations.py` — CRUD, state transitions, bulk operations
-- `api/routes/alarm_notes.py` — notes timeline
-- `api/routes/admin_ui.py` — named-session operator pages and form actions
+Schema history is authoritative in `services/escalane/alembic/versions/`.
+`/readyz` verifies that the database is at Alembic revision `0007`.
 
-Browser HTML is rendered with autoescaped Jinja templates in `api/templates/`.
-Shared CSS and progressive JavaScript ship as package data from `api/assets/`;
-there are no external browser resources or inline behavior dependencies.
+## Package structure
 
-Typed internal data uses `types.py` (`EnrichedAlarmContext`, `NotificationPayload`).
+```text
+services/escalane/escalane/
+├── api/             FastAPI app, routes, templates, and browser assets
+├── connectors/      Zammad, SendXMS, Signal, mock, and connector interfaces
+├── core/            Shared URL, network, and security helpers
+├── db/              Engine, sessions, and SQLAlchemy models
+├── services/        Lifecycle, seed, delivery, trigger, and outbox logic
+├── worker/          ARQ tasks and worker settings
+├── seed.py          Seed placeholder expansion
+└── settings.py      Environment configuration and validation
+```
 
-## Primary code paths
+The API layer handles transport concerns. Service modules own application
+transactions and lifecycle rules. Connector modules translate delivery
+requests. Worker modules own asynchronous orchestration and retry behavior.
 
-The main vertical slice is:
+## Failure behavior
 
-1. `api/main.py` creates the FastAPI app, installs security/observability middleware, opens DB/Redis resources, and registers routes.
-2. `api/routes/yealink.py` handles the external trigger request and delegates all business logic to `TriggerService`.
-3. `services/trigger_service.py` validates the trigger, reserves a Redis idempotency key, persists the alarm row, and records event-delivery state in `alarm.meta`.
-4. `services/event_publisher.py` converts service events into ARQ jobs for the worker. Its `JOB_NAME` and payload fields are a wire contract with `worker/tasks.py`.
-5. `worker/tasks.py` dispatches ARQ events to notification fan-out, delayed escalations, ACK follow-up notes, state-change webhooks, and event-delivery recovery.
-6. `services/notification_service.py` builds user-facing messages and writes one `alarm_notifications` audit row per channel attempt.
+- Empty admin credentials fail closed.
+- Invalid runtime configuration prevents startup.
+- `/healthz` reports process liveness only.
+- `/readyz` returns HTTP 503 when PostgreSQL, Redis, or schema revision is not
+  ready.
+- Provider failures are recorded with bounded diagnostic categories rather
+  than raw exception data.
+- Pending outbox rows retain publish errors for later recovery.
 
-The ACK flow starts in `api/routes/ack.py`, but uses the same state-transition helpers in `services/alarm_service.py` and the same event publisher wrappers in `services/event_service.py`.
+## Observability
 
-## Internal invariants
+The API emits structured request logs with request IDs and masks
+capability-bearing routes. Admin-protected `/metrics` reports application
+counters. `/healthz/details` exposes dependency status to admin clients.
+Database queries above `SLOW_QUERY_LOG_MS` produce warning logs.
 
-- Device tokens are secrets. Logs use short SHA-256 token hashes, and trigger errors avoid distinguishing unknown tokens from incomplete mappings.
-- The Redis idempotency key is scoped to a 10-second bucket. It stores the pre-reserved alarm UUID so rapid duplicate trigger requests can return the same alarm once persistence catches up.
-- `alarm.meta.event_delivery` is recovery state, not business history. It records whether the trigger-side `alarm.created` and initial `alarm.state_changed` jobs were queued; `recover_incomplete_alarm_events` uses it to retry after transient Redis/worker failures.
-- Resolve and cancel are alarm states, not separate worker event types. Downstream webhooks receive them through the generic `alarm.state_changed` event with `new_state`.
-- Notification delivery is best effort per channel. Failures are logged in `alarm_notifications` and metrics, but one failing connector should not block other channels.
-- `ack_token` is a capability URL. It is never logged as a raw path segment and the ACK page is sent with `Cache-Control: no-store`.
-- Inactive device or dependent master-data mappings fail through the same generic trigger response as unknown mappings.
-- Device tokens and escalation target addresses are write-only or masked in operator views and redacted from administrative audit events.
-
-## Error handling
-
-Services use domain exceptions (`ConflictError`, `NotFoundError`, `ValidationError` from `core/errors.py`). Centralized exception handlers in `api/main.py` map them to HTTP status codes. Routes never raise `HTTPException` for business logic errors.
-
-## Layer boundaries
-
-- `api/routes/` → `services/` → `db/`, `connectors/`
-- `core/` is cross-cutting (errors, idempotency, rate limiting, metrics rendering) with zero DB imports
-- `worker/` → `services/` → `db/`, `connectors/`
-- Message formatting lives in `services/message_formatter.py`
-
-## API notes
-
-- Existing endpoints remain backward-compatible.
-- `GET /v1/alarms` supports additive pagination via optional `cursor` + `limit`.
-- If another page exists, header `X-Next-Cursor` is returned.
-- CSV export sanitizes values to prevent formula injection.
-
-## Observability baseline
-
-A request middleware adds:
-- request ID (`X-Request-ID` response header),
-- structured request logs with route, status, latency, and optional alarm ID.
-
-Prometheus metrics at `/metrics` expose HTTP request counts, alarm status gauges, and notification attempt counters. The endpoint is protected by the admin API key rather than being publicly scrapeable by default.
-
-## Security baseline
-
-- Fail-closed admin auth when `ADMIN_API_KEY` is unset.
-- Token and IP validation on inbound trigger routes.
-- Escaped ACK HTML rendering.
-- Named Redis sessions and CSRF protection for browser mutations; the static admin key is never serialized into browser pages or storage.
-- Input validation on admin seed and escalation policy operations (Pydantic + ORM only).
-- HMAC-SHA256 signed webhook payloads.
-- CSV export formula injection protection.
-- Strict mypy type checking enforced in CI.
+See [OPERATIONS.md](OPERATIONS.md) for operator procedures and
+[SECURITY.md](../SECURITY.md) for trust boundaries.

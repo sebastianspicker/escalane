@@ -10,7 +10,7 @@ updates:
           - "*"
 
   - package-ecosystem: "pip"
-    directory: "/services/alarm_broker"
+    directory: "/services/escalane"
     schedule:
       interval: "weekly"
     groups:

@@ -1,0 +1,160 @@
+/* Configuration, system, activity, simulation panels. */
+
+.configuration-layout {
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.85fr) minmax(0, 1.25fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.configuration-layout .form-grid {
+  grid-template-columns: 1fr;
+}
+
+.record-count {
+  min-width: 1.75rem;
+  padding: 0.15rem 0.4rem;
+  text-align: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-chip);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.resource-record {
+  margin-top: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.resource-record summary {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0.8rem;
+  cursor: pointer;
+  font-weight: 650;
+  font-size: 0.875rem;
+}
+
+.resource-record[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-record .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0.85rem;
+}
+
+.resource-state {
+  color: var(--ink-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.resource-state.is-active {
+  color: var(--success);
+}
+
+.record-actions {
+  padding: 0 0.85rem 0.85rem;
+}
+
+.code-editor {
+  min-height: 22rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  tab-size: 2;
+  border-radius: var(--radius-control);
+}
+
+.editor-panel .button,
+.editor-panel .action-row {
+  margin-top: 0.75rem;
+}
+
+.system-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+}
+
+.system-list > div {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.35fr) 1fr;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface);
+}
+
+.system-list dd {
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) 1fr;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.system-list dd span {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.system-list dt {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.audit-list {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.audit-list li {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.3fr) 1fr;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.audit-list li:last-child {
+  border-bottom: 0;
+}
+
+.audit-list li > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.4fr) minmax(9rem, 0.7fr) 1fr;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.audit-list time {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.result-state {
+  color: var(--success);
+  font-weight: 700;
+  font-size: 0.8125rem;
+}
+
+/* Simulation table reuses table-scroll from worklist */
+.page-heading form {
+  margin: 0;
+}

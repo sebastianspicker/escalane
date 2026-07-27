@@ -1,231 +1,266 @@
-# Setup Guide
+# Setup
 
-## Prerequisites
+## Requirements
 
-- Docker & Docker Compose
-- Python 3.12+ (for local development)
-- Make (optional, for convenience commands)
+The documented runtime path uses Docker and the Compose plugin. Local
+development requires Python 3.14.x; CI uses Python 3.14.6.
 
-## Quick Start (Docker Compose)
+Optional checks also require:
+
+- PostgreSQL and Redis for the runtime and integration checks
+- Playwright browser binaries for browser E2E tests
+- `curl` for HTTP examples
+- GNU Make for repository command targets
+
+## Install with Docker Compose
+
+Create the local environment file:
 
 ```bash
-# 1. Create environment file
 cp .env.example .env
-# Edit .env: set ADMIN_API_KEY, DATABASE_URL, REDIS_URL, BASE_URL
+```
 
-# 2. Start services
+Set `POSTGRES_PASSWORD` and make the password in `DATABASE_URL` match it. Set a
+random `ADMIN_API_KEY`. For the sample seed, also set
+`YEALINK_DEVICE_TOKEN`, `SIGNAL_TARGET_GROUP_ID`, `ESCALATE_T1`,
+`ESCALATE_T2`, and `ESCALATE_T3`.
+
+For local evaluation without live connectors, set:
+
+```text
+BASE_URL=http://localhost:8080
+SIMULATION_ENABLED=true
+```
+
+Simulation mode requires a loopback `BASE_URL`. Outside simulation mode,
+`YELK_IP_ALLOWLIST` is required and the default database password is rejected.
+
+Build the shared application image, apply migrations, and start the API and
+worker:
+
+```bash
 docker compose -f deploy/docker-compose.yml up -d --build
-
-# 3. Run database migrations
-docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
-
-# 4. Load seed data
-curl -sS -X POST "http://localhost:8080/v1/admin/seed" \
-  -H "X-Admin-Key: your-admin-key" \
-  -H "Content-Type: application/x-yaml" \
-  --data-binary @deploy/seed.example.yaml
-
-# 5. Verify
-curl -sS http://localhost:8080/readyz | jq .
+curl --fail http://127.0.0.1:8080/readyz
 ```
 
-## Development Workflow
+The API and worker wait for PostgreSQL, Redis, and the one-shot migration
+service. `/readyz` returns HTTP 503 until those dependencies and Alembic
+revision `0007` are ready.
 
-### Running Tests
+Load the sample seed:
 
 ```bash
-make test
-# or directly:
-./.venv/bin/pytest -q
+curl --fail \
+  -H "X-Admin-Key: <admin-api-key>" \
+  -H "Content-Type: application/yaml" \
+  --data-binary @deploy/seed.example.yaml \
+  http://127.0.0.1:8080/v1/admin/seed
 ```
 
-### Code Quality
+The sample contact values are placeholders. Replace them before testing a live
+connector.
+
+## Local development
+
+From the repository root:
 
 ```bash
-make lint                    # Ruff format check and lint
-python -m mypy services/alarm_broker/alarm_broker
-make hygiene-check           # Public-file boundary and private-path check
-make audit                   # Ruff, Bandit, and project-scoped pip-audit
-make package-check           # Build the Python wheel
-make clean                   # Remove generated caches and build outputs
+make install
 ```
 
-### Running Specific Tests
+This creates `.venv`, upgrades `pip`, and installs
+`services/escalane[dev]` in editable mode.
+
+Compose reads the root `.env` through `deploy/docker-compose.yml`. Direct
+Python processes started from `services/escalane` look for `.env` in that
+directory. To reuse the ignored root file, create an ignored service-local
+symlink:
 
 ```bash
-./.venv/bin/pytest -q -m security   # Security tests only
-./.venv/bin/pytest -v               # Verbose output
-./.venv/bin/pytest tests/test_api_flow.py  # Single file
+ln -s ../../.env services/escalane/.env
 ```
 
-## Database Migrations
+Alternatively, export every required variable in the shell that starts
+Uvicorn, ARQ, or Alembic. A root `.env` file alone is not loaded by those
+commands.
+
+To run the API against configured PostgreSQL and Redis services:
 
 ```bash
-# Create new migration
-docker compose -f deploy/docker-compose.yml exec api alembic revision --autogenerate -m "description"
-
-# Apply migrations
-docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
-
-# Rollback
-docker compose -f deploy/docker-compose.yml exec api alembic downgrade -1
+cd services/escalane
+../../.venv/bin/uvicorn escalane.api.main:app --reload
 ```
 
-## Production Deployment
-
-### Database Setup
-
-```sql
-CREATE DATABASE alarm;
-CREATE USER alarm WITH PASSWORD 'secure-password';
-GRANT ALL PRIVILEGES ON DATABASE alarm TO alarm;
-GRANT ALL ON SCHEMA public TO alarm;
-```
-
-### Security Recommendations
-
-1. **Use HTTPS** - Configure a reverse proxy (nginx, traefik)
-2. **Firewall** - Only expose port 80/443
-3. **Secrets** - Use Docker secrets or external secret management
-4. **Non-root** - Run containers as non-root user
-
-### Reverse Proxy (nginx)
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name alarm.yourdomain.com;
-
-    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### Upgrading
+Run the worker in a second shell:
 
 ```bash
-pg_dump -U alarm -h localhost alarm > backup_$(date +%Y%m%d).sql  # Backup first
-git pull
-docker compose -f deploy/docker-compose.yml build
-docker compose -f deploy/docker-compose.yml exec api alembic upgrade head
-docker compose -f deploy/docker-compose.yml restart
+cd services/escalane
+../../.venv/bin/arq escalane.worker.settings.WorkerSettings
 ```
 
-## Configuration Reference
+Apply migrations before starting either process:
 
-All configuration is via environment variables. See `.env.example` for all options.
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ADMIN_API_KEY` | Yes | - | Admin API key |
-| `DATABASE_URL` | Yes | - | PostgreSQL connection URL |
-| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection URL |
-| `BASE_URL` | Yes | `http://localhost:8080` | Public base URL for ACK links |
-| `LOG_LEVEL` | No | `INFO` | Logging level |
-| `ENABLE_API_DOCS` | No | `false` | Enable `/docs` and `/redoc` |
-| `YELK_IP_ALLOWLIST` | No | - | Comma-separated IPs/CIDRs for Yealink |
-| `YEALINK_DEVICE_TOKEN` | Seed data | - | Device token consumed by `deploy/seed.example.yaml` |
-| `RATE_LIMIT_PER_MINUTE` | No | `10` | Rate limit per device token |
-
-See `.env.example` for Zammad, SMS, Signal, and webhook configuration.
-
-## Project Structure
-
-```
-alarm-broker/
-├── deploy/                    # Docker Compose and seed examples
-├── docs/                      # Documentation
-├── services/
-│   └── alarm_broker/
-│       ├── alarm_broker/      # Main application package
-│       │   ├── api/           # FastAPI routes and schemas
-│       │   ├── connectors/    # External service clients
-│       │   ├── core/          # Core utilities
-│       │   ├── db/            # Database models and migrations
-│       │   ├── services/      # Business logic layer
-│       │   └── worker/        # Background task workers
-│       ├── tests/             # Test suite
-│       └── pyproject.toml     # Python dependencies
-└── Makefile                   # Development commands
+```bash
+cd services/escalane
+../../.venv/bin/alembic upgrade head
 ```
 
-## API Endpoints
+`make dev` is a test target. It installs development dependencies and runs the
+verbose test suite.
 
-### Public
+## Configuration
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/healthz` | GET | Liveness check |
-| `/readyz` | GET | Readiness check (DB + Redis) |
-| `/healthz/details` | GET | Detailed dependency and connector status |
-| `/v1/yealink/alarm` | GET | Yealink alarm trigger |
-| `/a/{ack_token}` | GET/POST | Alarm acknowledgment UI |
-| `/admin/login` | GET/POST | Admin login form that sets a session cookie |
+Application settings are loaded from process environment variables and an
+optional `.env` in the process working directory. Variable names are
+case-insensitive in the settings loader, but the repository uses uppercase
+names.
 
-### Operator UI
+### Core and ingress
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/admin` | GET | Filtered alarm worklist (requires the named `admin_session`) |
-| `/admin/alarms/{id}` | GET | Alarm detail, lifecycle, notes, and delivery history |
-| `/admin/configuration/{resource}` | GET/POST | Versioned master data, default policy, and import workflows |
-| `/admin/simulation` | GET/POST | Mock delivery view when simulation is enabled |
-| `/admin/system` | GET | Exact application and dependency state |
-| `/admin/activity` | GET | Redacted administrative activity |
-| `/admin/assets/ui.css` | GET | Packaged same-origin interface styles |
-| `/admin/assets/ui.js` | GET | Optional progressive enhancement |
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://alarm:change-me@localhost:5432/alarm` | PostgreSQL SQLAlchemy URL. The default password is rejected outside simulation. |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis URL for queues, sessions, idempotency, and rate limits. |
+| `BASE_URL` | `http://localhost:8080` | Origin for acknowledgement links. It cannot contain credentials, path, query, or fragment. Non-loopback origins require HTTPS. |
+| `LOG_LEVEL` | `INFO` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `YELK_TOKEN_QUERY_PARAM` | `token` | Query key used by the Yealink trigger route. |
+| `YELK_IP_ALLOWLIST` | Empty | Comma-separated IP addresses or CIDRs. Required outside simulation. |
+| `YEALINK_DEVICE_TOKEN` | Empty | Placeholder consumed by `deploy/seed.example.yaml`; not read by the trigger route directly. |
+| `RATE_LIMIT_PER_MINUTE` | `10` | Per-device trigger limit. Range: 1 to 1000. |
+| `ADMIN_API_KEY` | Empty | Admin API and browser sign-in credential. Empty configuration fails closed. |
+| `ENABLE_API_DOCS` | `false` | Enables `/docs`, `/redoc`, and `/openapi.json`. |
+| `TRUSTED_PROXY_CIDRS` | Empty | Immediate proxy peers allowed to supply forwarded client IP and HTTPS headers. |
+| `SIMULATION_ENABLED` | `false` | Enables mock connector and simulation routes. Requires a loopback `BASE_URL`. |
 
-### Admin (require `X-Admin-Key` header)
+### Zammad
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/alarms` | GET | List alarms (paginated) |
-| `/v1/alarms/export` | GET | Export alarms as CSV |
-| `/v1/alarms/stats` | GET | Alarm statistics |
-| `/v1/alarms/{id}` | GET | Get alarm details |
-| `/v1/alarms/{id}` | PATCH | Update alarm fields |
-| `/v1/alarms/{id}` | DELETE | Soft-delete an alarm |
-| `/v1/alarms/{id}/ack` | POST | Acknowledge alarm |
-| `/v1/alarms/{id}/resolve` | POST | Resolve alarm |
-| `/v1/alarms/{id}/cancel` | POST | Cancel alarm |
-| `/v1/alarms/{id}/notes` | GET/POST | Read or add alarm notes |
-| `/v1/alarms/bulk/ack` | POST | Bulk acknowledge |
-| `/v1/alarms/bulk/resolve` | POST | Bulk resolve |
-| `/v1/alarms/bulk/cancel` | POST | Bulk cancel |
-| `/metrics` | GET | Prometheus-style metrics |
-| `/v1/admin/devices` | POST | Create device mapping |
-| `/v1/admin/escalation-policy` | POST | Create escalation policy |
-| `/v1/admin/seed` | POST | Load seed data |
-| `/v1/simulation/status` | GET | Simulation status when enabled |
-| `/v1/simulation/notifications` | GET | Simulation notification log when enabled |
-| `/v1/simulation/notifications/clear` | POST | Clear simulation notification log |
-| `/v1/simulation/seed` | POST | Return simulation seed metadata |
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `ZAMMAD_BASE_URL` | `https://zammad.example.org` | HTTPS origin without URL credentials. The reserved default is rejected when enabled. |
+| `ZAMMAD_API_TOKEN` | Empty | A non-empty value enables Zammad delivery. |
+| `ZAMMAD_GROUP` | `Notfallstelle` | Ticket group. |
+| `ZAMMAD_PRIORITY_ID_P0` | `3` | Priority ID for the initial alarm ticket. |
+| `ZAMMAD_STATE_ID_NEW` | `1` | State ID for a new ticket. |
+| `ZAMMAD_CUSTOMER` | `guess:alarm-system@example.org` | Zammad customer expression. |
 
-Cookie behavior:
+### SendXMS
 
-- Local HTTP development on `http://localhost:8080` uses non-`Secure` admin and CSRF cookies so browser login and ACK flows work without TLS.
-- HTTPS requests, or requests forwarded as HTTPS by a trusted proxy, use `Secure` cookies.
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `SENDXMS_ENABLED` | `false` | Enables the SMS connector. |
+| `SENDXMS_BASE_URL` | `https://api.sendxms.tld` | HTTPS origin without URL credentials. The reserved default is rejected when enabled. |
+| `SENDXMS_API_KEY` | Empty | Required when enabled. |
+| `SENDXMS_FROM` | `Notfall` | Sender label. |
+| `SENDXMS_SEND_PATH` | `/send` | Relative send endpoint. |
 
-## Contributing
+### Signal
 
-1. Create a feature branch
-2. Make changes with tests
-3. Run `make lint test audit`
-4. Submit pull request
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `SIGNAL_ENABLED` | `false` | Enables the Signal REST bridge connector. |
+| `SIGNAL_CLI_ENDPOINT` | `http://signal-cli:8080` | HTTP or HTTPS bridge origin. |
+| `SIGNAL_TARGET_GROUP_ID` | Empty | Required when enabled and consumed by the sample seed. |
+| `SIGNAL_SEND_PATH` | `/v2/send` | Relative bridge endpoint. |
 
-Planning policy: keep long-lived planning in `docs/ROADMAP.md`. Do not create ad-hoc plan files.
+### Generic webhook
 
-Public repository policy: keep credentials, generated browser artifacts,
-local tooling workspaces, operational exports/backups, archives, and
-machine-specific files out of the public candidate. `.gitignore` covers the
-expected local paths, while
-`make hygiene-check` checks tracked and non-ignored files for prohibited paths,
-credential/key formats, private-key headers, and absolute user-home paths.
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `WEBHOOK_ENABLED` | `false` | Enables signed alarm state callbacks. |
+| `WEBHOOK_URL` | Empty | HTTPS callback URL. Required when enabled. |
+| `WEBHOOK_SECRET` | Empty | HMAC secret of at least 32 characters. Required when enabled. |
+| `WEBHOOK_TIMEOUT_SECONDS` | `5` | Request timeout. Range: 1 to 60 seconds. |
+| `WEBHOOK_ALLOWED_HOSTS` | Empty | Comma-separated exact host names allowed for callback and generic webhook delivery. Wildcards are rejected. |
+
+`ALLOW_HTTP_WEBHOOKS=true` is a process-environment compatibility switch used
+only by generic escalation-target webhooks. It is read directly from
+`os.environ`, not from the typed settings object. Compose `env_file` exports it
+to the process; direct local commands must export it in the shell. Exact host
+allowlisting and public-address checks still apply. It does not permit HTTP for
+`WEBHOOK_URL`.
+
+### Timing and database
+
+| Variable | Default | Requirement or effect |
+|---|---|---|
+| `ESCALATE_T1` | `60` | First delayed seed step in seconds. Must be non-negative. |
+| `ESCALATE_T2` | `180` | Second delayed seed step in seconds. Must be non-negative. |
+| `ESCALATE_T3` | `300` | Third delayed seed step in seconds. Must be non-negative. |
+| `DB_POOL_SIZE` | `5` | SQLAlchemy pool size. Range: 1 to 100. |
+| `DB_MAX_OVERFLOW` | `10` | Extra pool connections. Range: 0 to 200. |
+| `DB_POOL_TIMEOUT` | `30` | Pool checkout timeout in seconds. Range: 1 to 300. |
+| `DB_POOL_RECYCLE` | `1800` | Connection recycle interval in seconds. Range: 60 to 86400. |
+| `SLOW_QUERY_LOG_MS` | `200` | Query duration threshold for warning logs. Set to `0` to log every query. |
+
+## Sample workflow
+
+After loading `deploy/seed.example.yaml`, trigger its device:
+
+```bash
+curl --get --fail \
+  --data-urlencode "token=<device-token>" \
+  http://127.0.0.1:8080/v1/yealink/alarm
+```
+
+Sign in at `http://127.0.0.1:8080/admin/login`. In simulation mode, inspect
+mock deliveries at `/admin/simulation`.
+
+The seed API accepts JSON and YAML. Use `application/yaml` or
+`application/x-yaml` for YAML input.
+
+## Database migrations
+
+Create a revision in the writable local checkout:
+
+```bash
+cd services/escalane
+../../.venv/bin/alembic revision --autogenerate -m "describe change"
+```
+
+Apply the checked-in migrations from the Compose image:
+
+```bash
+docker compose -f deploy/docker-compose.yml run --rm migration
+```
+
+The runtime container is read-only and cannot retain a newly created migration
+file.
+
+## Deploy a published image
+
+Use an immutable image digest for migration, API, and worker:
+
+```bash
+export ESCALANE_IMAGE='ghcr.io/sebastianspicker/escalane@sha256:<digest>'
+docker compose -f deploy/docker-compose.yml pull migration api worker
+docker compose -f deploy/docker-compose.yml up -d --wait postgres redis
+docker compose -f deploy/docker-compose.yml run --rm --no-deps migration
+docker compose -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
+curl --fail http://127.0.0.1:8080/readyz
+```
+
+The checked-in Compose file binds the API to `127.0.0.1:8080`. Put a
+separately managed TLS reverse proxy in front of it for remote access and set
+`TRUSTED_PROXY_CIDRS` to the narrow address or CIDR of the immediate proxy.
+
+See [OPERATIONS.md](OPERATIONS.md) for upgrades, backups, and troubleshooting.
+
+## Repository paths
+
+| Path | Purpose |
+|---|---|
+| `services/escalane/escalane/` | Application package |
+| `services/escalane/alembic/` | Schema migrations |
+| `services/escalane/tests/` | Unit, integration, security, repository-contract, and E2E tests |
+| `deploy/docker-compose.yml` | Local and digest-based Compose deployment |
+| `deploy/seed.example.yaml` | Sample entities and escalation policy |
+| `scripts/` | Release, hygiene, smoke, and screenshot tools |
+| `.github/workflows/` | CI, release, and screenshot-review workflows |
+
+## Next steps
+
+- [Architecture](ARCHITECTURE.md)
+- [Operations](OPERATIONS.md)
+- [Integrations](INTEGRATIONS.md)
+- [Security](../SECURITY.md)
+- [Contributing](../CONTRIBUTING.md)

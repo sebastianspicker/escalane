@@ -1,10 +1,12 @@
+# The migration, API, and worker services intentionally share one image reference
+# so schema changes are applied by the same artifact that serves and processes alarms.
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_DB: alarm
       POSTGRES_USER: alarm
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +27,21 @@ services:
 
   redis:
     image: redis:7
-    command: ["redis-server", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    # AOF everysec preserves delayed jobs/sessions while bounding fsync overhead.
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--maxmemory",
+        "128mb",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -46,9 +62,7 @@ services:
       - backend
 
   api:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${ESCALANE_IMAGE:-escalane:local}
     env_file:
       - ../.env
     depends_on:
@@ -56,8 +70,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -73,12 +89,10 @@ services:
       - backend
 
   worker:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${ESCALANE_IMAGE:-escalane:local}
     env_file:
       - ../.env
-    command: ["arq", "alarm_broker.worker.settings.WorkerSettings"]
+    command: ["arq", "escalane.worker.settings.WorkerSettings"]
     healthcheck:
       disable: true
     depends_on:
@@ -86,6 +100,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migration:
+        condition: service_completed_successfully
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -100,6 +116,32 @@ services:
     networks:
       - backend
 
+  migration:
+    image: ${ESCALANE_IMAGE:-escalane:local}
+    # Local builds create the shared default tag; digest deployments only pull it.
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+
   # Optional (example): signal-cli REST bridge (provider specific)
   # signal-cli:
   #   image: bbernhard/signal-cli-rest-api:latest
@@ -107,6 +149,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
 
 networks:
   backend:

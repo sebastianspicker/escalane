@@ -1,43 +1,34 @@
 # Roadmap
 
-## Guiding Principles
+The current development boundary is a public alpha. Priorities are ordered by
+release risk rather than feature count.
 
-- No breaking changes to existing public endpoints.
-- Stability and API consistency take precedence over feature breadth.
-- UI improvements are additive and compatible with existing paths.
+## Release gates
 
-## Backlog
+1. Run the complete CI and container matrix on an immutable candidate commit.
+2. Validate live Zammad, SendXMS, Signal, and webhook behavior, including
+   provider-side idempotency.
+3. Exercise backup, restore, Redis persistence, migration, and rollback in the
+   target environment.
+4. Complete manual VoiceOver with Safari and NVDA with Firefox review.
+5. Capture the curated screenshots from the exact candidate.
+6. Approve deployment-specific secret storage, retention, alerting, recovery
+   objectives, and network policy.
 
-1. Streaming export — `GET /v1/alarms/export` currently buffers up to 2,000 rows in memory before writing the response. Implement true server-side streaming to handle larger exports without memory pressure.
-2. Runtime verification — keep Docker image build, PostgreSQL/Alembic smoke checks, served HTTP E2E, lint, type checking, security audit, and package build green for release-candidate handoff.
-3. Operator hardening — continue tightening health, notification, and webhook observability so operators can distinguish full success from best-effort or partial-failure paths.
-4. Browser release matrix — execute the committed Playwright flows in Chromium, Firefox, and WebKit and complete manual VoiceOver/Safari and NVDA/Firefox checks.
+## Technical work
 
-## Completed in the 2026-07-11 console hardening
+- Add a reviewed dependency lock or constraints process for Python 3.14.6.
+- Record a Software Bill of Materials for the release image.
+- Pin reviewed PostgreSQL and Redis images by digest for a release deployment.
+- Replace the bounded 2,000-row alarm CSV export with server-side streaming
+  before supporting larger exports.
+- Establish capacity limits from measured load and failure tests.
 
-- Bilingual Jinja operator shell and mobile responder flow with same-origin packaged assets and strict CSP.
-- Named Redis sessions, CSRF-protected browser mutations, deep-linkable alarm detail, safe polling, bulk/export workflows, and localized recovery pages.
-- Versioned master data, masked sensitive edits, redacted audit events, default-policy and transactional import workflows, plus dedicated System, Simulation, and Activity views.
-- Headless Chrome rendering at mobile and desktop viewports with no page overflow, CSP violations, external requests, or console errors.
-- Public-repository hygiene enforcement for credentials, local tooling workspaces, generated browser output, build artifacts, and machine-specific paths.
+## Compatibility
 
-## Current local verification status
+Pre-1.0 interfaces can change. Changes to HTTP routes, worker payloads,
+database schema, connector contracts, or deployment requirements must include
+tests, migration guidance where applicable, and an entry in `CHANGELOG.md`.
 
-The 2026-07-11 hardening pass completed Ruff, strict mypy, Bandit,
-project-scoped dependency audit, the served HTTP E2E path, wheel packaging, and
-the non-E2E suite at 93.86% coverage. Repository hygiene, package-resource, and
-documentation-link checks also pass on the cleaned local candidate.
-
-Docker build, PostgreSQL migration smoke, the three-engine Playwright matrix,
-and manual screen-reader checks remain external or environment-dependent release
-evidence; they are not implied by the local checks above.
-
-## Release closure criteria
-
-- Consolidated documentation in `docs/` with `docs/README.md` as index.
-- Unified Notes route and stable simulation endpoints with tests.
-- UI flows without known runtime errors in core paths.
-- Full green quality gates (lint + tests + mypy + coverage ≥ 93%).
-- Clean layer boundaries (zero backwards imports).
-- Zero deprecation warnings in test output.
-- Public hygiene check passes with no tracked private or generated artifacts.
+Current readiness evidence belongs in
+[RELEASE_STATUS.md](../RELEASE_STATUS.md), not in this roadmap.

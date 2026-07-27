@@ -1,5 +1,5 @@
 # =============================================================================
-# Pre-commit hooks for alarm-broker
+# Pre-commit hooks for escalane
 # =============================================================================
 # Install: pip install pre-commit && pre-commit install
 # Run manually: pre-commit run --all-files
@@ -12,6 +12,7 @@ repos:
         name: public repository hygiene
         entry: python scripts/verify_public_hygiene.py
         language: system
+        pass_filenames: false
 
   # Ruff - Linting and formatting
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -35,7 +36,6 @@ repos:
     hooks:
       - id: detect-secrets
         args: ["--baseline", ".secrets.baseline"]
-        exclude: ^(deploy/.*\.yaml|.*\.example)$
 
   # Check for debug statements
   - repo: https://github.com/pre-commit/pre-commit-hooks

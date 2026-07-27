@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ t('sign_in') }} · {{ t('product_name') }}{% endblock %}
+{% block body_class %}page-auth{% endblock %}
+{% block content %}
+<section class="auth-layout" aria-labelledby="page-title">
+  <div class="auth-story">
+    <div class="route-diagram" aria-hidden="true"><span></span><span></span><span></span></div>
+    <h1 id="page-title">{{ t('brand_tagline') }}</h1>
+    <p class="auth-context">{{ t('sign_in_context') }}</p>
+  </div>
+  <div class="auth-panel" aria-labelledby="sign-in-title">
+    <h2 id="sign-in-title">{{ t('sign_in') }}</h2>
+    <p class="auth-note">{{ t('sign_in_help') }}</p>
+    {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="{{ login_action|default('/admin/login') }}">
+      <label for="operator_name">{{ t('operator_name') }}</label>
+      <input id="operator_name" name="operator_name" autocomplete="name" maxlength="120" required>
+      <label for="admin_key">{{ t('admin_key') }}</label>
+      <input id="admin_key" name="admin_key" type="password" autocomplete="current-password" required>
+      <button class="button button-primary" type="submit">{{ t('sign_in') }}</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

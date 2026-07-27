@@ -2,8 +2,15 @@
 .github
 .codacy
 .codegraph
+.continue
+.cursor
 .serena
+.windsurf
 .impeccable
+.agents
+.claude
+.codex
+.kilo
 .DS_Store
 **/.DS_Store
 .env
@@ -48,6 +55,8 @@ deploy/pgdata
 plans
 backups
 exports
+conversation-exports
+prompts
 archive
 vendor
 third_party
@@ -59,10 +68,11 @@ secrets
 credentials
 deploy/docker-compose.override.yml
 deploy/docker-compose.override.yaml
-docs/assets/screenshots/*.png
+# Documentation captures are not runtime image inputs.
+docs/assets/screenshots
+screenshot-review
 *.md
-!services/alarm_broker/README.md
-LICENSE
+!services/escalane/README.md
 Makefile
 scripts
 .pre-commit-config.yaml

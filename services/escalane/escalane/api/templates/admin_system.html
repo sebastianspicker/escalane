@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{{ t('system') }} · {{ t('product_name') }}{% endblock %}
+{% block content %}<header class="page-heading"><div><p class="eyebrow">{{ t('operations') }}</p><h1>{{ t('system') }}</h1><p class="page-summary">{{ t('system_help') }}</p></div></header><dl class="system-list">{% for state in states %}<div><dt>{{ state.name }}</dt><dd><strong>{{ state.status }}</strong><span>{{ state.detail }}</span></dd></div>{% else %}<div class="empty-state"><dt>{{ t('system') }}</dt><dd>{{ t('no_records') }}</dd></div>{% endfor %}</dl>{% endblock %}

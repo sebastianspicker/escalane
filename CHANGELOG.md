@@ -7,22 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.4.0-alpha.1]
+
+### Added in 0.4.0-alpha.1
+- Escalane route-mark identity, bilingual tagline, operational palette, and same-origin SVG browser assets
 - Bilingual Jinja operator console with named Redis sessions, CSRF-protected form actions, deep-linkable alarm details, configuration, system, simulation, and activity views
 - Versioned and deactivatable master data with redacted administrative audit events
 - Packaged same-origin browser assets, safe revision polling, and Playwright browser-flow coverage
 - Deterministic public repository hygiene check for private, local-only, and generated files
+- Transactional lifecycle-event outbox with bounded recovery and deterministic queue identities
+- Public contribution, conduct, security-reporting, and alpha-release guidance
+- Review-only GitHub workflow for exact-candidate Mock University screenshots
+- Public support boundary and issue-routing guidance
 
-### Changed
+### Changed in 0.4.0-alpha.1
+- Renamed the product, Python distribution and imports, container image, logger, metrics, release coordinates, and repository paths to Escalane
 - Responder acknowledgement now uses localized, mobile-first HTML recovery states and progressive enhancement
 - Content Security Policy now permits only same-origin scripts, styles, and connections
 - Wheel smoke verification checks the actual Jinja templates and browser assets
+- Development extras now include the wheel build frontend used by `make package-check`
 - API, health, and operator-system views now report the package version from one shared source
+- Public project identity now consistently describes a pre-production alpha rather than a release candidate
+- Compose applies one optional digest-pinned `ESCALANE_IMAGE` to migration, API, and worker
 
-### Removed
+### Fixed in 0.4.0-alpha.1
+- Restricted seed placeholders to their documented settings fields and rejected
+  YAML aliases, cycles, excessive nesting, and excessive node counts.
+- Required HTTPS for activated Zammad and SendXMS endpoints, rejected URL
+  userinfo, and prevented raw provider exceptions from entering logs or audit
+  rows.
+- Required enabled state-change webhooks to use HTTPS, an exact allowlisted
+  host, and a secret of at least 32 characters.
+- Restricted `BASE_URL` to an origin without URL credentials, path, query, or
+  fragment; required HTTPS outside loopback; and restricted simulation values
+  to loopback hosts. Removed absolute installation paths and source-checkout
+  dependencies from simulation seed metadata responses.
+- Corrected FastAPI dependency signatures for the configured mypy check, added
+  high-confidence token checks to public hygiene validation, and updated
+  project license metadata to PEP 639 syntax.
+- Made lifecycle transitions compare-and-set safe and persisted their worker events through a transactional outbox with ordered recovery
+- Prevented webhook DNS rebinding, proxy bypass, malformed-URL crashes, and credential-bearing URL leakage in logs and audit rows
+- Corrected public and operator keyset pagination so filtered cursors and non-unique sort values cannot skip alarms
+- Replaced time-bucket trigger deduplication with a stable token-derived lease and stopped generated device IDs from embedding bearer tokens
+- Applied optimistic versions and parent/dependency locks consistently across browser, API, policy, and seed administration writes
+- Refreshed explicit admin-session cookie expiry and made HSTS honor forwarded HTTPS only from trusted proxies
+- Made Compose upgrades migration-first and made readiness fail closed until the database is at the single packaged Alembic head
+- Gated tag publication on main-branch ancestry, release metadata validation, reusable CI, and a migrated container readiness smoke test
+- Rejected enabled but incomplete connector configuration and reserved placeholder endpoints outside simulation mode
+- Made soft deletion atomic, suppressed queued work for deleted alarms, and based delivery status on remaining durable events instead of publish-count guesses
+- Failed API, worker, and online migration startup before using an implicit placeholder database password
+- Rejected negative, empty, or contradictory escalation schedules and made legacy schedule reads deterministic and fail closed
+- Disabled raw Uvicorn access logging and added bounded failover across validated webhook addresses without hostname fallback
+- Made the release workflow smoke-test the exact container image before pushing it and publish its immutable digest
+- Enabled Redis append-only persistence in the documented Compose deployment
+- Removed the obsolete Pygments vulnerability ignore and required the fixed development release
+- Kept worktree hygiene fail-closed for unreadable files while excluding intentional unstaged deletions
+
+### Removed in 0.4.0-alpha.1
+- Legacy package, import, image-variable, logger, and Prometheus aliases; the alpha cutover is intentionally breaking
 - Unused settings/env examples for `SENDXMS_MODE`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`, and `SIMULATION_SEED_URL`
 - Dead `alarm.resolved` / `alarm.cancelled` event publisher helpers and no-op worker dispatch branches
 - Obsolete `string.Template` loader and admin-template compatibility shim
+
+### Migration from Alarm Broker
+
+- Repository: `sebastianspicker/alarm-broker` → `sebastianspicker/escalane`
+- Service path: `services/alarm_broker` → `services/escalane`
+- Python distribution/import: `alarm-broker` / `alarm_broker` → `escalane`
+- Compose image variable: `ALARM_BROKER_IMAGE` → `ESCALANE_IMAGE`
+- Container image: `ghcr.io/sebastianspicker/alarm-broker` → `ghcr.io/sebastianspicker/escalane`
+- Prometheus prefix: `alarm_broker_` → `escalane_`
+
+Database schemas, alarm-domain API routes, event names, and persisted data do
+not change. No compatibility aliases are emitted.
 
 ## [0.2.0] - 2026-04-19
 
@@ -37,12 +94,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pytest-cov` for coverage measurement in the Python service
 - `EnrichedAlarmContext` and `NotificationPayload` TypedDicts for type-safe internal data
 - Expanded test coverage across services, connectors, worker tasks, packaging, and smoke paths
-- `[tool.mypy]` configuration with strict checks in pyproject.toml
+- `[tool.mypy]` configuration with return-type warnings and typed function-body checks
 - CSV export formula injection protection
-- `services/message_formatter.py` (canonical location for alarm message formatting)
-- `services/metrics_queries.py` (DB queries for Prometheus metrics)
+- `services/escalane/escalane/services/message_formatter.py` (canonical location for alarm message formatting)
+- `services/escalane/escalane/services/metrics_queries.py` (DB queries for Prometheus metrics)
 
-### Changed
+### Changed in 0.2.0
 - Coverage threshold raised from 89% → 93% (actual: 93.48%)
 - `create_async_engine_from_url` accepts pool and slow-query-log parameters
 - `process_trigger` and `create_alarm` accept optional `request_id` for tracing
@@ -51,7 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Split `alarms.py` (781 lines) into `alarms.py`, `alarm_operations.py`, `alarm_notes.py`
 - Service layer now uses domain exceptions (`ConflictError`, `NotFoundError`, `ValidationError`) instead of `HTTPException`
 - mypy type checking enforced in CI (removed `|| true`)
-- `core/metrics.py` decoupled from `db/models` — accepts data as parameters
+- `services/escalane/escalane/core/metrics.py` decoupled from `services/escalane/escalane/db/models.py`: accepts data as parameters
 - Fixed coverage measurement: `concurrency = ["greenlet", "thread"]` for async tracing
 - Test imports use try/except pattern for directory-independent execution
 - `AlarmPatchSchema` now enforces length limits on title, description, tags

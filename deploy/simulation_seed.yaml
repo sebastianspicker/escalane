@@ -1,5 +1,5 @@
 # =============================================================================
-# Simulation Mode Seed Data: Mock University (product-like demo dataset)
+# Simulation Mode Seed Data: Mock University
 # =============================================================================
 
 sites:
@@ -32,33 +32,33 @@ rooms:
 
 persons:
   - id: uni-security-desk
-    display_name: Alex Weber
+    display_name: Security Desk Operator
     role: Security Desk
-    phone_mobile: "+491770100001"
+    phone_mobile: "+000000000001"
     phone_ext: "2001"
     active: true
   - id: uni-campus-ops
-    display_name: Leon Schmidt
+    display_name: Campus Operations Coordinator
     role: Campus Ops
-    phone_mobile: "+491770100002"
+    phone_mobile: "+000000000002"
     phone_ext: "2002"
     active: true
   - id: uni-lab-supervisor
-    display_name: Dr. Mira Keller
+    display_name: Laboratory Supervisor
     role: Lab Supervisor
-    phone_mobile: "+491770100003"
+    phone_mobile: "+000000000003"
     phone_ext: "2003"
     active: true
   - id: uni-nurse-oncall
-    display_name: Nora Becker
+    display_name: Medical On-Call
     role: On-Call Nurse
-    phone_mobile: "+491770100004"
+    phone_mobile: "+000000000004"
     phone_ext: "2004"
     active: true
   - id: uni-duty-manager
-    display_name: Daniel Roth
+    display_name: Duty Manager
     role: Duty Manager
-    phone_mobile: "+491770100005"
+    phone_mobile: "+000000000005"
     phone_ext: "2005"
     active: true
 
@@ -107,32 +107,32 @@ escalation_targets:
   - id: uni-signal-primary
     label: Campus Response Primary (Signal)
     channel: signal
-    address: "+491770100001"
+    address: "+000000000001"
     enabled: true
   - id: uni-sms-security
     label: Security Desk SMS
     channel: sms
-    address: "+491770100001"
+    address: "+000000000001"
     enabled: true
   - id: uni-signal-secondary
     label: Campus Response Secondary (Signal)
     channel: signal
-    address: "+491770100002"
+    address: "+000000000002"
     enabled: true
   - id: uni-sms-medical
     label: Medical On-Call SMS
     channel: sms
-    address: "+491770100004"
+    address: "+000000000004"
     enabled: true
   - id: uni-sms-duty-manager
     label: Duty Manager SMS
     channel: sms
-    address: "+491770100005"
+    address: "+000000000005"
     enabled: true
   - id: uni-email-duty-manager
     label: Duty Manager Email
     channel: email
-    address: "duty.manager@mock-university.local"
+    address: "duty.manager@example.invalid"
     enabled: true
 
 escalation_steps:

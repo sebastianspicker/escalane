@@ -1,32 +1,52 @@
-# Alarm Broker UI foundation
+# Browser design contract
 
-## Visual language
+Escalane uses server-rendered Jinja templates with packaged CSS, JavaScript,
+and SVG assets. There is no frontend build step or client-side application
+framework.
 
-The interface is a quiet operational surface: neutral system fonts, modest
-contrast layers, compact spacing, and colour used as a state signal rather than
-as decoration. CSS custom properties follow `prefers-color-scheme`; the markup
-stays semantic so that forced-colors mode can replace the palette safely.
+## Layout
 
-## Accessibility contract
+- Authenticated operator pages use a navigation rail and a data-focused work
+  area.
+- The worklist uses a semantic table, status totals, filters, and explicit bulk
+  actions.
+- Alarm detail pages place context and activity beside available actions and
+  notes.
+- The acknowledgement page is a focused single-column responder flow.
+- Configuration pages keep resource navigation visible and use native form
+  controls.
 
-- Use landmarks (`header`, `nav`, `main`, `footer`) and one visible `h1`.
-- Every input has a visible label; messages use appropriate live regions.
-- `:focus-visible` is always high contrast and never removed.
-- Motion is disabled under `prefers-reduced-motion: reduce`.
-- Native `<dialog>` is enhanced only by same-origin JavaScript. Closing restores
-  focus to the opener; without JavaScript, linked details and forms still work.
-- The worklist table remains a table. Its wrapper scrolls horizontally at 320 px
-  rather than hiding columns or changing row order.
+## Assets
 
-## Template contract
+`services/escalane/escalane/api/assets/ui.css` imports:
 
-Jinja templates inherit `base.html` and use `macros.html` for repeated status,
-language, and action controls. Conventional route context names are:
+| File | Responsibility |
+|---|---|
+| `tokens.css` | Colour and spacing variables |
+| `base.css` | Type, forms, buttons, and notices |
+| `shell.css` | Guest and authenticated page shells |
+| `worklist.css` | Alarm list, filters, and bulk actions |
+| `detail.css` | Alarm detail, timeline, actions, and dialogs |
+| `ack.css` | Responder acknowledgement flow |
+| `auth.css` | Sign-in page |
+| `config.css` | Configuration, system, activity, and simulation pages |
+| `a11y.css` | Responsive, reduced-motion, and forced-colour rules |
 
-- `locale`, `locales`, `t`, `page_title`, `current_path`, `message`
-- `alarms`, `counts`, `filters`, `alarm`, `events`, `error`
-- `login_action`, `worklist_url`, `detail_url`, `ack_action`, `csrf_token`
+`ui.js` adds confirmation, busy states, dialog focus restoration, local time
+rendering, navigation collapse, and revision polling. The server remains the
+authority for permissions, state transitions, validation, and content.
 
-Routes may supply URLs directly or use their normal URL helper. Templates do
-not construct acknowledgement URLs or render acknowledgement tokens on admin
-pages.
+## Interaction requirements
+
+- Use semantic landmarks, one visible `h1`, native buttons, labelled controls,
+  tables, description lists, and fieldsets.
+- Pair status colour with text.
+- Preserve visible `:focus-visible` treatment.
+- Return focus to the control that opened a dialog.
+- Keep critical responder controls at least 44 CSS pixels high.
+- Avoid page-level horizontal overflow at 320 CSS pixels. The alarm table may
+  scroll inside its labelled container.
+- Respect reduced-motion, forced-colour, light, and dark preferences.
+- Do not depend on hover, animation, or JavaScript for a critical action.
+
+See [docs/FRONTEND.md](docs/FRONTEND.md) for routes and validation commands.

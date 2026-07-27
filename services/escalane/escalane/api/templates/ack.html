@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "macros.html" import status_badge %}
+{% block title %}{{ t('acknowledge_alarm') }} · {{ t('product_name') }}{% endblock %}
+{% block body_class %}page-responder{% endblock %}
+{% block content %}
+<article class="responder-card alarm-state-{{ alarm.status }}" aria-labelledby="page-title">
+  <section class="responder-state" aria-label="{{ t('status') }}">
+    {{ status_badge(alarm.status, t) }}
+  </section>
+
+  <header>
+    <h1 id="page-title">{{ t('acknowledge_alarm') }}</h1>
+  </header>
+
+  {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+
+  <dl class="definition-list responder-context">
+    <div>
+      <dt>{{ t('person') }}</dt>
+      <dd>{{ alarm.person|default('-') }}</dd>
+    </div>
+    <div>
+      <dt>{{ t('room') }}</dt>
+      <dd>{{ alarm.room|default('-') }}</dd>
+    </div>
+    <div>
+      <dt>{{ t('created') }}</dt>
+      <dd><time datetime="{{ alarm.created_at_iso|default(alarm.created_at) }}">{{ alarm.created_at }}</time></dd>
+    </div>
+  </dl>
+
+  {% if alarm.can_ack %}
+  <p class="responder-instruction">{{ t('acknowledge_help') }}</p>
+  <form id="acknowledge-form" class="responder-form" method="post" action="{{ ack_action }}">
+    {% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}
+    <label for="acked_by">{{ t('responder_name') }} <span class="field-hint">{{ t('optional') }}</span></label>
+    <input id="acked_by" name="acked_by" autocomplete="name" maxlength="120" value="{{ values.acked_by|default('') }}">
+    <label for="note">{{ t('note') }} <span class="field-hint">{{ t('optional') }}</span></label>
+    <textarea id="note" name="note" rows="3" maxlength="2000">{{ values.note|default('') }}</textarea>
+    <button class="button button-primary responder-control" type="submit">{{ t('acknowledge_alarm') }}</button>
+  </form>
+  {% else %}
+  <p class="completion-message" role="status">{{ t('acknowledgement_complete') }}</p>
+  {% endif %}
+</article>
+{% endblock %}

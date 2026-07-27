@@ -1,29 +1,26 @@
-# Alarm Broker Documentation
+# Documentation
 
-## Overview
+Start with the guide that matches the task:
 
-This repository implements a release-candidate alarm broker that receives silent alarms, persists alarm state and audit data, fans out notifications, and tracks acknowledgement and escalation workflows.
+| Document | Scope |
+|---|---|
+| [SETUP.md](SETUP.md) | Requirements, installation, configuration, and local setup |
+| [OPERATIONS.md](OPERATIONS.md) | Runtime health, backups, upgrades, and troubleshooting |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Components, data flow, lifecycle, and invariants |
+| [INTEGRATIONS.md](INTEGRATIONS.md) | Yealink ingress and outbound connectors |
+| [FRONTEND.md](FRONTEND.md) | Server-rendered browser surface and UI checks |
+| [RELEASING.md](RELEASING.md) | Version, tag, image, and publication workflow |
+| [ROADMAP.md](ROADMAP.md) | Current alpha boundaries and unresolved work |
+| [assets/screenshots/README.md](assets/screenshots/README.md) | Screenshot capture and review procedure |
+| [../SECURITY.md](../SECURITY.md) | Security controls and private reporting |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Development and pull-request workflow |
+| [../SUPPORT.md](../SUPPORT.md) | Public support boundary |
 
-## Documentation Index
+Repository-level references:
 
-| Document | Description |
-|----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, data model, flows, lifecycle |
-| [SETUP.md](SETUP.md) | Installation, development setup, configuration reference |
-| [OPERATIONS.md](OPERATIONS.md) | Monitoring, backups, performance tuning, troubleshooting |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | Yealink/Zammad templates and connector notes |
-| [FRONTEND.md](FRONTEND.md) | Browser architecture, UI conventions, and release checks |
-| [ROADMAP.md](ROADMAP.md) | Active release-candidate backlog and definition of done |
-| [../PRODUCT.md](../PRODUCT.md) | Product purpose, users, principles, and accessibility target |
-| [../DESIGN.md](../DESIGN.md) | Shared browser visual and template conventions |
-
-Archived internal planning, audit, and completed-status packets are local-only
-working artifacts. They are intentionally excluded from the public documentation
-surface and should not be committed. `make hygiene-check` verifies the tracked
-and non-ignored repository candidate without reading ignored local workspaces.
-
-## Quick Links
-
-- [Main README](../README.md) - Project overview and quickstart
-- [Security Policy](../SECURITY.md) - Security best practices and disclosure process
-- [Changelog](../CHANGELOG.md) - Release and change history
+- [Project overview](../README.md)
+- [Product scope](../PRODUCT.md)
+- [Browser design contract](../DESIGN.md)
+- [Release status](../RELEASE_STATUS.md)
+- [Change history](../CHANGELOG.md)
+- [License](../LICENSE)

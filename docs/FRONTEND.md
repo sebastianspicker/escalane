@@ -1,40 +1,77 @@
-# Frontend architecture and release checks
+# Frontend
 
-The browser interface is server-rendered FastAPI/Jinja HTML with one packaged stylesheet and one progressive-enhancement script. There is no JavaScript build system or client-side framework.
+Escalane uses Jinja templates and packaged static assets served by FastAPI.
+There is no SPA, package-manager step, or frontend bundle.
 
 ## Routes
 
-- `/admin/login`: bilingual named operator session login
-- `/admin`: filtered, paginated alarm worklist and bulk/export actions
-- `/admin/alarms/{alarm_id}`: deep-linkable lifecycle, notes, delivery history, and actions
-- `/admin/configuration/{sites|rooms|people|devices|escalation|import}`: versioned configuration workflows
-- `/admin/simulation`, `/admin/system`, `/admin/activity`: operational views
-- `/a/{ack_token}`: standalone responder acknowledgement
-- `/admin/assets/ui.css` and `/admin/assets/ui.js`: same-origin packaged assets
+| Route | Purpose | Access |
+|---|---|---|
+| `/admin/login` | Operator sign-in | Admin key |
+| `/admin` | Alarm worklist | Browser session |
+| `/admin/alarms/{alarm_id}` | Alarm context, activity, notes, and actions | Browser session |
+| `/admin/configuration/*` | Resource and escalation configuration | Browser session |
+| `/admin/activity` | Recent operational activity | Browser session |
+| `/admin/system` | Dependency and runtime status | Browser session |
+| `/admin/simulation` | Mock delivery feed | Browser session and simulation mode |
+| `/a/{ack_token}` | Responder acknowledgement | Capability token |
 
-The static admin key is exchanged only at login. Browser mutations use the named Redis session plus a separate CSRF token and POST/Redirect/GET. Existing `/v1/*` routes remain authenticated by `X-Admin-Key` and do not accept the browser session as authority.
+Authenticated form posts require a CSRF token. JavaScript enhances confirmation,
+busy states, dialogs, local timestamps, navigation, and revision polling; it
+does not authorize an action.
 
-## Interface conventions
+## Source layout
 
-Templates inherit `base.html`; translation keys live in `api/i18n.py` and must have exact German/English parity. Locale precedence is explicit `lang`, locale cookie, `Accept-Language`, then English. System fonts and system light/dark preference are used. JavaScript may manage native dialogs, busy labels, local time display, and revision polling, but forms remain the baseline.
+- `services/escalane/escalane/api/templates/` contains Jinja templates.
+- `services/escalane/escalane/api/assets/` contains CSS, JavaScript, and SVG.
+- `services/escalane/escalane/api/assets/ui.css` imports the CSS modules.
+- `services/escalane/escalane/api/assets/ui.js` contains browser enhancement.
+- `services/escalane/escalane/api/i18n.py` contains English and German strings.
 
-Polling runs every 15 seconds, does not extend the session, compares only an opaque revision, and never navigates automatically. It pauses while the page is hidden, a form is dirty, or a dialog is open.
+These resources are included in the wheel by
+`services/escalane/pyproject.toml`.
 
-## Release checks
+## Validation
 
-Run Ruff format/check, strict mypy, the non-E2E suite with project coverage threshold, served HTTP E2E, Alembic/PostgreSQL smoke, security/package audits, wheel smoke, and the Docker build. Browser release checks cover Chromium, Firefox, and WebKit at 320, 390, 768, 1280, and 1440 px, keyboard/focus restoration, reduced motion, forced colours, CSP violations, external requests, and console errors.
+Run the browser E2E suite:
 
-Install the declared development dependencies and browser engines with `python -m playwright install chromium firefox webkit`, then run `make browser-e2e`. CI installs all three engines before the complete E2E job.
+```bash
+make browser-e2e
+```
 
-Playwright coverage and manual VoiceOver/Safari and NVDA/Firefox verification are still required before calling the RC browser UI fully release-verified.
+Run all E2E tests:
 
-## Current local verification snapshot
+```bash
+make e2e
+```
 
-On 2026-07-11, direct headless Chrome verification covered 390×844 and 1280×800 rendering, login, worklist, alarm detail, native dialog opening and focus restoration, and the German responder acknowledgement flow. The run found no page-level horizontal overflow, CSP violations, external requests, or browser console errors; the dense worklist table scrolled within its labelled container and the responder action measured 44.78 px high. Chromium/Firefox/WebKit Playwright and manual screen-reader checks remain separate release gates.
+The CI E2E job installs Chromium, Firefox, and WebKit. A local run requires the
+corresponding Playwright browser binaries:
 
-The same local hardening pass completed Ruff, strict mypy, Bandit, dependency
-audit, served HTTP E2E, wheel packaging, and the non-E2E suite at 93.86%
-coverage. The final cleanup removed the obsolete `string.Template`
-compatibility path and verifies the actual packaged Jinja templates and assets.
-Docker, PostgreSQL migration smoke, the complete Playwright matrix, and manual
-screen-reader checks remain separate release evidence.
+```bash
+./.venv/bin/python -m playwright install chromium firefox webkit
+```
+
+For user-facing changes, also check:
+
+- keyboard access and visible focus
+- sign-in, worklist, detail, configuration, and acknowledgement flows
+- loading, empty, error, stale-session, and conflict states
+- 320 CSS pixel reflow and page-level horizontal overflow
+- reduced motion, forced colours, and light and dark schemes
+- English and German string parity
+
+Automated tests do not replace manual screen-reader and target-browser review.
+
+## Screenshots
+
+The review workflow and local capture commands are documented in
+[assets/screenshots/README.md](assets/screenshots/README.md). The GitHub
+workflow uploads a seven-day review artifact and does not change tracked
+files. Curated images under `docs/assets/screenshots/` require manual review
+before replacement.
+
+The `motion-settled` body marker exists only to make capture timing
+deterministic. Page content does not depend on an entry animation.
+
+See [../DESIGN.md](../DESIGN.md) for the browser interaction contract.

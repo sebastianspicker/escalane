@@ -54,6 +54,8 @@ class DemoCaptureError(RuntimeError):
 
 @dataclass(frozen=True)
 class CaptureConfig:
+    """Collect immutable inputs for one deterministic screenshot run."""
+
     base_url: str
     admin_key: str
     output_dir: Path
@@ -66,10 +68,12 @@ class CaptureConfig:
 
 
 def _normalize_base_url(base_url: str) -> str:
+    """Remove a trailing slash so constructed route URLs stay canonical."""
     return base_url.rstrip("/")
 
 
 def _resolve_admin_key(cli_value: str | None) -> str:
+    """Resolve the admin key and fail before making requests when it is blank."""
     key = (cli_value or os.getenv("ADMIN_API_KEY") or "").strip()
     if not key:
         raise DemoCaptureError(
@@ -85,6 +89,7 @@ def _http_json(
     body: bytes | None = None,
     timeout: float = 10.0,
 ) -> HttpResult:
+    """Translate shared preparation transport errors into capture-specific failures."""
     try:
         return _request_json(method, url, headers, body, timeout)
     except DemoPrepareError as exc:
@@ -92,6 +97,7 @@ def _http_json(
 
 
 def _extract_detail(payload: dict[str, Any] | list[Any] | None) -> str | None:
+    """Extract FastAPI's human-readable error detail when one is available."""
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, str):
@@ -100,10 +106,12 @@ def _extract_detail(payload: dict[str, Any] | list[Any] | None) -> str | None:
 
 
 def _ensure_output_dir(output_dir: Path) -> None:
+    """Create the capture directory because Playwright does not create parents."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _create_placeholder_screens(output_dir: Path) -> list[Path]:
+    """Create test-only one-pixel fixtures that must never be published."""
     _ensure_output_dir(output_dir)
     created: list[Path] = []
     for filename in SHOT_FILENAMES:
@@ -114,25 +122,40 @@ def _create_placeholder_screens(output_dir: Path) -> list[Path]:
 
 
 def _admin_headers(admin_key: str) -> dict[str, str]:
+    """Build the authenticated JSON headers used by administrative API calls."""
     return {"X-Admin-Key": admin_key, "Content-Type": "application/json"}
 
 
 def _login_admin_ui(page: Any, base_url: str, admin_key: str) -> None:
+    """Establish a named browser session before visiting protected operator pages."""
     page.goto(f"{base_url}/admin/login", wait_until="networkidle")
     page.fill("#operator_name", "Demo Operator")
     page.fill("#admin_key", admin_key)
-    page.click("button[type='submit']")
+    page.click(".auth-panel button[type='submit']")
     page.wait_for_url(f"{base_url}/admin*")
     page.wait_for_selector("#search")
+    _wait_for_motion(page)
+
+
+def _wait_for_motion(page: Any) -> None:
+    """Wait for the deterministic UI settle marker before recording evidence."""
+    page.locator("body.motion-settled").wait_for()
+    targets = page.locator("[data-motion]:visible")
+    for index in range(targets.count()):
+        targets.nth(index).scroll_into_view_if_needed()
+    page.wait_for_timeout(650)
+    page.mouse.move(2, 2)
 
 
 def _require_ok(result: HttpResult, message: str) -> None:
+    """Raise a contextual capture error for unsuccessful HTTP responses."""
     if result.status_code >= 400:
         detail = _extract_detail(result.json_body) or result.body
         raise DemoCaptureError(f"{message} (HTTP {result.status_code}): {detail}")
 
 
 def _trigger_alarm(base_url: str, token: str, timeout: float) -> str:
+    """Trigger a seeded device alarm and return the identifier used by later scenes."""
     query = parse.urlencode({"token": token})
     result = _http_json("GET", f"{base_url}/v1/yealink/alarm?{query}", timeout=timeout)
     _require_ok(result, "Trigger request failed")
@@ -144,6 +167,7 @@ def _trigger_alarm(base_url: str, token: str, timeout: float) -> str:
 def _ack_token_from_simulation(
     base_url: str, admin_key: str, alarm_id: str, timeout: float
 ) -> str:
+    """Recover an alarm's capability token from the simulated notification stream."""
     result = _http_json(
         "GET",
         f"{base_url}/v1/simulation/notifications",
@@ -165,47 +189,64 @@ def _ack_token_from_simulation(
     )
 
 
+def _transition_alarm(
+    base_url: str,
+    admin_key: str,
+    alarm_id: str,
+    timeout: float,
+    action: str,
+    actor_field: str,
+    actor: str,
+    note: str,
+) -> None:
+    """Set one demo alarm lifecycle state through the administrative API."""
+    payload = {actor_field: actor, "note": note}
+    result = _http_json(
+        "POST",
+        f"{base_url}/v1/alarms/{alarm_id}/{action}",
+        headers=_admin_headers(admin_key),
+        body=json.dumps(payload).encode("utf-8"),
+        timeout=timeout,
+    )
+    if result.status_code not in (200, 204):
+        detail = _extract_detail(result.json_body) or result.body
+        raise DemoCaptureError(
+            f"{action.title()} for alarm {alarm_id} failed (HTTP {result.status_code}): {detail}"
+        )
+
+
 def _resolve_alarm(
     base_url: str, admin_key: str, alarm_id: str, timeout: float
 ) -> None:
-    payload = {
-        "actor": "Demo Script",
-        "note": "Screenshot flow resolve",
-    }
-    result = _http_json(
-        "POST",
-        f"{base_url}/v1/alarms/{alarm_id}/resolve",
-        headers=_admin_headers(admin_key),
-        body=json.dumps(payload).encode("utf-8"),
-        timeout=timeout,
+    """Resolve one demo alarm so the gallery includes the terminal lifecycle state."""
+    _transition_alarm(
+        base_url,
+        admin_key,
+        alarm_id,
+        timeout,
+        "resolve",
+        "actor",
+        "Demo Script",
+        "Screenshot flow resolve",
     )
-    if result.status_code not in (200, 204):
-        detail = _extract_detail(result.json_body) or result.body
-        raise DemoCaptureError(
-            f"Resolve for alarm {alarm_id} failed (HTTP {result.status_code}): {detail}"
-        )
 
 
 def _ack_alarm(base_url: str, admin_key: str, alarm_id: str, timeout: float) -> None:
-    payload = {
-        "acked_by": "Demo Operator",
-        "note": "Screenshot flow acknowledgment",
-    }
-    result = _http_json(
-        "POST",
-        f"{base_url}/v1/alarms/{alarm_id}/ack",
-        headers=_admin_headers(admin_key),
-        body=json.dumps(payload).encode("utf-8"),
-        timeout=timeout,
+    """Acknowledge one demo alarm through the API for deterministic state setup."""
+    _transition_alarm(
+        base_url,
+        admin_key,
+        alarm_id,
+        timeout,
+        "ack",
+        "acked_by",
+        "Demo Operator",
+        "Screenshot flow acknowledgment",
     )
-    if result.status_code not in (200, 204):
-        detail = _extract_detail(result.json_body) or result.body
-        raise DemoCaptureError(
-            f"Acknowledge for alarm {alarm_id} failed (HTTP {result.status_code}): {detail}"
-        )
 
 
 def _resolve_all_triggered(base_url: str, admin_key: str, timeout: float) -> None:
+    """Clear pre-existing triggered alarms so repeated capture runs remain stable."""
     result = _http_json(
         "GET",
         f"{base_url}/v1/alarms?status=triggered&limit=200",
@@ -243,6 +284,7 @@ def _wait_for_simulation_notifications(
     timeout_seconds: float,
     poll_interval: float = 0.5,
 ) -> int:
+    """Poll until the worker emits evidence needed for notification screenshots."""
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         result = _http_json(
@@ -266,6 +308,7 @@ def _wait_for_simulation_notifications(
 def _prepare_real_capture(
     config: CaptureConfig,
 ) -> tuple[str, list[Path], str, str, str]:
+    """Seed and normalize application state before launching a real browser."""
     base_url = _normalize_base_url(config.base_url)
     _ensure_output_dir(config.output_dir)
 
@@ -297,11 +340,14 @@ def _prepare_real_capture(
 
 
 def _open_first_alarm_detail(page: Any) -> None:
-    details = page.get_by_role("link", name="Details").first
+    """Open the first visible alarm while failing clearly on an empty worklist."""
+    details = page.get_by_role(
+        "link", name=re.compile(r"^Open alarm ", re.IGNORECASE)
+    ).first
     if details.count() == 0:
         raise DemoCaptureError("No alarm rows found to open detail page.")
     details.click()
-    page.wait_for_selector(".detail-card")
+    page.wait_for_selector(".detail-heading")
 
 
 def _capture_desktop_alarm_views(
@@ -310,20 +356,25 @@ def _capture_desktop_alarm_views(
     admin_url: str,
     output_paths: list[Path],
 ) -> None:
+    """Capture the curated desktop worklist, filter, and detail scenes."""
     page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
     page.wait_for_selector("#search")
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[0]), full_page=True)
 
     page.goto(f"{admin_url}&status=triggered", wait_until="networkidle")
     page.wait_for_selector("a[href*='/admin/alarms/']")
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[1]), full_page=True)
 
     page.fill("#search", "library")
     page.click(".filters button[type='submit']")
     page.wait_for_load_state("networkidle")
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[2]), full_page=True)
 
     _open_first_alarm_detail(page)
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[3]), full_page=True)
 
 
@@ -334,17 +385,20 @@ def _capture_mobile_ack_views(
     ack_token: str,
     output_paths: list[Path],
 ) -> Any:
+    """Capture responder acknowledgement before and after submission on mobile."""
     mobile = browser.new_context(viewport={"width": 390, "height": 844})
     ack_page = mobile.new_page()
     ack_page.goto(f"{base_url}/a/{ack_token}", wait_until="networkidle")
     ack_page.wait_for_selector("form")
+    _wait_for_motion(ack_page)
     ack_page.screenshot(path=str(output_paths[5]), full_page=True)
 
     ack_page.fill("#acked_by", "Demo Nurse")
     ack_page.fill("#note", "Taking over response.")
-    ack_page.click("button[type='submit']")
+    ack_page.locator("#acknowledge-form button[type='submit']").click()
     ack_page.wait_for_load_state("networkidle")
-    ack_page.wait_for_selector(".status--acknowledged")
+    ack_page.wait_for_selector(".status-acknowledged, .completion-message")
+    _wait_for_motion(ack_page)
     ack_page.screenshot(path=str(output_paths[6]), full_page=True)
     return mobile
 
@@ -353,13 +407,14 @@ def _capture_simulation_views(
     page: Any,
     *,
     base_url: str,
-    admin_url: str,
     config: CaptureConfig,
     output_paths: list[Path],
 ) -> None:
+    """Capture the simulation feed before and after its explicit clear action."""
     _wait_for_simulation_notifications(base_url, config.admin_key, config.wait_seconds)
     page.goto(f"{base_url}/admin/simulation", wait_until="networkidle")
     page.wait_for_selector("h1")
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[8]), full_page=True)
 
     clear_result = _http_json(
@@ -373,10 +428,12 @@ def _capture_simulation_views(
 
     page.goto(f"{base_url}/admin/simulation", wait_until="networkidle")
     page.wait_for_selector("h1")
+    _wait_for_motion(page)
     page.screenshot(path=str(output_paths[9]), full_page=True)
 
 
 def _capture_real_screens(config: CaptureConfig) -> list[Path]:
+    """Drive Chromium through the complete real-UI gallery sequence."""
     try:
         from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover - environment dependent
@@ -404,6 +461,7 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
         _ack_alarm(base_url, config.admin_key, alarm_primary, config.timeout_seconds)
         page.goto(f"{admin_url}&status=acknowledged", wait_until="networkidle")
         page.wait_for_selector("a[href*='/admin/alarms/']")
+        _wait_for_motion(page)
         page.screenshot(path=str(output_paths[4]), full_page=True)
 
         mobile = _capture_mobile_ack_views(
@@ -418,12 +476,12 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
         )
         page.goto(f"{admin_url}&status=resolved", wait_until="networkidle")
         page.wait_for_selector("a[href*='/admin/alarms/']")
+        _wait_for_motion(page)
         page.screenshot(path=str(output_paths[7]), full_page=True)
 
         _capture_simulation_views(
             page,
             base_url=base_url,
-            admin_url=admin_url,
             config=config,
             output_paths=output_paths,
         )
@@ -436,18 +494,20 @@ def _capture_real_screens(config: CaptureConfig) -> list[Path]:
 
 
 def run_capture(config: CaptureConfig) -> list[Path]:
+    """Run either the real capture path or the explicitly test-only fixture path."""
     if config.mock_screens:
         return _create_placeholder_screens(config.output_dir)
     return _capture_real_screens(config)
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Define the command-line contract shared by local and hosted capture runs."""
     parser = argparse.ArgumentParser(
         description="Capture local Mock University demo screenshots."
     )
     parser.add_argument("--base-url", default="http://localhost:8080")
     parser.add_argument("--admin-key", default=None)
-    parser.add_argument("--output-dir", default="docs/assets/screenshots")
+    parser.add_argument("--output-dir", default="docs/assets/screenshots/generated")
     parser.add_argument("--seed-file", default="deploy/simulation_seed.yaml")
     parser.add_argument("--timeout-seconds", type=float, default=10.0)
     parser.add_argument("--wait-seconds", type=float, default=20.0)
@@ -458,6 +518,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute screenshot capture and return a shell-friendly status code."""
     args = _build_parser().parse_args(argv)
 
     try:

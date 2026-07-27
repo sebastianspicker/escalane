@@ -1,33 +1,44 @@
-# Product
+# Product scope
 
-## Register
-
-product
+Escalane records alarm triggers, coordinates notification and escalation work,
+and exposes acknowledgement and operator workflows. It is intended for
+technical evaluation and public-alpha development.
 
 ## Users
 
-Alarm operators work frequently at a campus, security, or operations desk under time pressure. They need dense scanning, keyboard-safe actions, explicit freshness, and an auditable alarm timeline. Responders use an occasional capability link on a phone and need a short, plain-language acknowledgement flow. System administrators and maintainers use configuration, simulation, health, and activity views less frequently and need exact state without exposed secrets.
+- Operators review alarms, update lifecycle state, add notes, and inspect
+  activity.
+- Responders acknowledge an alarm through a capability link.
+- Administrators configure sites, rooms, people, devices, policies, and
+  integrations.
+- Maintainers operate the API, worker, PostgreSQL, Redis, and external
+  connectors.
 
-## Product Purpose
+## Scope
 
-Alarm Broker is an open-source release-candidate reference implementation for alarm intake, persistence, notification fan-out, escalation, acknowledgement, and lifecycle management. Its browser UI provides a calm bilingual operator work surface and a focused mobile responder acknowledgement flow. It is not validated for safety-critical or compliance-critical deployment.
+The project includes device-trigger intake, durable alarm state, asynchronous
+notification delivery, delayed escalation, a server-rendered operator console,
+a responder acknowledgement page, and operational endpoints.
 
-## Brand Personality
+It does not provide emergency-response staffing, safety certification,
+compliance certification, managed hosting, or a guarantee that external
+providers will deliver a message.
 
-Calm, precise, dependable. The interface should feel like a trustworthy operational tool: direct language, stable structure, and state before decoration.
+## Terminology
 
-## Anti-references
+The product name is Escalane. Python packages, service paths, and technical
+identifiers use `escalane`. The Compose image selector is `ESCALANE_IMAGE`.
+Alarm lifecycle values are `triggered`, `acknowledged`, `resolved`, and
+`cancelled`.
 
-Do not imitate theatrical command centres, consumer dashboards, or generic AI-generated SaaS surfaces. Avoid “Mission Control,” “Alarm Intelligence,” “Engage,” glow, glass panels, gradients, ornamental pulses, hero metrics, tiny tracked uppercase scaffolding, decorative charts, and custom controls where native HTML is clearer.
+## Interface principles
 
-## Design Principles
-
-- State before decoration: show status, time, person, location, freshness, and the next safe action first.
-- Core actions survive without JavaScript; enhancement must preserve operator context and focus.
-- Interrupt in proportion to risk: acknowledge is immediate, while cancellation and deletion require a reason and confirmation.
-- Never expose capability tokens, static admin credentials, target addresses, or device tokens in operator pages or audit data.
-- German and English convey equivalent meaning without changing authority or domain data.
-
-## Accessibility & Inclusion
-
-WCAG 2.2 AA is the release target. Primary journeys must be keyboard-operable with visible focus, semantic tables and dialogs, text-plus-colour state, persistent actionable errors, reduced-motion and forced-colours support, 320 px reflow, and at least 44 px critical responder controls. Manual VoiceOver/Safari and NVDA/Firefox verification remains a pre-release responsibility.
+- Present alarm state, age, person, location, and available action before
+  secondary information.
+- Keep authorization and lifecycle decisions on the server.
+- Require confirmation and a reason for destructive or terminal actions.
+- Do not expose static credentials, device tokens, connector destinations, or
+  acknowledgement capability tokens in operator output.
+- Keep German and English labels equivalent in meaning.
+- Preserve keyboard operation, visible focus, text labels for state, reduced
+  motion, forced-colour support, and narrow-screen reflow.

@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{{ t('error') }} · {{ t('product_name') }}{% endblock %}
+{% block content %}<section class="error-panel" aria-labelledby="page-title"><p class="eyebrow">{{ t('action_not_completed') }}</p><h1 id="page-title">{{ t('error') }}</h1><p>{{ error.message|default(t('error_help')) }}</p>{% if error.reference %}<p class="error-reference"><span>{{ t('reference') }}</span><code>{{ error.reference }}</code></p>{% endif %}<a class="button button-primary" href="{{ error.return_url|default(worklist_url|default('/admin')) }}">{{ t('return_to_safe_page') }}</a></section>{% endblock %}

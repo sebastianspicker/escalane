@@ -204,6 +204,9 @@
     },
     {
       "toolId": "Ruff",
+      "exclude": [
+        "services/escalane/tests/**"
+      ],
       "patterns": [
         {
           "patternId": "Ruff_PLE2502_bidirectional-unicode"
@@ -2004,6 +2007,9 @@
     },
     {
       "toolId": "Bandit",
+      "exclude": [
+        "services/escalane/tests/**"
+      ],
       "patterns": [
         {
           "patternId": "Bandit_B101"
@@ -6598,224 +6604,6 @@
           "parameters": {
             "threshold": "8"
           }
-        }
-      ]
-    },
-    {
-      "toolId": "Agentlinter",
-      "patterns": [
-        {
-          "patternId": "Agentlinter_token-budget_under-150-tokens"
-        },
-        {
-          "patternId": "Agentlinter_token-budget_total-tokens"
-        },
-        {
-          "patternId": "Agentlinter_token-budget_section-weight"
-        },
-        {
-          "patternId": "Agentlinter_token-budget_compressible-padding"
-        },
-        {
-          "patternId": "Agentlinter_structure_position-risk-warning"
-        },
-        {
-          "patternId": "Agentlinter_structure_modular-files"
-        },
-        {
-          "patternId": "Agentlinter_structure_has-main-file"
-        },
-        {
-          "patternId": "Agentlinter_structure_dead-import"
-        },
-        {
-          "patternId": "Agentlinter_structure_circular-import"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_skill-name-match-dir"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_sensitive-paths"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_injection-vectors"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_has-metadata"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_excessive-permissions"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_data-exfiltration"
-        },
-        {
-          "patternId": "Agentlinter_skill-safety_dangerous-commands"
-        },
-        {
-          "patternId": "Agentlinter_security_prompt-injection-vulnerability"
-        },
-        {
-          "patternId": "Agentlinter_security_no-secrets"
-        },
-        {
-          "patternId": "Agentlinter_security_no-pii-exposure"
-        },
-        {
-          "patternId": "Agentlinter_security_no-injection-defense"
-        },
-        {
-          "patternId": "Agentlinter_security_has-permission-boundaries"
-        },
-        {
-          "patternId": "Agentlinter_security_has-injection-defense"
-        },
-        {
-          "patternId": "Agentlinter_security_env-var-references"
-        },
-        {
-          "patternId": "Agentlinter_security_api-key-exposure"
-        },
-        {
-          "patternId": "Agentlinter_runtime_token-strength"
-        },
-        {
-          "patternId": "Agentlinter_runtime_group-policy"
-        },
-        {
-          "patternId": "Agentlinter_runtime_gateway-bind"
-        },
-        {
-          "patternId": "Agentlinter_runtime_dm-policy"
-        },
-        {
-          "patternId": "Agentlinter_runtime_config-secrets"
-        },
-        {
-          "patternId": "Agentlinter_runtime_config-exists"
-        },
-        {
-          "patternId": "Agentlinter_runtime_auth-mode"
-        },
-        {
-          "patternId": "Agentlinter_remote-ready_model-settings-specified"
-        },
-        {
-          "patternId": "Agentlinter_memory_no-mental-notes"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-state-tracking"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-memory-strategy"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-learning-loop"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-handoff-protocol"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-file-based-notes"
-        },
-        {
-          "patternId": "Agentlinter_memory_has-context-window-awareness"
-        },
-        {
-          "patternId": "Agentlinter_consistency_timezone-locale-drift"
-        },
-        {
-          "patternId": "Agentlinter_consistency_stale-package-reference"
-        },
-        {
-          "patternId": "Agentlinter_consistency_stale-date"
-        },
-        {
-          "patternId": "Agentlinter_consistency_priority-conflict"
-        },
-        {
-          "patternId": "Agentlinter_consistency_permission-conflict"
-        },
-        {
-          "patternId": "Agentlinter_consistency_no-duplicate-instructions"
-        },
-        {
-          "patternId": "Agentlinter_consistency_circular-dependency"
-        },
-        {
-          "patternId": "Agentlinter_completeness_verification-criteria-required"
-        },
-        {
-          "patternId": "Agentlinter_completeness_session-learning-hooks"
-        },
-        {
-          "patternId": "Agentlinter_completeness_has-workflow"
-        },
-        {
-          "patternId": "Agentlinter_completeness_has-priorities"
-        },
-        {
-          "patternId": "Agentlinter_completeness_has-output-format"
-        },
-        {
-          "patternId": "Agentlinter_completeness_has-error-handling"
-        },
-        {
-          "patternId": "Agentlinter_completeness_has-boundaries"
-        },
-        {
-          "patternId": "Agentlinter_completeness_freshness-file-paths"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_skills-vs-commands"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_relevance-trap"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_progressive-disclosure"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_instruction-count"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_hooks-structure"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_descriptive-ratio"
-        },
-        {
-          "patternId": "Agentlinter_claude-code_agent-focus"
-        },
-        {
-          "patternId": "Agentlinter_clarity_token-efficiency-score"
-        },
-        {
-          "patternId": "Agentlinter_clarity_token-budget-range"
-        },
-        {
-          "patternId": "Agentlinter_consistency_referenced-files-exist"
-        },
-        {
-          "patternId": "Agentlinter_clarity_no-contradictions"
-        },
-        {
-          "patternId": "Agentlinter_clarity_naked-conditional"
-        },
-        {
-          "patternId": "Agentlinter_clarity_escape-hatch-missing"
-        },
-        {
-          "patternId": "Agentlinter_clarity_english-config-files"
-        },
-        {
-          "patternId": "Agentlinter_clarity_duplicate-content"
-        },
-        {
-          "patternId": "Agentlinter_blueprint_coverage"
-        },
-        {
-          "patternId": "Agentlinter_blueprint_constraints-defined"
         }
       ]
     },

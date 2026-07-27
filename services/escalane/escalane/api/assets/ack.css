@@ -1,0 +1,217 @@
+/* Responder ACK surface — mobile-first, state-led, one primary action. */
+
+.page-responder {
+  background: var(--canvas);
+}
+
+.page-responder .site-header {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.page-responder .utility-bar {
+  min-height: 3.25rem;
+}
+
+.page-responder .brand {
+  font-size: 1.05rem;
+}
+
+.page-responder .brand img {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+
+.page-responder main {
+  display: block;
+  min-height: calc(100dvh - 6rem);
+  max-width: 28rem;
+  margin-inline: auto;
+  padding-block: 0;
+  padding-inline: 0;
+}
+
+.responder-card {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.responder-card::before {
+  display: none;
+}
+
+/* Full-bleed state band (section.responder-state + title header) */
+.responder-state {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.25rem 0.35rem;
+  background: var(--surface);
+}
+
+.responder-card > header {
+  display: block;
+  padding: 0.15rem 1.25rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.responder-card.alarm-state-triggered > .responder-state,
+.responder-card.alarm-state-triggered > header {
+  background: var(--triggered);
+  border-bottom: 0;
+  color: #fff;
+}
+
+.responder-card.alarm-state-acknowledged > .responder-state,
+.responder-card.alarm-state-acknowledged > header {
+  background: var(--acknowledged);
+  border-bottom: 0;
+  color: #fff;
+}
+
+.responder-card.alarm-state-resolved > .responder-state,
+.responder-card.alarm-state-resolved > header {
+  background: var(--resolved);
+  border-bottom: 0;
+  color: #fff;
+}
+
+.responder-card h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: inherit;
+}
+
+.responder-state .status {
+  margin: 0;
+}
+
+.responder-card.alarm-state-triggered > .responder-state .status,
+.responder-card.alarm-state-acknowledged > .responder-state .status,
+.responder-card.alarm-state-resolved > .responder-state .status {
+  color: #fff;
+  background: rgb(255 255 255 / 18%);
+}
+
+.responder-card.alarm-state-triggered > .responder-state .status > span,
+.responder-card.alarm-state-acknowledged > .responder-state .status > span,
+.responder-card.alarm-state-resolved > .responder-state .status > span {
+  background: #fff;
+}
+
+/* Body content cards */
+.responder-card > .notice,
+.responder-card > .definition-list,
+.responder-card > .responder-instruction,
+.responder-card > form,
+.responder-card > .completion-message {
+  margin-inline: 1.25rem;
+}
+
+.responder-card > .notice {
+  margin-top: 1rem;
+}
+
+.responder-context {
+  grid-template-columns: 1fr;
+  margin-block: 1rem;
+  border-radius: var(--radius-panel);
+}
+
+.responder-context div {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.5rem 0.65rem;
+  align-items: baseline;
+  padding: 0.55rem 0.9rem;
+  border-right: 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.responder-context div:last-child {
+  border-bottom: 0;
+}
+
+.responder-context dt {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.responder-context dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.responder-instruction {
+  margin-block: 0.85rem 1rem;
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.responder-card label {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.responder-card form {
+  margin-top: 0.25rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.responder-card form label:first-of-type {
+  margin-top: 0;
+}
+
+.responder-control {
+  width: 100%;
+  min-height: 3rem;
+  margin-top: 0.85rem;
+  font-size: 0.95rem;
+  border-radius: var(--radius-panel);
+}
+
+.completion-message {
+  margin: 1rem 1.25rem 0;
+  padding: 0.85rem;
+  color: var(--success);
+  background: var(--resolved-soft);
+  border-left: 4px solid var(--success);
+  border-radius: var(--radius-control);
+  font-weight: 700;
+  font-size: 0.875rem;
+}
+
+.error-panel {
+  max-width: 42rem;
+  margin-inline: auto;
+  padding: 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.error-reference {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+}

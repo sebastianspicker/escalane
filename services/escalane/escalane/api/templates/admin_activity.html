@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{{ t('audit_log') }} · {{ t('product_name') }}{% endblock %}
+{% block content %}<header class="page-heading"><div><p class="eyebrow">{{ t('operations') }}</p><h1>{{ t('audit_log') }}</h1><p class="page-summary">{{ t('activity_help') }}</p></div></header><ol class="audit-list">{% for event in events %}<li><time datetime="{{ event.created_at.isoformat() }}">{{ event.created_at.isoformat(timespec='minutes') }}</time><div><strong>{{ event.operator_name }}</strong><span>{{ event.action }} · {{ event.resource_type }}</span><code>{{ event.resource_id }}</code></div></li>{% else %}<li class="empty-state"><strong>{{ t('no_records') }}</strong><span>{{ t('activity_empty_help') }}</span></li>{% endfor %}</ol>{% endblock %}

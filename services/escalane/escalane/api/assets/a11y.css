@@ -1,0 +1,487 @@
+/* Reduced motion, forced colours, and narrow breakpoints. */
+
+/* ——— Mid width: filters wrap, detail stacks ——— */
+@media (width <= 64rem) {
+  :root {
+    --sidebar: 13rem;
+  }
+
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-field-search {
+    grid-column: 1 / -1;
+  }
+
+  .bulk-grid {
+    grid-template-columns: minmax(10rem, 0.8fr) minmax(12rem, 1.3fr) auto;
+  }
+
+  .pagination {
+    grid-column: 1 / -1;
+  }
+
+  .detail-layout,
+  .configuration-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-panel,
+  .action-panel {
+    position: static;
+  }
+
+  .has-session main,
+  .has-session .site-footer,
+  .has-session .section-nav {
+    padding-inline: 1.25rem;
+  }
+
+  .has-session .section-nav {
+    padding-inline: 1.25rem;
+  }
+}
+
+/* ——— Tablet / phone: collapse sidebar to top bar ——— */
+@media (width <= 48rem) {
+  :root {
+    --sidebar: 0rem;
+  }
+
+  .site-header {
+    position: relative;
+  }
+
+  .utility-bar {
+    align-items: center;
+    padding-block: 0.5rem;
+  }
+
+  .session-tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .operator-name {
+    display: none;
+  }
+
+  .environment-label {
+    display: none;
+  }
+
+  .admin-nav summary {
+    display: flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 0.875rem;
+  }
+
+  .admin-nav summary::after {
+    content: "+";
+    font-size: 1.15rem;
+  }
+
+  .admin-nav[open] summary::after {
+    content: "−";
+  }
+
+  .admin-nav:not([open]) nav {
+    display: none;
+  }
+
+  .admin-nav nav {
+    display: grid;
+    gap: 0;
+  }
+
+  .admin-nav a {
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .admin-nav a[aria-current="page"]::after {
+    inset: 0 auto 0 -0.75rem;
+    width: 3px;
+    height: auto;
+  }
+
+  /* Session shell collapses to top bar */
+  .has-session .site-header {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-height: auto;
+    color: var(--ink);
+    background: var(--surface);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .has-session .utility-bar {
+    display: flex;
+    min-height: 3.25rem;
+    align-items: center;
+    padding-inline: 1rem;
+  }
+
+  .has-session .brand-cluster {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0;
+  }
+
+  .has-session .brand {
+    color: var(--ink);
+    font-size: 1.1rem;
+  }
+
+  .has-session .brand img {
+    width: 1.5rem;
+    height: 1.5rem;
+    filter: none;
+  }
+
+  .has-session .environment-label {
+    display: none;
+  }
+
+  .has-session .session-tools {
+    position: static;
+    display: flex;
+    margin-left: auto;
+    padding: 0;
+    border: 0;
+    grid-template-columns: none;
+  }
+
+  .has-session .operator-name {
+    display: none;
+  }
+
+  .has-session .logout-form {
+    display: block;
+  }
+
+  .has-session .logout-form .button {
+    color: var(--ink);
+    border-color: var(--line);
+  }
+
+  .has-session .language-form select {
+    color: var(--ink);
+    background: var(--surface);
+    border-color: var(--line);
+  }
+
+  .has-session .language-form .utility-icon {
+    display: block;
+  }
+
+  .has-session .admin-nav {
+    padding-inline: 1rem;
+    flex: none;
+    overflow: visible;
+  }
+
+  .has-session .admin-nav summary {
+    display: flex;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--ink);
+  }
+
+  .has-session .admin-nav:not([open]) nav {
+    display: none;
+  }
+
+  .has-session .admin-nav nav {
+    display: grid;
+    padding-bottom: 0.5rem;
+  }
+
+  .has-session .admin-nav a {
+    min-height: 2.5rem;
+    margin: 0;
+    padding: 0.5rem 0.55rem;
+    color: var(--ink-muted);
+    border-radius: 0;
+    border-top: 1px solid var(--line);
+    box-shadow: none;
+  }
+
+  .has-session .admin-nav a:hover {
+    background: var(--surface-2);
+    color: var(--ink);
+  }
+
+  .has-session .admin-nav a[aria-current="page"] {
+    color: var(--signal);
+    background: var(--surface-2);
+    box-shadow: inset 3px 0 0 var(--signal);
+  }
+
+  .has-session main,
+  .has-session .site-footer,
+  .has-session .section-nav {
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+    padding-inline: 1rem;
+  }
+
+  .has-session .section-nav {
+    padding-inline: 1rem;
+  }
+
+  .has-session main {
+    padding-top: 1.25rem;
+  }
+
+  .page-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .page-heading h1,
+  .worklist-heading h1 {
+    font-size: 1.45rem;
+  }
+
+  .worklist-utilities {
+    width: 100%;
+    justify-content: space-between;
+    justify-items: start;
+  }
+
+  .status-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .filters,
+  .form-grid,
+  .resource-record .form-grid,
+  .bulk-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-field-search {
+    grid-column: auto;
+  }
+
+  .bulk-actions {
+    position: static;
+  }
+
+  .definition-list {
+    grid-template-columns: 1fr;
+  }
+
+  .definition-list div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .definition-list div:last-child {
+    border-bottom: 0;
+  }
+
+  .auth-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    gap: 1rem;
+  }
+
+  .auth-story {
+    padding-block: 0.75rem;
+  }
+
+  .auth-story h1 {
+    font-size: 1.65rem;
+  }
+
+  .route-diagram {
+    margin-bottom: 1rem;
+  }
+
+  .system-list > div,
+  .audit-list li,
+  .audit-list li > div {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+  }
+
+  .site-footer {
+    flex-direction: column;
+  }
+
+  .timeline li {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+}
+
+/* ——— 320px: sign-out visible, language reachable ——— */
+@media (width <= 26rem) {
+  .brand span,
+  .language-form button {
+    display: none;
+  }
+
+  .session-tools {
+    gap: 0.35rem;
+  }
+
+  .logout-form { display: block; }
+
+  .detail-heading,
+  .responder-card header {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .definition-list,
+  .status-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .status-summary div {
+    border-right: 0;
+  }
+
+  .page-heading h1,
+  .worklist-heading h1,
+  .detail-heading h1 {
+    font-size: 1.35rem;
+  }
+
+  .page-freshness span {
+    display: none;
+  }
+
+  .page-responder .brand span {
+    display: none;
+  }
+
+  .has-session .brand span {
+    display: none;
+  }
+
+  .responder-card > .notice,
+  .responder-card > .definition-list,
+  .responder-card > .responder-instruction,
+  .responder-card > form,
+  .responder-card > .completion-message {
+    margin-inline: 0.85rem;
+  }
+
+  .responder-card > header {
+    padding-inline: 0.85rem;
+  }
+
+  .responder-context div {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+}
+
+/* ——— Reduced motion ——— */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ——— Forced colours (Windows high contrast, etc.) ——— */
+@media (forced-colors: active) {
+  body,
+  .site-header {
+    background: Canvas;
+  }
+
+  .button,
+  button,
+  input,
+  select,
+  textarea,
+  .auth-panel,
+  .responder-card,
+  .detail-heading,
+  .table-scroll,
+  .filters,
+  .status-summary div,
+  .bulk-actions,
+  .activity-panel,
+  .action-panel,
+  .form-panel,
+  .records-panel,
+  .editor-panel,
+  dialog {
+    color: CanvasText;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .button-primary,
+  .button-danger-solid {
+    color: ButtonText;
+    background: ButtonFace;
+  }
+
+  .alarm-row,
+  .alarm-row-triggered {
+    border-left: 4px solid CanvasText;
+    box-shadow: none;
+    background: Canvas;
+  }
+
+  .status {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .route-diagram {
+    display: none;
+  }
+
+  .severity {
+    color: CanvasText;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .has-session .site-header {
+    background: Canvas;
+    color: CanvasText;
+    border-right: 1px solid CanvasText;
+  }
+
+  .has-session .admin-nav a,
+  .has-session .brand,
+  .has-session .logout-form .button,
+  .has-session .language-form select {
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+
+  .responder-card.alarm-state-triggered > header,
+  .responder-card.alarm-state-acknowledged > header,
+  .responder-card.alarm-state-resolved > header {
+    background: Canvas;
+    color: CanvasText;
+    border: 1px solid CanvasText;
+  }
+}

@@ -1,288 +1,237 @@
-# Operations Guide
+# Operations
 
-This guide covers operational aspects of running Alarm Broker. The project is a
-release candidate and still requires environment-specific hardening before
-safety-critical, security-critical, or compliance-critical deployment.
+The checked-in Compose stack is suitable for local evaluation and as a
+deployment reference. It binds the API to `127.0.0.1:8080` and does not include
+TLS termination, external monitoring, or scheduled backups.
 
-## Monitoring
+## Service lifecycle
 
-### Health Endpoints
-
-- `/healthz` - Liveness probe (basic health check)
-- `/readyz` - Readiness probe (includes DB and Redis connectivity)
+Build and start:
 
 ```bash
-# Check health
-curl -sS http://localhost:8080/healthz
-
-# Check readiness
-curl -sS http://localhost:8080/readyz
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-### Metrics
-
-The application exposes Prometheus-compatible metrics at `/metrics`, but the endpoint is protected by the admin API key.
-
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `alarm_broker_http_requests_total` | Counter | method, route, status_code | HTTP request count |
-| `alarm_broker_http_request_duration_ms_total` | Counter | method, route, status_code | Cumulative request duration (ms) |
-| `alarm_broker_alarms_by_status` | Gauge | status | Alarm count per lifecycle state |
-| `alarm_broker_notifications_total` | Counter | channel, result | Notification attempts by channel and outcome |
-| `alarm_broker_events_total` | Counter | event | Internal events (webhook_delivery_ok, etc.) |
-
-Scrape guidance:
-
-- Direct local check: `curl -sS http://localhost:8080/metrics -H 'X-Admin-Key: ...'`
-- Production scraping: terminate auth at a trusted reverse proxy or scrape through a sidecar that injects `X-Admin-Key`
-
-## Simulation Mode Operations
-
-Simulation mode is intended for demos and non-production validation.
-
-Required settings:
-- `SIMULATION_ENABLED=true`
-- `ADMIN_API_KEY` set (all simulation endpoints require admin auth)
-
-Available admin-protected endpoints:
-- `GET /v1/simulation/status`
-- `GET /v1/simulation/notifications`
-- `POST /v1/simulation/notifications/clear`
-- `POST /v1/simulation/seed`
-
-Behavior notes:
-- If simulation mode is disabled, these endpoints return `404` by design.
-- `POST /v1/simulation/seed` returns the bundled seed file path and points to `/v1/admin/seed`.
-- Mock notifications are ephemeral and can be reset via `notifications/clear`.
-
-## Logging
-
-### Log Levels
-
-Configure via `LOG_LEVEL` environment variable:
-- `DEBUG` - Detailed debugging information
-- `INFO` - General operational information
-- `WARNING` - Warning messages
-- `ERROR` - Error messages only
-
-### Request Logging
-
-The API middleware records request-oriented log fields including route, status,
-latency, request ID, and alarm ID when available. Use `LOG_LEVEL=DEBUG` for
-diagnostic detail, and configure the container/runtime log driver to match your
-operations stack.
-
-### Log Aggregation
-
-For production, configure log shipping to a central logging system:
-
-```yaml
-# docker-compose.override.yml
-services:
-  api:
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-```
-
-## Backup & Restore
-
-### Database Backup
+Inspect status and logs:
 
 ```bash
-# Full database dump
-pg_dump -U alarm -h localhost -Fc alarm > backup_$(date +%Y%m%d).dump
-
-# Restore from backup
-pg_restore -U alarm -h localhost -d alarm -c backup_20240101.dump
+docker compose -f deploy/docker-compose.yml ps
+docker compose -f deploy/docker-compose.yml logs api worker migration
 ```
 
-### Redis Backup
-
-Redis stores idempotency keys and rate limiting data. For critical data:
+Stop the stack without deleting volumes:
 
 ```bash
-# Redis SAVE (synchronous)
-redis-cli SAVE
-
-# Copy dump file
-cp /data/dump.rdb backup/dump_$(date +%Y%m%d).rdb
+docker compose -f deploy/docker-compose.yml down
 ```
 
-### Redis Script Permission
+Do not add `--volumes` unless the PostgreSQL and Redis data is intentionally
+disposable.
 
-The trigger service uses Redis `EVAL` for atomic compare-and-delete of recovery
-locks, failed-request idempotency reservations, and corrupt idempotency values.
-The Redis account and any proxy, ACL, or managed-service policy in front of it
-must permit `EVAL` for this application. Do not replace that permission with a
-client-side get/delete sequence: it loses the atomicity that prevents a changed
-value from being deleted. Verify the permission during deployment with the
-application account and monitor Redis command-denied errors.
+## Health and readiness
 
-### Automated Backups
+`/healthz` is a liveness check. It confirms that the API process can answer:
 
 ```bash
-# /etc/cron.d/alarm-backup
-0 2 * * * postgres pg_dump -U alarm -h localhost -Fc alarm > /backups/alarm_$(date +\%Y\%m\%d).dump
-0 3 * * * root redis-cli SAVE && cp /var/lib/redis/dump.rdb /backups/redis_$(date +\%Y\%m\%d).rdb
+curl --fail http://127.0.0.1:8080/healthz
 ```
 
-## Performance Tuning
+`/readyz` checks PostgreSQL, Redis, and the current Alembic revision. It returns
+HTTP 503 when a dependency or schema check fails:
 
-### Database Connection Pool
+```bash
+curl --fail http://127.0.0.1:8080/readyz
+```
 
-Pool settings are configured via environment variables (`DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE`) and wired into `create_async_engine` in `db/engine.py`. The defaults (pool_size=5, max_overflow=10) are appropriate for low-traffic deployments. See `.env.example` for all pool tuning options.
+Detailed health and metrics require the admin key:
 
-### Worker Concurrency
+```bash
+curl --fail \
+  -H "X-Admin-Key: <admin-api-key>" \
+  http://127.0.0.1:8080/healthz/details
 
-arq worker concurrency is set in `WorkerSettings` in `worker/settings.py`. To
-change it, adjust the `max_jobs` class attribute and verify the worker under the
-expected notification and escalation load. There is no environment variable for
-this currently.
+curl --fail \
+  -H "X-Admin-Key: <admin-api-key>" \
+  http://127.0.0.1:8080/metrics
+```
+
+Treat both responses as sensitive operational data. Do not expose them through
+an unauthenticated proxy rule.
+
+## Logs
+
+`LOG_LEVEL` accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. The
+default is `INFO`.
+
+API request logs include a request ID. Capability-bearing acknowledgement
+paths are masked. Provider failures use bounded categories to reduce accidental
+request-data exposure. Review log forwarding and retention before deployment.
+
+Set `SLOW_QUERY_LOG_MS` to control the database warning threshold. A value of
+`0` logs every query and can create substantial output.
+
+## Database backup and restore
+
+Create a PostgreSQL custom-format dump:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec -T postgres \
+  pg_dump -U alarm -d alarm -Fc > escalane.dump
+```
+
+Restore into an empty target database after stopping application writes:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec -T postgres \
+  pg_restore -U alarm -d alarm --clean --if-exists < escalane.dump
+```
+
+Test restore procedures on a separate environment. `pg_restore --clean`
+replaces objects in the selected database and is destructive.
+
+The Redis service uses append-only persistence with `appendfsync everysec`.
+Its volume contains queued jobs, sessions, idempotency keys, and rate-limit
+state. PostgreSQL remains the authority for alarm and audit data. Preserve and
+restore Redis only as part of a tested, consistent recovery procedure.
+
+## Upgrade
+
+Select the new immutable image:
+
+```bash
+export ESCALANE_IMAGE='ghcr.io/sebastianspicker/escalane@sha256:<digest>'
+docker compose -f deploy/docker-compose.yml pull migration api worker
+```
+
+Start dependencies, run the migration from the exact image, then replace API
+and worker:
+
+```bash
+docker compose -f deploy/docker-compose.yml up -d --wait postgres redis
+docker compose -f deploy/docker-compose.yml run --rm --no-deps migration
+docker compose -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
+curl --fail http://127.0.0.1:8080/readyz
+```
+
+Do not start the new API or worker if migration fails. Before an application
+rollback, review whether the new schema remains compatible with the previous
+image. Alembic downgrade support must be assessed migration by migration.
+
+## Reverse proxy
+
+Terminate TLS at a separately managed reverse proxy. Keep the Compose loopback
+binding and proxy to `127.0.0.1:8080`.
+
+Set `BASE_URL` to the externally visible HTTPS origin. Set
+`TRUSTED_PROXY_CIDRS` to the exact address or narrow CIDR of the immediate
+proxy peer. Escalane ignores forwarded client and scheme headers from other
+sources.
+
+The reverse proxy should preserve the request path and query, pass a request
+ID when available, apply appropriate body and timeout limits, and avoid logging
+acknowledgement URLs or trigger tokens.
+
+## Worker and Redis
+
+The worker entry point is:
+
+```text
+arq escalane.worker.settings.WorkerSettings
+```
+
+The worker processes alarm events, delivery attempts, delayed escalation, and
+outbox recovery. Redis must permit `EVAL`; the trigger service uses it for an
+atomic compare-and-delete operation. The checked-in Redis configuration uses
+`noeviction`, so a full Redis instance rejects writes rather than silently
+discarding queue or session keys.
+
+Monitor:
+
+- Redis memory and rejected writes
+- queued and failed ARQ jobs
+- unpublished outbox rows
+- provider delivery failures
+- database connection saturation
+- readiness failures and migration drift
+
+The default database pool and worker settings are starting values, not measured
+capacity guidance. Test changes under representative load.
+
+## Simulation
+
+Simulation mode is for local evaluation:
+
+```text
+SIMULATION_ENABLED=true
+BASE_URL=http://localhost:8080
+```
+
+Prepare its fixtures and inspect mock delivery:
+
+```bash
+make demo-prepare
+```
+
+The simulation API and `/admin/simulation` require admin authentication.
+Simulation does not contact configured providers.
 
 ## Troubleshooting
 
-### Common Issues
+### Readiness returns 503
 
-#### Database Connection Errors
-
-```
-sqlalchemy.exc.OperationalError: could not connect to server
-```
-
-**Solution:** Check DATABASE_URL and network connectivity
+Inspect dependency and migration logs:
 
 ```bash
-# Test connection
-psql -U alarm -h localhost -d alarm -c "SELECT 1"
-
-# Check logs
-docker compose logs db
+docker compose -f deploy/docker-compose.yml ps
+docker compose -f deploy/docker-compose.yml logs postgres redis migration api
 ```
 
-#### Redis Connection Errors
-
-```
-redis.exceptions.ConnectionError: Error connecting to Redis
-```
-
-**Solution:** Check REDIS_URL and Redis availability
+Confirm that `DATABASE_URL` and `REDIS_URL` use Compose service names when the
+application runs inside Compose. Apply migrations with:
 
 ```bash
-# Test connection
-redis-cli -h localhost ping
-
-# Check logs
-docker compose logs redis
+docker compose -f deploy/docker-compose.yml run --rm migration
 ```
 
-#### High Memory Usage
+### Admin sign-in fails
 
-1. Check for memory leaks in worker processes
-2. Review database query performance
-3. Monitor Redis memory usage
+An empty `ADMIN_API_KEY` fails closed. Confirm that the API received the
+intended configuration and restart it after changing `.env`. Do not print the
+key in logs or command output.
+
+### Trigger is rejected
+
+Check:
+
+- the query key matches `YELK_TOKEN_QUERY_PARAM`
+- the device token exists and is active
+- the observed source matches `YELK_IP_ALLOWLIST`
+- forwarded addresses are trusted only from `TRUSTED_PROXY_CIDRS`
+- the per-device Redis rate limit has not been exceeded
+
+### Connector does not send
+
+Check the worker logs and alarm delivery audit. Confirm that the connector is
+enabled, its required credential is set, its endpoint passes URL validation,
+and any generic webhook host is listed in `WEBHOOK_ALLOWED_HOSTS`.
+
+### Browser session expires
+
+Operator sessions are stored in Redis. Redis restart or data loss invalidates
+them. Sign in again. Confirm Redis health if sessions expire unexpectedly.
+
+### Browser assets return 404
+
+Confirm that the installed wheel or container includes
+`escalane/api/templates` and `escalane/api/assets`. Run:
 
 ```bash
-# Redis memory usage
-redis-cli INFO memory
-
-# Active connections
-redis-cli INFO clients
+make package-check
 ```
 
-#### Slow Webhooks
+## Operational boundary
 
-1. Increase worker concurrency
-2. Check network latency to webhook endpoints
-3. Review webhook delivery logs and receiver-side latency
-
-```bash
-# Monitor webhook delivery events
-curl -sS http://localhost:8080/metrics -H "X-Admin-Key: change-me-admin-key" | grep alarm_broker_events_total
-```
-
-### Debug Mode
-
-Enable detailed logging:
-
-```bash
-LOG_LEVEL=DEBUG
-```
-
-### Database Query Analysis
-
-```sql
--- Check slow queries
-SELECT query, calls, mean_time, total_time
-FROM pg_stat_statements
-ORDER BY mean_time DESC
-LIMIT 20;
-```
-
-## Capacity Planning
-
-### Scaling Guidelines
-
-| Users | Alarms/day | API Replicas | Worker Replicas | PostgreSQL | Redis |
-|-------|------------|--------------|-----------------|------------|-------|
-| 100   | 1,000      | 1            | 1               | 1 core, 2GB| 1 core, 512MB |
-| 1,000 | 10,000     | 2            | 2               | 2 core, 4GB| 1 core, 1GB |
-| 10,000| 100,000    | 4            | 4               | 4 core, 8GB| 2 core, 2GB |
-
-### Monitoring Alerts
-
-Set up alerts for:
-
-- `/healthz` returning non-200 status
-- `/readyz` returning non-200 status
-- Database connection pool exhaustion (>80% utilized)
-- Redis memory usage >80%
-- High error rate (>1% of requests)
-- Webhook failures >10%
-
-## Maintenance
-
-### Routine Maintenance
-
-```bash
-# Weekly: Check disk space
-df -h
-
-# Weekly: Review error logs
-docker compose logs --since=7d | grep ERROR
-
-# Monthly: Vacuum database
-docker compose exec api psql -U alarm -d alarm -c "VACUUM ANALYZE;"
-```
-
-### Database Migration
-
-Before running migrations, backup:
-
-```bash
-# Backup
-pg_dump -U alarm -h localhost -Fc alarm > pre_migration_$(date +%Y%m%d).dump
-
-# Run migration
-docker compose exec api alembic upgrade head
-
-# Verify
-docker compose exec api alembic current
-```
-
-### Log Rotation
-
-Configure in Docker:
-
-```yaml
-# docker-compose.yml
-services:
-  api:
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-```
+Before live use, verify connector delivery, provider idempotency, TLS and proxy
+behavior, network policy, secret storage, alert routing, retention, backup and
+restore, rollback, accessibility, and target-browser behavior. Repository CI
+does not establish those environment-specific properties.

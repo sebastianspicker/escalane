@@ -1,99 +1,108 @@
-# Security Policy
+# Security policy
 
-## Supported Versions
+## Supported versions
 
-We release patches for security vulnerabilities on the current release-candidate line. Older tagged releases are not maintained.
+Until the first prerelease is published, security fixes are assessed for the
+current default branch. After publication, only the current default branch and
+latest prerelease are supported. Older tags are not maintained.
 
-| Version | Supported |
-| ------- | --------- |
-| Current default branch / release candidate | :white_check_mark: |
-| Older tags | :x: |
+## Report a vulnerability
 
-## Reporting a Vulnerability
+Do not open a public issue, discussion, pull request, or commit for a suspected
+vulnerability. Use the repository Security tab to open a private vulnerability
+report when private reporting is available. If it is unavailable, contact the
+repository owner privately before sending technical details. If no private
+channel is available, open a public issue requesting private contact without
+including vulnerability details.
 
-If you discover a security vulnerability, please report it by creating a GitHub Security Advisory. We appreciate responsible disclosure and will work with you to resolve the issue.
+Include a minimal reproduction, affected version or commit, impact, and known
+mitigations. Remove credentials, acknowledgement links, device tokens, alarm
+data, personal data, and internal hostnames.
 
-## Security Features
+## Trust boundaries
 
-### Authentication
+- Admin JSON endpoints require `X-Admin-Key`.
+- The operator console uses a Redis-backed session and CSRF protection for
+  mutating forms.
+- An empty `ADMIN_API_KEY` fails closed.
+- A responder acknowledgement URL is a bearer capability.
+- Yealink ingress requires a device token and, outside simulation, a source
+  address in `YELK_IP_ALLOWLIST`.
+- Forwarded client and scheme headers are accepted only from
+  `TRUSTED_PROXY_CIDRS`.
+- `/metrics` and `/healthz/details` require the admin key.
 
-- Admin API endpoints require a secure API key (`X-Admin-Key` header)
-- The browser-based operator console uses a one-hour Redis-backed session cookie issued by `/admin/login`; mutating forms also require a separate CSRF token
-- Configure the admin key through `ADMIN_API_KEY` by default. If an operator
-  explicitly selects another secret-injection mechanism, document and review
-  that exception while preserving the same fail-closed behavior.
-- `/metrics` is protected by the same admin API key requirement
-- Empty admin key fails closed: API endpoints reject access and admin login cannot establish a session
+Do not expose static admin credentials, trigger URLs, acknowledgement URLs, or
+connector secrets in logs, screenshots, issues, or audit data.
 
-### Rate Limiting
+## Network and URL validation
 
-- Configurable rate limiting per device token (default: 10 requests/minute)
-- Redis-based rate limiting for distributed systems
+`BASE_URL` must be an origin without URL credentials, path, query, or fragment.
+Non-loopback origins require HTTPS. Simulation mode requires a loopback host.
 
-### IP Allowlisting
+Enabled Zammad and SendXMS endpoints require HTTPS and reject embedded URL
+credentials. Enabled signed webhook callbacks require:
 
-- Yealink endpoints support IP allowlisting
-- Configurable via `YELK_IP_ALLOWLIST` environment variable
-- An empty allowlist disables source-IP filtering; treat that as local-dev or trusted-network only
+- an HTTPS `WEBHOOK_URL`
+- the exact destination host in `WEBHOOK_ALLOWED_HOSTS`
+- a `WEBHOOK_SECRET` of at least 32 characters
 
-### Trusted Proxy
+Generic escalation-target webhooks also require an exact allowed host and pass
+public-address checks. `ALLOW_HTTP_WEBHOOKS=true` permits HTTP for that generic
+target path only. It does not relax host or address validation and does not
+apply to `WEBHOOK_URL`.
 
-- Support for X-Forwarded-For header validation
-- Configurable trusted proxy CIDRs to prevent IP spoofing
+The signed callback uses HMAC-SHA256 in `X-Hub-Signature-256`.
 
-### Input Validation
+## HTTP controls
 
-- Pydantic-based request validation
-- SQLAlchemy ORM for database queries (prevents SQL injection)
-- Parameterized queries
+The API sets:
 
-### Security Headers
-
-Security headers are applied unconditionally by `_install_security_headers_middleware`:
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: no-referrer`
-- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`
-- `Strict-Transport-Security` (HTTPS requests only)
-- `Cache-Control: no-store` on ACK pages (`/a/...`) to prevent token caching
+- a same-origin Content Security Policy
+- a restrictive `Permissions-Policy`
+- `Strict-Transport-Security` for HTTPS requests
+- `Cache-Control: no-store` and `Pragma: no-cache` on acknowledgement pages
 
-CORS is not configured. The service is designed for same-origin access behind a reverse proxy.
+CORS is not configured. Browser operation is designed for same-origin access
+behind a reverse proxy.
 
-### Generic Webhook Egress
+## Data handling
 
-Generic webhook delivery fails closed unless `WEBHOOK_ALLOWED_HOSTS` contains the exact destination host. This applies to both state-change callbacks (`WEBHOOK_URL`) and escalation targets with `channel="webhook"`.
+- PostgreSQL contains alarm, identity, location, configuration, and audit data.
+- Redis contains queues, sessions, idempotency state, and rate-limit state.
+- Provider errors are reduced to bounded diagnostic categories before
+  persistence.
+- Seed imports enforce byte, nesting, node, alias, and placeholder limits.
 
-Example:
+Define retention, access, backup, restoration, and deletion procedures for the
+deployment environment. Do not use repository sample contact values as live
+configuration.
 
-```bash
-WEBHOOK_ALLOWED_HOSTS=hooks.example.org,webhook.internal.example.org
-```
+## Deployment checklist
 
-Wildcards are disabled by default. Broader matching may be introduced when an
-operator explicitly requests it for a controlled deployment, documents the
-justification, implements explicit host validation, and obtains security-review
-confirmation of the SSRF impact. `ALLOW_HTTP_WEBHOOKS` still controls whether
-`http://` webhook URLs are accepted. Unless a reviewed deployment-specific
-policy replaces exact-host validation, HTTP delivery also requires the
-destination host in `WEBHOOK_ALLOWED_HOSTS`.
+1. Generate a random admin key:
 
-## Best Practices
-
-1. **Use HTTPS in production** - Configure a reverse proxy with TLS
-2. **Trust proxies explicitly** - Set `TRUSTED_PROXY_CIDRS` before relying on forwarded HTTPS or client IP headers
-3. **Generate strong API keys** - Use random keys with sufficient entropy:
    ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   python3.14 -c "import secrets; print(secrets.token_urlsafe(32))"
    ```
-4. **Restrict network access** - Use firewall rules to limit access to necessary IPs
-5. **Regular updates** - Keep dependencies up to date
-6. **Monitor logs** - Watch for unusual activity
-7. **Backup regularly** - Maintain database backups
 
-## Dependencies Security
+2. Store credentials outside images and source control.
+3. Terminate TLS at a controlled reverse proxy.
+4. Restrict API, database, Redis, and connector network access.
+5. Configure `TRUSTED_PROXY_CIDRS` and `YELK_IP_ALLOWLIST` narrowly.
+6. Use immutable images and apply migrations before API and worker rollout.
+7. Test provider idempotency, backup and restore, rollback, and alert routing.
+8. Review log forwarding and retention for sensitive fields.
 
-We use project-scoped `pip-audit` in CI to check for known vulnerabilities in dependencies.
+## Dependency checks
 
 ```bash
-cd services/alarm_broker && pip-audit . --ignore-vuln CVE-2026-4539
+make audit
 ```
+
+This runs Ruff, Bandit on the application package, and `pip-audit` from
+`services/escalane`. Advisory scanning does not replace a deployment inventory
+or update policy.

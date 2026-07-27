@@ -1,65 +1,89 @@
-.PHONY: test e2e browser-e2e test-postgres-smoke package-check hygiene-check lint lint-fix format format-check audit clean install dev demo-prepare demo-screens
+.PHONY: bootstrap install dev test e2e browser-e2e test-postgres-smoke package-check release-check container-check hygiene-check lint lint-fix format format-check audit clean demo-prepare demo-screens
+
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+SERVICE_DIR := $(ROOT_DIR)/services/escalane
+VENV ?= $(ROOT_DIR)/.venv
+PYTHON := $(VENV)/bin/python
+PIP := $(VENV)/bin/pip
+RUFF := $(VENV)/bin/ruff
+BANDIT := $(VENV)/bin/bandit
+PIP_AUDIT := $(VENV)/bin/pip-audit
+PRE_COMMIT := $(VENV)/bin/pre-commit
+RELEASE_TAG ?= v0.4.0-alpha.1
 
 # Development
-install:
-	cd services/alarm_broker && pip install -e ".[dev]"
+bootstrap:
+	python3.14 -m venv "$(VENV)"
+	$(PYTHON) -m pip install --upgrade pip
+
+install: bootstrap
+	$(PIP) install -e "$(SERVICE_DIR)[dev]"
 
 dev: install
-	cd services/alarm_broker && python -m pytest tests/ -v
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest tests/ -v
 
 # Testing
 test:
-	cd services/alarm_broker && python -m pytest -q -m "not e2e" --cov=alarm_broker --cov-report=term-missing
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q -m "not e2e" --cov=escalane --cov-report=term-missing
 
 e2e:
-	cd services/alarm_broker && python -m pytest -q tests/e2e --tb=short
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q tests/e2e --tb=short
 
 browser-e2e:
-	cd services/alarm_broker && python -m pytest -q tests/e2e/test_browser_ui.py --tb=short
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q tests/e2e/test_browser_ui.py --tb=short
 
 test-postgres-smoke:
-	cd services/alarm_broker && alembic upgrade head && pytest -q tests/test_postgres_smoke.py --tb=short
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m alembic upgrade head && $(PYTHON) -m pytest -q tests/integration/test_postgres_smoke.py --tb=short
 
 package-check:
-	cd services/alarm_broker && python -m build --wheel
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m build --wheel
+
+release-check:
+	$(PYTHON) scripts/validate_release.py --tag "$(RELEASE_TAG)"
+
+container-check: docker-build
+	bash scripts/smoke_container.sh escalane:local
 
 hygiene-check:
-	git ls-files --cached --others --exclude-standard -z | python scripts/verify_public_hygiene.py --null
+	git ls-files --cached --others --exclude-standard -z | $(PYTHON) scripts/verify_public_hygiene.py --null
 
 test-verbose:
-	cd services/alarm_broker && python -m pytest -v -m "not e2e" --cov=alarm_broker --cov-report=term-missing
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -v -m "not e2e" --cov=escalane --cov-report=term-missing
 
 # Linting & Formatting
 lint:
-	ruff format --check services/alarm_broker
-	ruff check services/alarm_broker
+	$(RUFF) format --check "$(SERVICE_DIR)"
+	$(RUFF) check "$(SERVICE_DIR)"
 
 lint-fix:
-	ruff format services/alarm_broker
-	ruff check --fix services/alarm_broker
+	$(RUFF) format "$(SERVICE_DIR)"
+	$(RUFF) check --fix "$(SERVICE_DIR)"
 
 format:
-	ruff format services/alarm_broker
+	$(RUFF) format "$(SERVICE_DIR)"
 
 format-check:
-	ruff format --check services/alarm_broker
+	$(RUFF) format --check "$(SERVICE_DIR)"
 
 # Security & Dependency Audit
 audit:
-	ruff check services/alarm_broker
-	bandit -q -r services/alarm_broker/alarm_broker
-	cd services/alarm_broker && pip-audit . --ignore-vuln CVE-2026-4539
+	$(RUFF) check "$(SERVICE_DIR)"
+	$(BANDIT) -q -r "$(SERVICE_DIR)/escalane"
+	cd "$(SERVICE_DIR)" && $(PIP_AUDIT)
 
 # Pre-commit hooks
 pre-commit:
-	pre-commit install
+	$(PRE_COMMIT) install
 
 # Cleanup
 clean:
 	rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov coverage reports scratch tmp
-	rm -rf services/alarm_broker/.pytest_cache services/alarm_broker/.ruff_cache services/alarm_broker/.mypy_cache services/alarm_broker/.coverage
-	rm -rf services/alarm_broker/build services/alarm_broker/dist services/alarm_broker/*.egg-info
-	find . -path ./.git -prune -o -path ./.venv -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
+	rm -rf services/escalane/.pytest_cache services/escalane/.ruff_cache services/escalane/.mypy_cache services/escalane/.coverage
+	rm -rf services/escalane/.venv
+	rm -rf services/escalane/build services/escalane/dist services/escalane/*.egg-info
+	rm -rf docs/assets/screenshots/generated
+	find . -path ./.git -prune -o -type f -name .DS_Store -delete
+	find . -path ./.git -prune -o -type d -name .venv -prune -o -type d -name venv -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
 
 # Docker
 docker-build:
@@ -76,7 +100,7 @@ docker-logs:
 
 # Local demo workflow
 demo-prepare:
-	python scripts/demo_prepare.py
+	$(PYTHON) scripts/demo_prepare.py
 
 demo-screens:
-	python scripts/demo_capture.py
+	$(PYTHON) scripts/demo_capture.py

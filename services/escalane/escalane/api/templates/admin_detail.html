@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% from "macros.html" import status_badge %}
+{% block title %}{{ t('alarm_details') }} · {{ t('product_name') }}{% endblock %}
+{% block content %}
+<nav class="back-link" aria-label="{{ t('back') }}">
+  <a href="{{ worklist_url }}"><span aria-hidden="true">←</span> {{ t('back_to_worklist') }}</a>
+</nav>
+
+<header class="detail-heading alarm-state-{{ alarm.status }}">
+  <div>
+    <div class="detail-status-row">
+      {{ status_badge(alarm.status, t) }}
+      {% if alarm.severity %}<span class="severity severity-{{ alarm.severity|lower }}">{{ alarm.severity }}</span>{% endif %}
+    </div>
+    <h1>
+      {% if alarm.person and alarm.person != '-' %}
+        {{ alarm.person }}{% if alarm.room and alarm.room != '-' %} · {{ alarm.room }}{% endif %}
+      {% else %}
+        {{ t('alarm_details') }}
+      {% endif %}
+    </h1>
+  </div>
+  <p class="machine-value">{{ alarm.short_id }}</p>
+</header>
+
+<div class="detail-layout">
+  <div class="detail-primary">
+    <section aria-labelledby="context-title">
+      <h2 id="context-title" class="section-title">{{ t('alarm_context') }}</h2>
+      <dl class="definition-list">
+        <div>
+          <dt>{{ t('created') }}</dt>
+          <dd><time datetime="{{ alarm.created_at }}">{{ alarm.created_at }}</time></dd>
+        </div>
+        <div>
+          <dt>{{ t('person') }}</dt>
+          <dd>{{ alarm.person }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('room') }}</dt>
+          <dd>{{ alarm.room }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('source') }}</dt>
+          <dd>{{ alarm.source }}</dd>
+        </div>
+        <div>
+          <dt>{{ t('severity') }}</dt>
+          <dd>{{ alarm.severity }}</dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="activity-section" aria-labelledby="activity-title">
+      <h2 id="activity-title" class="section-title">{{ t('activity') }}</h2>
+      <ol class="timeline">
+        {% for event in events %}
+        <li>
+          <time datetime="{{ event.at_iso }}">{{ event.at }}</time>
+          <span>{{ event.description }}</span>
+        </li>
+        {% else %}
+        <li>{{ t('no_records') }}</li>
+        {% endfor %}
+      </ol>
+    </section>
+  </div>
+
+  <aside class="action-panel" aria-labelledby="actions-title">
+    <h2 id="actions-title" class="section-title">{{ t('available_actions') }}</h2>
+    {% if alarm.can_ack or alarm.can_close %}
+    <div class="alarm-actions action-stack">
+      {% if alarm.can_ack %}
+      <form id="ack-action" method="post" action="{{ ack_action }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button button-primary" type="submit">{{ t('acknowledge_alarm') }}</button>
+      </form>
+      {% endif %}
+      {% if alarm.can_close %}
+      <button class="button" type="button" data-dialog-open="resolve-dialog">{{ t('resolve_alarm') }}</button>
+      <button class="button button-danger" type="button" data-dialog-open="cancel-dialog">{{ t('cancel_alarm') }}</button>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <section class="note-panel" aria-labelledby="note-title">
+      <h2 id="note-title" class="section-title">{{ t('add_note') }}</h2>
+      <form method="post" action="{{ note_action }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="note">{{ t('note') }}</label>
+        <textarea id="note" name="note" maxlength="5000" required></textarea>
+        <button class="button" type="submit">{{ t('add_note') }}</button>
+      </form>
+    </section>
+  </aside>
+</div>
+
+<dialog id="resolve-dialog" aria-labelledby="resolve-title">
+  <form method="post" action="{{ resolve_action }}">
+    <h2 id="resolve-title">{{ t('resolve_alarm') }}</h2>
+    <p>{{ t('resolve_help') }}</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="resolve-note">{{ t('note') }} <span class="field-hint">{{ t('optional') }}</span></label>
+    <textarea id="resolve-note" name="note" maxlength="2000"></textarea>
+    <div class="dialog-actions">
+      <button class="button button-primary" type="submit">{{ t('resolve_alarm') }}</button>
+      <button class="button button-quiet" type="button" data-dialog-close>{{ t('keep_alarm_open') }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="cancel-dialog" aria-labelledby="cancel-title">
+  <form method="post" action="{{ cancel_action }}">
+    <h2 id="cancel-title">{{ t('cancel_alarm') }}</h2>
+    <p>{{ t('cancel_help') }}</p>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="cancel-reason">{{ t('reason') }} <span class="field-required">{{ t('required') }}</span></label>
+    <textarea id="cancel-reason" name="reason" maxlength="2000" required></textarea>
+    <div class="dialog-actions">
+      <button class="button button-danger-solid" type="submit">{{ t('cancel_alarm') }}</button>
+      <button class="button button-quiet" type="button" data-dialog-close>{{ t('keep_alarm_open') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}

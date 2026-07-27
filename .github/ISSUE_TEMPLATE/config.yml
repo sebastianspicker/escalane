@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/sebastianspicker/alarm-broker/security/advisories/new
+    url: https://github.com/sebastianspicker/escalane/security/advisories/new
     about: Please report suspected vulnerabilities through a private GitHub Security Advisory.
+  - name: Support guidance
+    url: https://github.com/sebastianspicker/escalane/blob/main/SUPPORT.md
+    about: Review issue routing, redaction, and the public-alpha support boundary.

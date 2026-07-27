@@ -1,46 +1,52 @@
-# Build stage
-FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS builder
+# Build dependencies separately so compilers and headers never enter the runtime image.
+FROM python:3.14.6-slim-trixie@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061 AS builder
 
 ARG BUILD_ESSENTIAL_VERSION=12.*
 ARG LIBPQ_DEV_VERSION=17.*
 
 WORKDIR /build
 
-# Install build dependencies
+# Version ranges follow Debian patch updates while keeping the major ABI stable.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential="${BUILD_ESSENTIAL_VERSION}" \
     libpq-dev="${LIBPQ_DEV_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment
+# A self-contained virtual environment can be copied unchanged into production.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python dependencies (copy source to resolve editable install)
-COPY services/alarm_broker/ /build/
+# Install the package normally so templates and browser assets become wheel data.
+COPY services/escalane/ /build/
 RUN pip install --no-cache-dir /build
 
-# Production stage
-FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf AS production
+# Start again from the minimal pinned base to reduce runtime attack surface.
+FROM python:3.14.6-slim-trixie@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061 AS production
 
 ARG LIBPQ5_VERSION=17.*
 
-# Install runtime library for PostgreSQL
+LABEL org.opencontainers.image.title="escalane" \
+    org.opencontainers.image.description="Escalane public-alpha alarm intake, acknowledgement, notification, and escalation" \
+    org.opencontainers.image.source="https://github.com/sebastianspicker/escalane" \
+    org.opencontainers.image.licenses="MIT"
+
+# PostgreSQL needs only the client library at runtime, not compiler headers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5="${LIBPQ5_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
+# The service has no reason to mutate the image or run with host-level privileges.
 RUN groupadd -r alarm && useradd -r -g alarm -s /usr/sbin/nologin alarm
 
 WORKDIR /app
 
-# Copy virtual environment from builder
+# Reuse the exact dependency environment produced by the build stage.
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application
-COPY --chown=alarm:alarm services/alarm_broker /app/services/alarm_broker
+# Keep source metadata available for Alembic and operational introspection.
+COPY --chown=alarm:alarm services/escalane /app/services/escalane
+COPY --chown=alarm:alarm LICENSE /app/LICENSE
 
 # Set ownership
 RUN chown -R alarm:alarm /app
@@ -48,19 +54,19 @@ RUN chown -R alarm:alarm /app
 # Switch to non-root user
 USER alarm
 
-# Environment variables
+# Avoid container-local bytecode writes and flush logs directly to the runtime.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/services/alarm_broker
+    PYTHONPATH=/app/services/escalane
 
-WORKDIR /app/services/alarm_broker
+WORKDIR /app/services/escalane
 
 # Expose ports
 EXPOSE 8080
 
-# Health check
+# Liveness intentionally avoids database/Redis dependencies; readiness is separate.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')" || exit 1
 
 # Run command
-CMD ["uvicorn", "alarm_broker.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]
+CMD ["uvicorn", "escalane.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header", "--no-access-log"]
