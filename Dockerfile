@@ -1,5 +1,5 @@
 # Build dependencies separately so compilers and headers never enter the runtime image.
-FROM python:3.14.6-slim-trixie@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061 AS builder
+FROM python:3.15.0b3-slim-trixie@sha256:a13b3ba393211ef88d09ca75de22e9b8412a98713f7cf8ca7274fc61d34799a6 AS builder
 
 ARG BUILD_ESSENTIAL_VERSION=12.*
 ARG LIBPQ_DEV_VERSION=17.*
@@ -21,7 +21,7 @@ COPY services/escalane/ /build/
 RUN pip install --no-cache-dir /build
 
 # Start again from the minimal pinned base to reduce runtime attack surface.
-FROM python:3.14.6-slim-trixie@sha256:44dd04494ee8f3b538294360e7c4b3acb87c8268e4d0a4828a6500b1eff50061 AS production
+FROM python:3.15.0b3-slim-trixie@sha256:a13b3ba393211ef88d09ca75de22e9b8412a98713f7cf8ca7274fc61d34799a6 AS production
 
 ARG LIBPQ5_VERSION=17.*
 
