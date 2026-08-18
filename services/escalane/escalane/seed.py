@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from sqlalchemy import select
@@ -65,46 +66,71 @@ def _reject_unplaced_placeholders(value: Any) -> None:
             _reject_unplaced_placeholders(item)
 
 
-def _expand_env(raw: dict[str, Any], settings: Settings) -> dict[str, Any]:
-    """Resolve only the documented, field-bound seed placeholders."""
-    data = dict(raw)
-    if "devices" in data:
-        devices = [dict(item) for item in data.get("devices") or []]
-        for device in devices:
-            device["device_token"] = _resolve_placeholder(
-                device.get("device_token"),
-                allowed_name="YEALINK_DEVICE_TOKEN",
-                resolved=settings.yealink_device_token,
-            )
-        data["devices"] = devices
+def _copy_seed_records(value: Any) -> list[dict[str, Any]]:
+    return [dict(item) for item in value or []]
 
-    if "escalation_targets" in data:
-        targets = [dict(item) for item in data.get("escalation_targets") or []]
-        for target in targets:
-            address = target.get("address")
-            if _placeholder_name(address) is not None and target.get("channel") != "signal":
-                raise ValidationError("SIGNAL_TARGET_GROUP_ID is only allowed for Signal targets")
-            target["address"] = _resolve_placeholder(
-                address,
-                allowed_name="SIGNAL_TARGET_GROUP_ID",
-                resolved=settings.signal_target_group_id,
-            )
-        data["escalation_targets"] = targets
 
-    step_values = {
+def _expand_device_tokens(devices: list[dict[str, Any]], settings: Settings) -> None:
+    for device in devices:
+        device["device_token"] = _resolve_placeholder(
+            device.get("device_token"),
+            allowed_name="YEALINK_DEVICE_TOKEN",
+            resolved=settings.yealink_device_token,
+        )
+
+
+def _expand_signal_target_addresses(targets: list[dict[str, Any]], settings: Settings) -> None:
+    for target in targets:
+        address = target.get("address")
+        if _placeholder_name(address) is not None and target.get("channel") != "signal":
+            raise ValidationError("SIGNAL_TARGET_GROUP_ID is only allowed for Signal targets")
+        target["address"] = _resolve_placeholder(
+            address,
+            allowed_name="SIGNAL_TARGET_GROUP_ID",
+            resolved=settings.signal_target_group_id,
+        )
+
+
+def _step_placeholder_values(settings: Settings) -> dict[str, int]:
+    return {
         "ESCALATE_T1": settings.escalate_t1,
         "ESCALATE_T2": settings.escalate_t2,
         "ESCALATE_T3": settings.escalate_t3,
     }
+
+
+def _expand_step_delays(steps: list[dict[str, Any]], step_values: Mapping[str, int]) -> None:
+    for step in steps:
+        name = _placeholder_name(step.get("after_seconds"))
+        if name is not None:
+            if name not in step_values:
+                raise ValidationError("Unknown escalation-step placeholder")
+            step["after_seconds"] = step_values[name]
+
+
+def _expand_seed_records[ExpansionValue](
+    data: dict[str, Any],
+    key: str,
+    expand: Callable[[list[dict[str, Any]], ExpansionValue], None],
+    expansion_value: ExpansionValue,
+) -> None:
+    records = _copy_seed_records(data.get(key))
+    expand(records, expansion_value)
+    data[key] = records
+
+
+def _expand_env(raw: dict[str, Any], settings: Settings) -> dict[str, Any]:
+    """Resolve only the documented, field-bound seed placeholders."""
+    data = dict(raw)
+    if "devices" in data:
+        _expand_seed_records(data, "devices", _expand_device_tokens, settings)
+
+    if "escalation_targets" in data:
+        _expand_seed_records(data, "escalation_targets", _expand_signal_target_addresses, settings)
+
+    step_values = _step_placeholder_values(settings)
     if "escalation_steps" in data:
-        steps = [dict(item) for item in data.get("escalation_steps") or []]
-        for step in steps:
-            name = _placeholder_name(step.get("after_seconds"))
-            if name is not None:
-                if name not in step_values:
-                    raise ValidationError("Unknown escalation-step placeholder")
-                step["after_seconds"] = step_values[name]
-        data["escalation_steps"] = steps
+        _expand_seed_records(data, "escalation_steps", _expand_step_delays, step_values)
 
     _reject_unplaced_placeholders(data)
     return data

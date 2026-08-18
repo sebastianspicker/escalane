@@ -128,6 +128,30 @@ def test_expand_env_preserves_plain_values() -> None:
     expect(_expand_env(raw, Settings()) == raw)
 
 
+def test_expand_env_does_not_mutate_nested_seed_records() -> None:
+    raw = {
+        "devices": [{"device_token": "${YEALINK_DEVICE_TOKEN}"}],
+        "escalation_targets": [{"channel": "signal", "address": "${SIGNAL_TARGET_GROUP_ID}"}],
+        "escalation_steps": [{"after_seconds": "${ESCALATE_T1}"}],
+    }
+
+    result = _expand_env(
+        raw,
+        Settings(
+            yealink_device_token="device-token",
+            signal_target_group_id="signal-group",
+            escalate_t1=60,
+        ),
+    )
+
+    expect(raw["devices"][0]["device_token"] == "${YEALINK_DEVICE_TOKEN}")
+    expect(raw["escalation_targets"][0]["address"] == "${SIGNAL_TARGET_GROUP_ID}")
+    expect(raw["escalation_steps"][0]["after_seconds"] == "${ESCALATE_T1}")
+    expect(result["devices"] is not raw["devices"])
+    expect(result["escalation_targets"] is not raw["escalation_targets"])
+    expect(result["escalation_steps"] is not raw["escalation_steps"])
+
+
 @pytest.mark.parametrize(
     "payload",
     [

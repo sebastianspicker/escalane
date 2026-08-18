@@ -10,6 +10,7 @@ import httpx
 
 from escalane.connectors.mock import MockSendXmsClient, MockSignalClient, MockZammadClient
 from escalane.db.models import Alarm, AlarmNotification, AlarmStatus
+from tests.api_test_helpers import app_client
 
 try:
     from tests.constants import value_for_test
@@ -90,13 +91,8 @@ async def load_alarm_notes(sessionmaker: object, alarm_id: uuid.UUID):
 @asynccontextmanager
 async def open_app_client(*, settings: object, engine: object, redis: object):
     """Run an ASGI app lifespan and expose its in-process HTTP client."""
-    from escalane.api.main import create_app
-
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=redis)
-    async with app.router.lifespan_context(app):
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield client
+    async with app_client(settings=settings, engine=engine, redis=redis) as client:
+        yield client
 
 
 def enable_webhook(

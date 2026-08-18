@@ -6,9 +6,10 @@ All configuration is loaded from environment variables (and optional .env file).
 from __future__ import annotations
 
 from functools import lru_cache
-from urllib.parse import unquote, urlparse
+from typing import Any
+from urllib.parse import ParseResult, unquote, urlparse
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _YEALINK_TRIGGER_QUERY_KEY = "".join(("tok", "en"))
@@ -43,7 +44,221 @@ def _require_webhook_host_allowlisted(webhook_url: str, raw_allowed_hosts: str) 
         raise ValueError("WEBHOOK_URL host must be listed in WEBHOOK_ALLOWED_HOSTS")
 
 
-class Settings(BaseSettings):
+def _validate_base_url(value: str) -> str:
+    """Validate the canonical origin used for capability-bearing ACK links."""
+    value = value.strip()
+    _require_http_url(value, "BASE_URL")
+    parsed = urlparse(value)
+    if parsed.netloc.endswith(":"):
+        raise ValueError("BASE_URL must not contain an empty port")
+    if _has_invalid_base_url_authority(parsed.netloc):
+        raise ValueError("BASE_URL authority contains an invalid character")
+    if _has_base_url_suffix(parsed):
+        raise ValueError("BASE_URL must be an origin without a path, query, or fragment")
+    if _is_non_loopback_http_url(parsed):
+        raise ValueError("BASE_URL must use HTTPS unless it uses a loopback host")
+    return value.rstrip("/")
+
+
+def _has_invalid_base_url_authority(authority: str) -> bool:
+    return "\\" in authority or any(
+        _is_invalid_authority_character(character) for character in authority
+    )
+
+
+def _is_invalid_authority_character(character: str) -> bool:
+    if character.isspace():
+        return True
+    character_code = ord(character)
+    return character_code < 32 or character_code == 127
+
+
+def _has_base_url_suffix(parsed: ParseResult) -> bool:
+    if parsed.params:
+        return True
+    if parsed.query:
+        return True
+    if parsed.fragment:
+        return True
+    return parsed.path not in {"", "/"}
+
+
+def _is_non_loopback_http_url(parsed: ParseResult) -> bool:
+    if parsed.scheme.lower() != "http":
+        return False
+    hostname = (parsed.hostname or "").lower()
+    return hostname not in _LOOPBACK_HOSTS
+
+
+def _validate_log_level(value: str) -> str:
+    """Normalize supported log levels and reject silent misconfiguration."""
+    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    upper = value.upper()
+    if upper not in valid_levels:
+        raise ValueError(f"Invalid log level: {value}. Must be one of {valid_levels}")
+    return upper
+
+
+def _warn_empty_admin_key(value: str) -> str:
+    """Warn when administrative access will intentionally fail closed."""
+    if not value:
+        import warnings
+
+        warnings.warn(
+            "ADMIN_API_KEY is not set. Admin access is unavailable "
+            "(API endpoints return 403; browser login returns 500).",
+            UserWarning,
+            stacklevel=4,
+        )
+    return value
+
+
+def _reject_webhook_host_wildcards(value: str) -> str:
+    """Keep generic webhook egress on exact host allowlisting only."""
+    hosts = [item.strip() for item in value.split(",") if item.strip()]
+    wildcard_hosts = [host for host in hosts if "*" in host]
+    if wildcard_hosts:
+        raise ValueError("WEBHOOK_ALLOWED_HOSTS only supports exact host names")
+    return ",".join(hosts)
+
+
+def _validate_settings_field(value: str, field_name: str | None) -> str:
+    if field_name == "base_url":
+        return _validate_base_url(value)
+    if field_name == "log_level":
+        return _validate_log_level(value)
+    if field_name == "admin_api_key":
+        return _warn_empty_admin_key(value)
+    if field_name == "webhook_allowed_hosts":
+        return _reject_webhook_host_wildcards(value)
+    raise AssertionError(f"Unsupported settings field validator: {field_name}")
+
+
+def _uses_default_database_password(database_url: str) -> bool:
+    parsed_database_url = urlparse(database_url)
+    return unquote(parsed_database_url.password or "") == "change-me"
+
+
+def _default_database_password_message() -> str:
+    return (
+        "Refusing to start with the default DATABASE_URL password. "
+        "Set a non-default password or enable simulation mode for development."
+    )
+
+
+def _validate_sendxms_settings(settings: Settings) -> None:
+    if not settings.sendxms_enabled:
+        return
+    if not settings.sendxms_api_key.strip():
+        raise ValueError("SENDXMS_API_KEY is required when SENDXMS_ENABLED=true")
+    _require_https_url(settings.sendxms_base_url, "SENDXMS_BASE_URL")
+    if urlparse(settings.sendxms_base_url).hostname == "api.sendxms.tld":
+        raise ValueError("SENDXMS_BASE_URL must not use the reserved default endpoint")
+
+
+def _validate_signal_settings(settings: Settings) -> None:
+    if not settings.signal_enabled:
+        return
+    if not settings.signal_target_group_id.strip():
+        raise ValueError("SIGNAL_TARGET_GROUP_ID is required when SIGNAL_ENABLED=true")
+    _require_http_url(settings.signal_cli_endpoint, "SIGNAL_CLI_ENDPOINT")
+
+
+def _validate_zammad_settings(settings: Settings) -> None:
+    if not settings.zammad_api_token:
+        return
+    _require_https_url(settings.zammad_base_url, "ZAMMAD_BASE_URL")
+    if urlparse(settings.zammad_base_url).hostname == "zammad.example.org":
+        raise ValueError("ZAMMAD_BASE_URL must not use the reserved default endpoint")
+
+
+def _validate_webhook_settings(settings: Settings) -> None:
+    if not settings.webhook_enabled:
+        return
+    if not settings.webhook_url.strip():
+        raise ValueError("WEBHOOK_URL is required when WEBHOOK_ENABLED=true")
+    _require_https_url(settings.webhook_url, "WEBHOOK_URL")
+    _require_webhook_host_allowlisted(settings.webhook_url, settings.webhook_allowed_hosts)
+    if len(settings.webhook_secret.strip()) < 32:
+        raise ValueError("WEBHOOK_SECRET must contain at least 32 characters when enabled")
+
+
+def _validate_production_connectors_and_database(settings: Settings) -> None:
+    if settings.simulation_enabled:
+        return
+
+    _validate_sendxms_settings(settings)
+    _validate_signal_settings(settings)
+    _validate_zammad_settings(settings)
+    _validate_webhook_settings(settings)
+
+    # The package-level ASGI app is imported before deployment configuration
+    # is loaded in several tooling paths. Reject an explicitly supplied
+    # default credential while leaving that import-time placeholder inert.
+    if "database_url" in settings.model_fields_set and _uses_default_database_password(
+        settings.database_url
+    ):
+        raise ValueError(_default_database_password_message())
+
+
+def _reject_weak_admin_keys(settings: Settings) -> None:
+    weak_keys = {
+        "change-me-admin-key",
+        "change-me",
+        "admin",
+        "password",
+        "secret",
+    }
+    if not settings.simulation_enabled and settings.admin_api_key.lower() in weak_keys:
+        raise ValueError(
+            f"Refusing to start with a weak ADMIN_API_KEY ('{settings.admin_api_key}'). "
+            "Set a strong key or enable simulation mode for development."
+        )
+
+
+def _validate_simulation_base_url(settings: Settings) -> None:
+    hostname = (urlparse(settings.base_url).hostname or "").lower()
+    if settings.simulation_enabled and hostname not in _LOOPBACK_HOSTS:
+        raise ValueError("BASE_URL must use a loopback host when SIMULATION_ENABLED=true")
+
+
+def _validate_runtime_configuration(settings: Settings) -> None:
+    if settings.simulation_enabled:
+        return
+    if _uses_default_database_password(settings.database_url):
+        raise ValueError(_default_database_password_message())
+    if not settings.yelk_ip_allowlist.strip():
+        raise ValueError(
+            "YELK_IP_ALLOWLIST is required when SIMULATION_ENABLED=false. "
+            "Set trusted source IPs/CIDRs or enable simulation mode for local development."
+        )
+
+
+class _SettingsRuntimeSupport:
+    """Runtime checks and feature state derived from validated settings fields."""
+
+    def validate_runtime_configuration(self: Any) -> None:
+        """Fail closed before a real API, worker, or migration process starts."""
+        _validate_runtime_configuration(self)
+
+    def is_sms_enabled(self: Any) -> bool:
+        """Return whether SMS has both its feature flag and credential."""
+        return self.sendxms_enabled and bool(self.sendxms_api_key)
+
+    def is_signal_enabled(self: Any) -> bool:
+        """Return whether Signal has both its feature flag and target group."""
+        return self.signal_enabled and bool(self.signal_target_group_id)
+
+    def is_webhook_enabled(self: Any) -> bool:
+        """Return whether the generic state webhook is configured for use."""
+        return (
+            self.webhook_enabled
+            and bool(self.webhook_url)
+            and len(self.webhook_secret.strip()) >= 32
+        )
+
+
+class Settings(_SettingsRuntimeSupport, BaseSettings):
     """Main application settings loaded from environment variables."""
 
     model_config = SettingsConfigDict(
@@ -120,180 +335,19 @@ class Settings(BaseSettings):
 
     # --- Validators ---
 
-    @field_validator("base_url")
+    @field_validator("base_url", "log_level", "admin_api_key", "webhook_allowed_hosts")
     @classmethod
-    def validate_base_url(cls, v: str) -> str:
-        """Require a canonical origin suitable for capability-bearing ACK links."""
-        value = v.strip()
-        _require_http_url(value, "BASE_URL")
-        parsed = urlparse(value)
-        if parsed.netloc.endswith(":"):
-            raise ValueError("BASE_URL must not contain an empty port")
-        if "\\" in parsed.netloc or any(
-            character.isspace() or ord(character) < 32 or ord(character) == 127
-            for character in parsed.netloc
-        ):
-            raise ValueError("BASE_URL authority contains an invalid character")
-        if parsed.params or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
-            raise ValueError("BASE_URL must be an origin without a path, query, or fragment")
-        hostname = (parsed.hostname or "").lower()
-        if parsed.scheme.lower() == "http" and hostname not in _LOOPBACK_HOSTS:
-            raise ValueError("BASE_URL must use HTTPS unless it uses a loopback host")
-        return value.rstrip("/")
-
-    @field_validator("log_level")
-    @classmethod
-    def validate_log_level(cls, v: str) -> str:
-        """Normalize supported log levels and reject silent misconfiguration."""
-        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        upper = v.upper()
-        if upper not in valid_levels:
-            raise ValueError(f"Invalid log level: {v}. Must be one of {valid_levels}")
-        return upper
-
-    @field_validator("admin_api_key")
-    @classmethod
-    def warn_empty_admin_key(cls, v: str) -> str:
-        """Warn when administrative access will intentionally fail closed."""
-        if not v:
-            import warnings
-
-            warnings.warn(
-                "ADMIN_API_KEY is not set. Admin access is unavailable "
-                "(API endpoints return 403; browser login returns 500).",
-                UserWarning,
-                stacklevel=2,
-            )
-        return v
+    def validate_scalar_settings(cls, v: str, info: ValidationInfo) -> str:
+        """Validate independent scalar settings through their focused policies."""
+        return _validate_settings_field(v, info.field_name)
 
     @model_validator(mode="after")
-    def reject_weak_admin_keys(self) -> Settings:
-        """Reject known-weak admin keys when simulation mode is disabled."""
-        weak_keys = {
-            "change-me-admin-key",
-            "change-me",
-            "admin",
-            "password",
-            "secret",
-        }
-        if not self.simulation_enabled and self.admin_api_key.lower() in weak_keys:
-            raise ValueError(
-                f"Refusing to start with a weak ADMIN_API_KEY ('{self.admin_api_key}'). "
-                "Set a strong key or enable simulation mode for development."
-            )
+    def validate_deployment_settings(self) -> Settings:
+        """Apply deployment policy in the established fail-closed order."""
+        _reject_weak_admin_keys(self)
+        _validate_production_connectors_and_database(self)
+        _validate_simulation_base_url(self)
         return self
-
-    @model_validator(mode="after")
-    def validate_production_connector_and_database_settings(self) -> Settings:
-        """Require complete connector and database settings outside simulation."""
-        if self.simulation_enabled:
-            return self
-
-        self._validate_sendxms_settings()
-        self._validate_signal_settings()
-        self._validate_zammad_settings()
-        self._validate_webhook_settings()
-        self._reject_default_database_password()
-        return self
-
-    @model_validator(mode="after")
-    def restrict_simulation_to_loopback(self) -> Settings:
-        """Keep the intentionally weakened simulation profile on loopback."""
-        hostname = (urlparse(self.base_url).hostname or "").lower()
-        if self.simulation_enabled and hostname not in _LOOPBACK_HOSTS:
-            raise ValueError("BASE_URL must use a loopback host when SIMULATION_ENABLED=true")
-        return self
-
-    def _validate_sendxms_settings(self) -> None:
-        if not self.sendxms_enabled:
-            return
-        if not self.sendxms_api_key.strip():
-            raise ValueError("SENDXMS_API_KEY is required when SENDXMS_ENABLED=true")
-        _require_https_url(self.sendxms_base_url, "SENDXMS_BASE_URL")
-        if urlparse(self.sendxms_base_url).hostname == "api.sendxms.tld":
-            raise ValueError("SENDXMS_BASE_URL must not use the reserved default endpoint")
-
-    def _validate_signal_settings(self) -> None:
-        if not self.signal_enabled:
-            return
-        if not self.signal_target_group_id.strip():
-            raise ValueError("SIGNAL_TARGET_GROUP_ID is required when SIGNAL_ENABLED=true")
-        _require_http_url(self.signal_cli_endpoint, "SIGNAL_CLI_ENDPOINT")
-
-    def _validate_zammad_settings(self) -> None:
-        if not self.zammad_api_token:
-            return
-        _require_https_url(self.zammad_base_url, "ZAMMAD_BASE_URL")
-        if urlparse(self.zammad_base_url).hostname == "zammad.example.org":
-            raise ValueError("ZAMMAD_BASE_URL must not use the reserved default endpoint")
-
-    def _validate_webhook_settings(self) -> None:
-        if not self.webhook_enabled:
-            return
-        if not self.webhook_url.strip():
-            raise ValueError("WEBHOOK_URL is required when WEBHOOK_ENABLED=true")
-        _require_https_url(self.webhook_url, "WEBHOOK_URL")
-        _require_webhook_host_allowlisted(self.webhook_url, self.webhook_allowed_hosts)
-        if len(self.webhook_secret.strip()) < 32:
-            raise ValueError("WEBHOOK_SECRET must contain at least 32 characters when enabled")
-
-    def _reject_default_database_password(self) -> None:
-        # The package-level ASGI app is imported before deployment configuration
-        # is loaded in several tooling paths. Reject an explicitly supplied
-        # default credential while leaving that import-time placeholder inert.
-        if "database_url" in self.model_fields_set and self._uses_default_database_password():
-            raise ValueError(self._default_database_password_message())
-
-    def _uses_default_database_password(self) -> bool:
-        parsed_database_url = urlparse(self.database_url)
-        return unquote(parsed_database_url.password or "") == "change-me"
-
-    @staticmethod
-    def _default_database_password_message() -> str:
-        return (
-            "Refusing to start with the default DATABASE_URL password. "
-            "Set a non-default password or enable simulation mode for development."
-        )
-
-    def validate_runtime_configuration(self) -> None:
-        """Fail closed before a real API, worker, or migration process starts."""
-        if self.simulation_enabled:
-            return
-        if self._uses_default_database_password():
-            raise ValueError(self._default_database_password_message())
-        if not self.yelk_ip_allowlist.strip():
-            raise ValueError(
-                "YELK_IP_ALLOWLIST is required when SIMULATION_ENABLED=false. "
-                "Set trusted source IPs/CIDRs or enable simulation mode for local development."
-            )
-
-    @field_validator("webhook_allowed_hosts")
-    @classmethod
-    def reject_webhook_host_wildcards(cls, v: str) -> str:
-        """Keep generic webhook egress on exact host allowlisting only."""
-        hosts = [item.strip() for item in v.split(",") if item.strip()]
-        wildcard_hosts = [host for host in hosts if "*" in host]
-        if wildcard_hosts:
-            raise ValueError("WEBHOOK_ALLOWED_HOSTS only supports exact host names")
-        return ",".join(hosts)
-
-    # --- Convenience checks ---
-
-    def is_sms_enabled(self) -> bool:
-        """Return whether SMS has both its feature flag and credential."""
-        return self.sendxms_enabled and bool(self.sendxms_api_key)
-
-    def is_signal_enabled(self) -> bool:
-        """Return whether Signal has both its feature flag and target group."""
-        return self.signal_enabled and bool(self.signal_target_group_id)
-
-    def is_webhook_enabled(self) -> bool:
-        """Return whether the generic state webhook is configured for use."""
-        return (
-            self.webhook_enabled
-            and bool(self.webhook_url)
-            and len(self.webhook_secret.strip()) >= 32
-        )
 
 
 @lru_cache

@@ -1,19 +1,22 @@
 {
   "version": 1,
   "metadata": {
-    "source": "auto",
-    "provider": null,
-    "organization": null,
-    "autoFilters": "AllCritical,High,Warning,Minor,AllSecurity,ErrorProne,Performance,BestPractice,UnusedCode,Compatibility,Complexity,Comprehensibility,CodeStyle,Documentation",
-    "repositoryId": null,
-    "repositoryName": null,
-    "createdAt": "2026-06-05T12:57:56.984Z",
-    "updatedAt": "2026-06-05T12:57:56.984Z",
+    "source": "remote",
+    "provider": "gh",
+    "organization": "sebastianspicker",
+    "repositoryId": "879358",
+    "repositoryName": "escalane",
+    "createdAt": "2026-08-15T08:30:19.709Z",
+    "updatedAt": "2026-08-15T08:30:19.709Z",
     "languages": [
+      "CSS",
       "Dockerfile",
       "HTML",
+      "Javascript",
+      "JSON",
       "Markdown",
       "Python",
+      "Shell",
       "YAML"
     ]
   },

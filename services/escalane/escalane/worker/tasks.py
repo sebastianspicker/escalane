@@ -7,15 +7,12 @@ import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from functools import partial, wraps
-from typing import Any, NoReturn, TypedDict
+from typing import Any, NoReturn
 
 from arq import Retry
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from escalane import constants
-from escalane.connectors.sendxms import SendXmsClient
-from escalane.connectors.signal import SignalClient
 from escalane.connectors.zammad import ZammadClient
 from escalane.core.metrics import record_event
 from escalane.core.url_validation import (
@@ -35,7 +32,6 @@ from escalane.services.notification_delivery import (
     successful_notification,
 )
 from escalane.services.notification_service import NotificationService
-from escalane.settings import Settings
 from escalane.worker.task_workflows import (
     StateWebhookOperations,
     ack_note_delivery_error,
@@ -58,18 +54,6 @@ WorkerTask = Callable[..., Coroutine[Any, Any, None]]
 
 class _RecordedDeliveryFailure(NotificationDeliveryError):
     """Terminal failure whose telemetry was already emitted by the task body."""
-
-
-class WorkerContext(TypedDict, total=False):
-    """Typed dictionary for the arq worker context."""
-
-    sessionmaker: async_sessionmaker[AsyncSession]
-    settings: Settings
-    redis: Any  # arq.connections.ArqRedis
-    http: Any  # httpx.AsyncClient
-    zammad: ZammadClient
-    sendxms: SendXmsClient
-    signal: SignalClient
 
 
 def _record_delivery_attempt_failure(ctx: dict, *, operation: str, alarm_id: str) -> None:
@@ -133,6 +117,29 @@ def _retry_delivery_errors(operation: str) -> Callable[[WorkerTask], WorkerTask]
     return decorate
 
 
+async def _record_terminal_acknowledgement_failure(
+    ctx: dict, alarm_id: str, error: _RecordedDeliveryFailure
+) -> None:
+    """Persist terminal ACK delivery failure without masking its retry outcome."""
+    try:
+        async with ctx["sessionmaker"]() as session:
+            recorded = await record_published_alarm_event_failure(
+                session,
+                alarm_id=uuid.UUID(alarm_id),
+                event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+                error=str(error),
+            )
+    except SQLAlchemyError:
+        logger.exception(
+            "alarm_acknowledgement_failure_record_failed", extra={"alarm_id": alarm_id}
+        )
+        return
+    logger.error(
+        "alarm_acknowledgement_failure_recorded",
+        extra={"alarm_id": alarm_id, "outbox_events": recorded},
+    )
+
+
 async def _process_acknowledged_event(ctx: dict, alarm_id: str, payload: dict[str, Any]) -> None:
     """Deliver one ACK event and retain terminal failures for stale-event recovery."""
     acked_by = payload.get("acknowledged_by")
@@ -142,23 +149,7 @@ async def _process_acknowledged_event(ctx: dict, alarm_id: str, payload: dict[st
             ctx, alarm_id, str(acked_by) if acked_by else None, str(note) if note else None
         )
     except _RecordedDeliveryFailure as exc:
-        try:
-            async with ctx["sessionmaker"]() as session:
-                recorded = await record_published_alarm_event_failure(
-                    session,
-                    alarm_id=uuid.UUID(alarm_id),
-                    event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
-                    error=str(exc),
-                )
-        except SQLAlchemyError:
-            logger.exception(
-                "alarm_acknowledgement_failure_record_failed", extra={"alarm_id": alarm_id}
-            )
-        else:
-            logger.error(
-                "alarm_acknowledgement_failure_recorded",
-                extra={"alarm_id": alarm_id, "outbox_events": recorded},
-            )
+        await _record_terminal_acknowledgement_failure(ctx, alarm_id, exc)
         raise
 
 

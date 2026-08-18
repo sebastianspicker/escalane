@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b1f28">
+  <title>Alarm 40300ac4 · Escalane static demo</title>
+  <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/ui.css">
+  <link rel="stylesheet" href="assets/demo.css">
+  <script src="assets/ui.js" defer></script>
+  <script src="assets/demo.js" defer></script>
+</head>
+<body class="has-session">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="utility-bar">
+      <div class="brand-cluster"><a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span>Escalane</span></a><span class="environment-label">Static demo</span></div>
+      <div class="session-tools"><p class="operator-name"><svg class="utility-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"></circle><path d="M5 21v-2a7 7 0 0 1 14 0v2"></path></svg><span>Signed in as</span><strong>Demo Operator</strong></p><form class="logout-form"><button class="button button-quiet button-small" type="submit" data-simulated-action data-demo-generic>Sign out <span class="simulated-label">Simulated</span></button></form></div>
+    </div>
+    <details class="admin-nav" open><summary>Menu</summary><nav aria-label="Primary navigation">
+      <a href="./" aria-current="page"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9M9 20h6"></path></svg>Alarms</a>
+      <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3"></path></svg>Configuration</a>
+      <a href="simulation.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3M8 15h8"></path></svg>Simulation</a>
+      <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="10" width="16" height="5" rx="1"></rect></svg>System</a>
+      <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"></path></svg>Audit log</a>
+    </nav></details>
+  </header>
+  <main id="content" tabindex="-1">
+    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> This alarm is sanitized fixture data. Buttons marked <span class="simulated-label">Simulated</span> only update the current browser.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
+    <nav class="back-link" aria-label="Back"><a href="./"><span aria-hidden="true">←</span> Back to worklist</a></nav>
+    <header class="detail-heading alarm-state-triggered" data-demo-detail>
+      <div><div class="detail-status-row"><span class="status status-triggered" data-detail-status><span></span><span data-status-text>Triggered</span></span><span class="severity severity-p0">P0</span></div><h1>Campus Operations Coordinator · Main Library Service Desk</h1></div><p class="machine-value">40300ac4</p>
+    </header>
+    <div class="detail-layout">
+      <div class="detail-primary">
+        <section aria-labelledby="context-title"><h2 id="context-title" class="section-title">Alarm context</h2><dl class="definition-list"><div><dt>Created</dt><dd><time>July 29, 2026, 10:12 AM</time></dd></div><div><dt>Person</dt><dd>Campus Operations Coordinator</dd></div><div><dt>Room</dt><dd>Main Library Service Desk</dd></div><div><dt>Source</dt><dd>yealink</dd></div><div><dt>Severity</dt><dd>P0</dd></div></dl></section>
+        <section class="activity-section" aria-labelledby="activity-title"><h2 id="activity-title" class="section-title">Activity</h2><ol class="timeline" data-demo-timeline><li><time>10:12:06 AM</time><span>Alarm created</span></li><li><time>10:12:07 AM</time><span>zammad: ok (simulated fixture delivery)</span></li><li><time>10:12:07 AM</time><span>signal: ok (simulated fixture delivery)</span></li><li><time>10:12:07 AM</time><span>sms: ok (simulated fixture delivery)</span></li></ol></section>
+      </div>
+      <aside class="action-panel" aria-labelledby="actions-title"><h2 id="actions-title" class="section-title">Available actions</h2>
+        <div class="alarm-actions action-stack"><button class="button button-primary" type="button" data-simulated-action data-detail-transition="acknowledged">Acknowledge alarm <span class="simulated-label">Simulated</span></button><button class="button" type="button" data-simulated-action data-detail-transition="resolved">Resolve alarm <span class="simulated-label">Simulated</span></button><button class="button button-danger" type="button" data-simulated-action data-detail-transition="cancelled">Cancel alarm <span class="simulated-label">Simulated</span></button></div>
+        <a class="demo-responder-link" href="acknowledge.html">Open responder acknowledgement view</a>
+        <section class="note-panel" aria-labelledby="note-title"><h2 id="note-title" class="section-title">Add note</h2><form data-demo-note><label for="note">Note</label><textarea id="note" name="note" maxlength="5000" required></textarea><button class="button" type="submit" data-simulated-action>Add note <span class="simulated-label">Simulated</span></button></form></section>
+        <p class="demo-command-note">These controls never contact an API. Refreshing restores the original fixture.</p>
+      </aside>
+    </div>
+  </main>
+  <footer class="site-footer"><strong>Escalane</strong><span>Alarm intake, acknowledgement, and escalation.</span></footer>
+  <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
+</body>
+</html>

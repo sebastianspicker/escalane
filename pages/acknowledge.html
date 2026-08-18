@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b1f28">
+  <title>Acknowledge alarm · Escalane static demo</title>
+  <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/ui.css">
+  <link rel="stylesheet" href="assets/demo.css">
+  <script src="assets/ui.js" defer></script>
+  <script src="assets/demo.js" defer></script>
+</head>
+<body class="page-responder">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header"><div class="utility-bar"><div class="brand-cluster"><a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span>Escalane</span></a><span class="environment-label">Static demo</span></div></div></header>
+  <main id="content" tabindex="-1">
+    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Responder simulation.</strong> This sanitized capability-link view has no token and sends no command. The action is visibly marked <span class="simulated-label">Simulated</span>.</span><a href="alarm.html">Operator view</a></aside>
+    <article class="responder-card alarm-state-triggered" aria-labelledby="page-title">
+      <section class="responder-state" aria-label="Status"><span class="status status-triggered"><span></span><span data-status-text>Triggered</span></span></section>
+      <header><h1 id="page-title">Acknowledge alarm</h1></header>
+      <dl class="definition-list responder-context"><div><dt>Person</dt><dd>Campus Operations Coordinator</dd></div><div><dt>Room</dt><dd>Main Library Service Desk</dd></div><div><dt>Created</dt><dd><time>July 29, 2026, 10:12 AM</time></dd></div></dl>
+      <p class="responder-instruction">Confirm that you have received this alarm. Name and note are optional.</p>
+      <form class="responder-form" data-demo-responder><label for="acked_by">Responder name <span class="field-hint">Optional</span></label><input id="acked_by" name="acked_by" autocomplete="name" maxlength="120"><label for="responder-note">Note <span class="field-hint">Optional</span></label><textarea id="responder-note" name="note" rows="3" maxlength="2000"></textarea><button class="button button-primary responder-control" type="submit" data-simulated-action>Acknowledge alarm <span class="simulated-label">Simulated</span></button></form>
+      <p class="completion-message demo-complete is-hidden" data-responder-complete role="status">Acknowledgement complete in this browser-only simulation. No command was sent.</p>
+    </article>
+  </main>
+  <footer class="site-footer"><strong>Escalane</strong><span>Alarm intake, acknowledgement, and escalation.</span></footer>
+  <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
+</body>
+</html>

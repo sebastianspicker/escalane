@@ -231,14 +231,25 @@ async def deliver_state_webhook(
     )
 
 
+@dataclass(frozen=True)
 class WebhookDelivery:
     """Inputs retained for webhook audit logging after retries."""
 
-    def __init__(self, alarm_id: uuid.UUID, session: AsyncSession, state: str) -> None:
-        """Retain audit context across address retries without reopening a session."""
-        self.alarm_id = alarm_id
-        self.session = session
-        self.state = state
+    alarm_id: uuid.UUID
+    session: AsyncSession
+    state: str
+
+
+@dataclass(frozen=True)
+class _PinnedWebhookRequest:
+    """Transport inputs shared by each approved address attempt."""
+
+    http: Any
+    webhook_url: str
+    payload_bytes: bytes
+    headers: dict[str, str]
+    timeout: float
+    delivery: WebhookDelivery
 
 
 async def log_rejected_webhook(
@@ -369,6 +380,40 @@ def webhook_request_details(
     return request_url, request_headers, {"sni_hostname": sni_hostname}
 
 
+async def _post_to_validated_address(
+    request: _PinnedWebhookRequest,
+    address: str,
+    post: Callable[..., Awaitable[None]],
+) -> Exception | None:
+    """Try one pinned address, returning only a retryable transport failure."""
+    request_url, request_headers, extensions = webhook_request_details(
+        request.webhook_url, request.headers, address
+    )
+    try:
+        await post(
+            request.http,
+            request_url,
+            request.payload_bytes,
+            request_headers,
+            request.timeout,
+            extensions,
+        )
+    except Exception as exc:
+        if not is_retryable_delivery_error(exc):
+            raise
+        logging.getLogger("escalane").warning(
+            "webhook_delivery_address_failed",
+            extra={
+                "alarm_id": str(request.delivery.alarm_id),
+                "state": request.delivery.state,
+                "url": redact_url_for_logging(request.webhook_url),
+                "error": safe_delivery_error(exc),
+            },
+        )
+        return exc
+    return None
+
+
 async def post_to_validated_addresses(
     http: Any,
     webhook_url: str,
@@ -382,29 +427,20 @@ async def post_to_validated_addresses(
 ) -> None:
     """Try each prevalidated pinned address within a single timeout budget."""
     last_error: Exception = SSRFError("Webhook URL has no validated global addresses")
+    request = _PinnedWebhookRequest(
+        http=http,
+        webhook_url=webhook_url,
+        payload_bytes=payload_bytes,
+        headers=headers,
+        timeout=timeout,
+        delivery=delivery,
+    )
     async with asyncio.timeout(float(timeout)):
         for address in resolved_addresses:
-            request_url, request_headers, extensions = webhook_request_details(
-                webhook_url, headers, address
-            )
-            try:
-                await post(http, request_url, payload_bytes, request_headers, timeout, extensions)
-            except Exception as exc:
-                last_error = exc
-                if not is_retryable_delivery_error(exc):
-                    raise
-                log = logging.getLogger("escalane")
-                log.warning(
-                    "webhook_delivery_address_failed",
-                    extra={
-                        "alarm_id": str(delivery.alarm_id),
-                        "state": delivery.state,
-                        "url": redact_url_for_logging(webhook_url),
-                        "error": safe_delivery_error(exc),
-                    },
-                )
-                continue
-            return
+            failure = await _post_to_validated_address(request, address, post)
+            if failure is None:
+                return
+            last_error = failure
     raise last_error
 
 

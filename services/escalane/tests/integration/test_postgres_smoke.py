@@ -198,9 +198,7 @@ async def test_postgres_json_merge_preserves_object_shape_and_existing_keys() ->
 
 @pytest.mark.skipif("TEST_DATABASE_URL" not in os.environ, reason="TEST_DATABASE_URL not set")
 async def test_postgres_lifecycle_compare_and_set_has_one_winner() -> None:
-    engine = create_async_engine(os.environ["TEST_DATABASE_URL"])
-    sessionmaker = create_sessionmaker(engine)
-    alarm = _postgres_alarm()
+    engine, sessionmaker, alarm = await _postgres_alarm_runtime(os.environ["TEST_DATABASE_URL"])
     try:
         async with sessionmaker() as ack_session, sessionmaker() as resolve_session:
             ack_alarm = await ack_session.get(Alarm, alarm.id)

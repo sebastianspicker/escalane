@@ -6,10 +6,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient
 
-from escalane.api.main import create_app
 from escalane.settings import Settings
+from tests.api_test_helpers import app_client
 
 
 @asynccontextmanager
@@ -17,7 +17,5 @@ async def security_client(
     settings: Settings, engine: Any, fake_redis: Any
 ) -> AsyncIterator[AsyncClient]:
     """Run one app lifespan around an isolated in-process HTTP client."""
-    app = create_app(settings=settings, injected_engine=engine, injected_redis=fake_redis)
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            yield client
+    async with app_client(settings=settings, engine=engine, redis=fake_redis) as client:
+        yield client

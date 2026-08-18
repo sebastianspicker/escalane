@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Validate the repository metadata for a version-tagged release."""
 
 from __future__ import annotations
@@ -7,9 +6,8 @@ import argparse
 import ast
 import re
 import string
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Sequence
 
 ASCII_DIGITS = frozenset(string.digits)
 SEMVER_IDENTIFIER_CHARS = frozenset(string.ascii_letters + string.digits + "-")

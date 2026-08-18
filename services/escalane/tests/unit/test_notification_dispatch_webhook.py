@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from escalane.core.url_validation import RetryableSSRFError
+from escalane.services import webhook_delivery
 
 try:
     from tests.assertions import expect
@@ -35,6 +38,101 @@ except ModuleNotFoundError:
     )
 
 pytestmark = [pytest.mark.unit]
+
+
+async def test_webhook_transport_shares_one_client_and_timeout_across_failover() -> None:
+    """Validated-address failover stays inside one client and timeout budget."""
+    _svc, _session, _target, payload = await _delivery_context("webhook")
+    attempts: list[str] = []
+
+    class OverallTimeout:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *_args: object) -> bool:
+            return False
+
+    class FailoverClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> bool:
+            return False
+
+        async def post(self, url: str, **_kwargs: object) -> MagicMock:
+            attempts.append(url)
+            if len(attempts) == 1:
+                raise httpx.ConnectError("first address unavailable")
+            return MagicMock(raise_for_status=MagicMock())
+
+    timeout_factory = MagicMock(return_value=OverallTimeout())
+    client_factory = MagicMock(return_value=FailoverClient())
+    with (
+        patch("escalane.services.webhook_delivery.asyncio.timeout", timeout_factory),
+        patch("escalane.services.webhook_delivery.httpx.AsyncClient", client_factory),
+    ):
+        await webhook_delivery.post_webhook_to_validated_addresses(
+            "https://hooks.example.test/hook",
+            payload,
+            ("1.1.1.1", "8.8.8.8"),
+            "target-id",
+            "delivery-id",
+        )
+
+    timeout_factory.assert_called_once_with(30.0)
+    client_factory.assert_called_once_with(timeout=30.0, trust_env=False)
+    expect(attempts == ["https://1.1.1.1/hook", "https://8.8.8.8/hook"])
+
+
+async def test_webhook_transport_preserves_final_retryable_error_and_safe_logs(caplog) -> None:
+    """Every failed pinned address logs redacted diagnostics before final propagation."""
+    _svc, _session, _target, payload = await _delivery_context("webhook")
+    secret = value_for_test("transport-log-secret")
+    username = "webhook-user"
+    failures: list[httpx.ConnectError] = []
+
+    class FailingClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args: object) -> bool:
+            return False
+
+        async def post(self, url: str, **_kwargs: object) -> None:
+            error = httpx.ConnectError(f"delivery failed for {url}")
+            failures.append(error)
+            raise error
+
+    caplog.set_level(logging.WARNING, logger="escalane")
+    with patch(
+        "escalane.services.webhook_delivery.httpx.AsyncClient", return_value=FailingClient()
+    ):
+        with pytest.raises(httpx.ConnectError) as raised:
+            await webhook_delivery.post_webhook_to_validated_addresses(
+                f"https://{username}:{secret}@hooks.example.test/private/{secret}?token={secret}",
+                payload,
+                ("1.1.1.1", "8.8.8.8"),
+                "target-id",
+                "delivery-id",
+            )
+
+    expect(raised.value is failures[-1])
+    records = [
+        record
+        for record in caplog.records
+        if record.message == "webhook_notification_address_failed"
+    ]
+    expect(len(records) == 2)
+    for record in records:
+        expect(record.target_id == "target-id")
+        expect(record.url == "https://hooks.example.test")
+        expect(record.error == "Downstream provider transport error")
+        expect(secret not in record.getMessage())
+        expect(secret not in record.url)
+        expect(secret not in record.error)
+        expect(username not in record.getMessage())
+        expect(username not in record.url)
+        expect(username not in record.error)
 
 
 # ── _send_webhook_notifications ───────────────────────────────────────

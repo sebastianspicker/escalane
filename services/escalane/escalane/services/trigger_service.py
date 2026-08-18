@@ -54,6 +54,18 @@ def _initial_alarm_outbox_events(alarm: Alarm) -> list[AlarmEventOutbox]:
     ]
 
 
+def _valid_alarm_reservation(value: Any) -> bool:
+    """Return whether a Redis value names an existing alarm reservation."""
+    value_text = redis_text(value)
+    if value_text is None:
+        return False
+    try:
+        uuid.UUID(value_text)
+    except ValueError:
+        return False
+    return True
+
+
 class TriggerService:
     """Service for idempotent, rate-limited alarm triggers."""
 
@@ -162,13 +174,8 @@ class TriggerService:
             existing = await self._redis.get(idem_key)
             if existing is None:
                 continue
-            existing_text = redis_text(existing)
-            if existing_text is not None:
-                try:
-                    uuid.UUID(existing_text)
-                    return None
-                except ValueError:
-                    pass
+            if _valid_alarm_reservation(existing):
+                return None
             # Retry only after atomically removing the corrupt value we inspected.
             await self._compare_and_delete(idem_key, existing)
         return None
@@ -379,18 +386,22 @@ class TriggerService:
         try:
             return await self._ensure_alarm_events_dispatched(alarm)
         except Exception:
-            try:
-                await self._session.rollback()
-            except Exception:
-                logger.exception(
-                    "alarm_event_delivery_rollback_failed",
-                    extra={"alarm_id": str(alarm_id)},
-                )
+            await self._rollback_failed_alarm_event_delivery(alarm_id)
             logger.exception(
                 "alarm_event_delivery_failed",
                 extra={"alarm_id": str(alarm_id)},
             )
             return False
+
+    async def _rollback_failed_alarm_event_delivery(self, alarm_id: uuid.UUID) -> None:
+        """Rollback failed outbox work without masking the original delivery error."""
+        try:
+            await self._session.rollback()
+        except Exception:
+            logger.exception(
+                "alarm_event_delivery_rollback_failed",
+                extra={"alarm_id": str(alarm_id)},
+            )
 
     async def _handle_duplicate_alarm(self, alarm: Alarm) -> TriggerResult:
         """Return idempotent success only after retrying any unfinished downstream dispatch."""

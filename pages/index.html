@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b1f28">
+  <title>Alarm worklist · Escalane static demo</title>
+  <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/ui.css">
+  <link rel="stylesheet" href="assets/demo.css">
+  <script src="assets/ui.js" defer></script>
+  <script src="assets/demo.js" defer></script>
+</head>
+<body class="has-session page-worklist">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header">
+    <div class="utility-bar">
+      <div class="brand-cluster">
+        <a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span>Escalane</span></a>
+        <span class="environment-label">Static demo</span>
+      </div>
+      <div class="session-tools">
+        <p class="operator-name"><svg class="utility-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"></circle><path d="M5 21v-2a7 7 0 0 1 14 0v2"></path></svg><span>Signed in as</span><strong>Demo Operator</strong></p>
+        <form class="logout-form"><button class="button button-quiet button-small" type="submit" data-simulated-action data-demo-generic><svg class="utility-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"></path></svg>Sign out <span class="simulated-label">Simulated</span></button></form>
+      </div>
+    </div>
+    <details class="admin-nav" open>
+      <summary>Menu</summary>
+      <nav aria-label="Primary navigation">
+        <a href="./" aria-current="page"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9M9 20h6"></path></svg>Alarms</a>
+        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Configuration</a>
+        <a href="simulation.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3M8 15h8"></path></svg>Simulation</a>
+        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="10" width="16" height="5" rx="1"></rect><rect x="4" y="17" width="16" height="4" rx="1"></rect></svg>System</a>
+        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"></path></svg>Audit log</a>
+      </nav>
+    </details>
+  </header>
+  <main id="content" tabindex="-1">
+    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> This click-through uses sanitized Mock University fixtures and sends no requests to an Escalane service. Every command-capable control is marked <span class="simulated-label">Simulated</span>.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
+    <header class="page-heading worklist-heading">
+      <div><h1>Alarm worklist</h1><p class="page-summary">Review current alarm state, age, location, and ownership.</p></div>
+      <div class="worklist-utilities">
+        <details class="export-menu"><summary class="button button-quiet">Export <span class="simulated-label">Simulated</span></summary><div class="export-options"><a href="#" data-demo-export>Export CSV <span class="simulated-label">Simulated</span></a><a href="#" data-demo-export>Export JSON <span class="simulated-label">Simulated</span></a></div></details>
+        <p class="page-freshness"><span>Updated</span> <time>fixture time</time></p>
+      </div>
+    </header>
+    <dl class="status-summary" aria-label="Alarm counts">
+      <div class="summary-triggered"><dt><a href="#worklist-table">Triggered</a></dt><dd>2</dd></div>
+      <div class="summary-acknowledged"><dt><a href="#worklist-table">Acknowledged</a></dt><dd>0</dd></div>
+      <div class="summary-resolved"><dt><a href="#worklist-table">Resolved</a></dt><dd>0</dd></div>
+      <div class="summary-cancelled"><dt><a href="#worklist-table">Cancelled</a></dt><dd>0</dd></div>
+    </dl>
+    <form class="filters" data-demo-filters>
+      <div class="filter-field filter-field-search"><label for="search">Search alarms</label><div class="search-control"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg><input id="search" name="search" type="search" maxlength="120" placeholder="ID, person, room, source, or event"></div></div>
+      <div class="filter-field"><label for="status">Status</label><select id="status" name="status"><option value="">All statuses</option><option value="triggered">Triggered</option><option value="acknowledged">Acknowledged</option></select></div>
+      <div class="filter-field"><label for="sort-by">Sort by</label><select id="sort-by" name="sort_by"><option>Age</option><option>Status</option><option>Severity</option></select></div>
+      <div class="filter-field"><label for="order">Order</label><select id="order" name="order"><option>Newest first</option><option>Oldest first</option></select></div>
+      <button class="button button-primary" type="submit" data-simulated-action>Apply filters <span class="simulated-label">Simulated</span></button>
+    </form>
+    <form data-demo-bulk>
+      <div class="table-scroll" id="worklist-table" tabindex="0" aria-label="Alarm worklist">
+        <table class="worklist-table"><caption class="visually-hidden">Alarm worklist</caption><thead><tr><th scope="col"><span class="visually-hidden">Select</span></th><th scope="col">Status</th><th scope="col">Age</th><th scope="col">Person</th><th scope="col">Room</th><th scope="col">ID</th><th scope="col">Source</th><th scope="col">Severity</th><th scope="col">Owner</th><th scope="col">Action</th></tr></thead>
+          <tbody>
+            <tr class="alarm-row alarm-row-triggered" data-alarm-row data-status="triggered"><td><input aria-label="Select alarm ab2142e1" type="checkbox" data-alarm-select></td><td><span class="status status-triggered"><span></span>Triggered</span></td><td><time>2 min</time></td><td>Medical On-Call</td><td>Surgical Unit OR Control</td><td><a class="alarm-id" href="alarm.html">ab2142e1</a></td><td>yealink</td><td><span class="severity severity-p0">P0</span></td><td>Unassigned</td><td><a class="row-link button button-quiet button-small" href="alarm.html">Open</a></td></tr>
+            <tr class="alarm-row alarm-row-triggered" data-alarm-row data-status="triggered"><td><input aria-label="Select alarm 40300ac4" type="checkbox" data-alarm-select></td><td><span class="status status-triggered"><span></span>Triggered</span></td><td><time>4 min</time></td><td>Campus Operations Coordinator</td><td>Main Library Service Desk</td><td><a class="alarm-id" href="alarm.html">40300ac4</a></td><td>yealink</td><td><span class="severity severity-p0">P0</span></td><td>Unassigned</td><td><a class="row-link button button-quiet button-small" href="alarm.html">Open</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <fieldset class="bulk-actions"><legend>Selected alarms <span class="selection-count" data-selection-count aria-live="polite">0</span></legend><div class="bulk-grid"><div><label for="bulk-action" class="visually-hidden">Action</label><select id="bulk-action" name="action"><option value="acknowledge">Acknowledge</option><option value="resolve">Resolve</option><option value="cancel">Cancel</option></select></div><div class="bulk-reason"><label class="visually-hidden" for="bulk-reason">Reason</label><input id="bulk-reason" name="reason" maxlength="2000" placeholder="Reason required for cancellation"></div><button class="button button-primary" type="submit" data-simulated-action>Apply to selected <span class="simulated-label">Simulated</span></button></div></fieldset>
+    </form>
+  </main>
+  <footer class="site-footer"><strong>Escalane</strong><span>Alarm intake, acknowledgement, and escalation.</span></footer>
+  <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
+</body>
+</html>

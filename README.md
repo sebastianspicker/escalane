@@ -103,6 +103,27 @@ installation procedure.
 
 ## Browser interface
 
+Explore the sanitized, command-safe
+[static product demo](https://sebastianspicker.github.io/escalane/). It is a
+small click-through of the operator and responder workflow; every
+command-capable action is visibly marked as simulated and runs only in the
+browser.
+
+Build and inspect that same static artifact locally without starting
+PostgreSQL, Redis, or the Escalane service:
+
+```bash
+./.venv/bin/python scripts/build_pages.py
+./.venv/bin/python scripts/validate_pages.py build/pages
+python3 -m http.server 8082 --bind 127.0.0.1 --directory build/pages
+```
+
+Open <http://127.0.0.1:8082/>. The Pages workflow repeats the build and
+validation before publishing `build/pages`; the generated directory is local
+output and is not committed. This walkthrough proves only the sanitized
+in-browser fixture flow. It does not exercise the API, persistence, workers,
+connectors, authentication, or a remote Pages deployment.
+
 ![Operator alarm worklist with two triggered alarms, status totals, filters, and bulk actions](docs/assets/screenshots/01-admin-overview.png)
 
 ![Triggered alarm detail with context, delivery activity, lifecycle actions, and note entry](docs/assets/screenshots/04-admin-alarm-detail.png)

@@ -17,6 +17,7 @@ pytestmark = pytest.mark.repository
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts import capture_screenshots_isolated, demo_capture_runtime  # noqa: E402
 from scripts.demo_capture import (  # noqa: E402
     SHOT_FILENAMES,
     CaptureConfig,
@@ -160,3 +161,82 @@ def test_demo_capture_requires_admin_key() -> None:
 def test_demo_capture_rejects_non_http_url() -> None:
     with pytest.raises(DemoCaptureError):
         _http_json("GET", "file:///etc/passwd")
+
+
+@pytest.mark.unit
+def test_demo_capture_transitions_preserve_lifecycle_api_mapping() -> None:
+    ack = demo_capture_runtime._ACK_TRANSITION
+    resolve = demo_capture_runtime._RESOLVE_TRANSITION
+
+    expect(ack.action == "ack")
+    expect(
+        ack.payload()
+        == {
+            "acked_by": "Demo Operator",
+            "note": "Screenshot flow acknowledgment",
+        }
+    )
+    expect(resolve.action == "resolve")
+    expect(
+        resolve.payload()
+        == {
+            "actor": "Demo Script",
+            "note": "Screenshot flow resolve",
+        }
+    )
+
+
+@pytest.mark.unit
+def test_demo_capture_transition_uses_value_object_for_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str, dict[str, str] | None, bytes | None, float]] = []
+
+    def fake_http_json(
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+        timeout: float = 10.0,
+    ) -> HttpResult:
+        calls.append((method, url, headers, body, timeout))
+        return HttpResult(204, "", None)
+
+    monkeypatch.setattr(demo_capture_runtime, "_http_json", fake_http_json)
+    demo_capture_runtime._transition_alarm(
+        "http://demo.test",
+        "demo-key",
+        "alarm-42",
+        2.5,
+        demo_capture_runtime._ACK_TRANSITION,
+    )
+
+    expect(
+        calls
+        == [
+            (
+                "POST",
+                "http://demo.test/v1/alarms/alarm-42/ack",
+                {"X-Admin-Key": "demo-key", "Content-Type": "application/json"},
+                b'{"acked_by": "Demo Operator", "note": "Screenshot flow acknowledgment"}',
+                2.5,
+            )
+        ]
+    )
+
+
+@pytest.mark.unit
+def test_isolated_capture_worker_context_uses_default_tls_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class FakeAsyncClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            calls.append((args, kwargs))
+
+    monkeypatch.setattr(capture_screenshots_isolated.httpx, "AsyncClient", FakeAsyncClient)
+    context = capture_screenshots_isolated._worker_context(object(), object(), object())
+
+    expect(isinstance(context["http"], FakeAsyncClient))
+    expect(calls == [((), {})])

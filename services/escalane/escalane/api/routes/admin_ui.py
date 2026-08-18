@@ -26,12 +26,14 @@ from escalane.api.routes.admin_console import (
     _requested_locale,
     _session_from_request,
 )
-from escalane.api.routes.admin_worklist import _render_alarm_row as _render_alarm_row
+from escalane.api.routes.admin_worklist import _render_alarm_row as _worklist_render_alarm_row
 from escalane.core.rate_limit import rate_limit_key
 from escalane.core.redis_atomic import increment_with_expiry, redis_text
 from escalane.settings import Settings
 
 router = APIRouter()
+# Compatibility facade consumed by the admin integration suite.
+_render_alarm_row = _worklist_render_alarm_row
 _FAILED_LOGIN_LIMIT = 5
 _FAILED_LOGIN_WINDOW_SECONDS = 60
 

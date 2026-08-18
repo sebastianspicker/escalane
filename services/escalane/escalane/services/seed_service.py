@@ -27,6 +27,16 @@ _MAX_SEED_DEPTH = 64
 _MAX_SEED_NODES = 10_000
 
 
+def _yaml_children(node: yaml.Node, depth: int) -> list[tuple[yaml.Node, int]]:
+    """Return the next traversal entries for one composed YAML node."""
+    next_depth = depth + 1
+    if isinstance(node, yaml.SequenceNode):
+        return [(child, next_depth) for child in node.value]
+    if isinstance(node, yaml.MappingNode):
+        return [(child, next_depth) for key_value in node.value for child in key_value]
+    return []
+
+
 def _validate_yaml_nodes(node: yaml.Node | None) -> None:
     """Reject aliases and bound the composed graph before safe construction."""
     if node is None:
@@ -41,12 +51,7 @@ def _validate_yaml_nodes(node: yaml.Node | None) -> None:
         seen.add(node_id)
         if len(seen) > _MAX_SEED_NODES or depth > _MAX_SEED_DEPTH:
             raise ValidationError("Seed payload exceeds structural complexity limits")
-        if isinstance(current, yaml.SequenceNode):
-            stack.extend((child, depth + 1) for child in current.value)
-        elif isinstance(current, yaml.MappingNode):
-            for key, value in current.value:
-                stack.append((key, depth + 1))
-                stack.append((value, depth + 1))
+        stack.extend(_yaml_children(current, depth))
 
 
 def _validate_payload_complexity(data: Any) -> None:

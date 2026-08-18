@@ -1,9 +1,0 @@
-{% extends "base.html" %}
-{% from "macros.html" import status_badge %}
-{% block title %}{{ t('acknowledge_alarm') }} · {{ t('product_name') }}{% endblock %}
-{% block content %}
-<article class="responder-card" aria-labelledby="page-title"><header><p class="section-label">{{ t('product_name') }}</p><h1 id="page-title">{{ t('acknowledge_alarm') }}</h1>{{ status_badge(alarm.status, t) }}</header>
-{% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
-<dl class="definition-list"><div><dt>{{ t('person') }}</dt><dd>{{ alarm.person|default('—') }}</dd></div><div><dt>{{ t('room') }}</dt><dd>{{ alarm.room|default('—') }}</dd></div><div><dt>{{ t('created') }}</dt><dd>{{ alarm.created_at }}</dd></div></dl>
-{% if alarm.can_ack %}<p>{{ t('acknowledge_help') }}</p><form id="acknowledge-form" method="post" action="{{ ack_action }}">{% if csrf_token %}<input type="hidden" name="csrf_token" value="{{ csrf_token }}">{% endif %}<label for="acked_by">{{ t('responder_name') }} <span>({{ t('optional') }})</span></label><input id="acked_by" name="acked_by" autocomplete="name" maxlength="120" value="{{ values.acked_by|default('') }}"><label for="note">{{ t('note') }} <span>({{ t('optional') }})</span></label><textarea id="note" name="note" rows="3" maxlength="2000" aria-describedby="note-hint">{{ values.note|default('') }}</textarea><p id="note-hint" class="field-hint">{{ t('optional') }}</p><button class="button button-primary responder-control" type="submit">{{ t('acknowledge_alarm') }}</button></form>{% endif %}</article>
-{% endblock %}

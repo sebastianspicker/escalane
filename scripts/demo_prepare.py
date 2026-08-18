@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare a local mock-university demo environment.
 
 This script verifies service readiness, loads the simulation seed, and clears

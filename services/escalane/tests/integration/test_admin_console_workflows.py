@@ -7,7 +7,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
-from escalane.db.models import Alarm, Site
+from escalane.db.models import Alarm, AlarmStatus, Site
 from tests.admin_test_helpers import hidden_input, login_admin
 from tests.api_test_helpers import app_client, make_alarm
 
@@ -150,6 +150,51 @@ async def test_bulk_actions_enqueue_followup_events_for_each_changed_alarm(
 
     assert response.status_code == 303
     _assert_bulk_event_jobs(fake_redis, alarm_ids, expected_events, expected_status)
+
+
+async def test_bulk_action_counts_partial_results_in_the_redirect_flash(
+    engine, sessionmaker, seeded_db, fake_redis, settings
+) -> None:
+    """The browser bulk flow keeps partial result counts separate."""
+    settings.admin_api_key = TEST_ADMIN_API_KEY
+    changed_id, conflicting_id, missing_id = (uuid.uuid4() for _ in range(3))
+    conflicting = _alarm(conflicting_id, value_for_test("workflow-conflicting"))
+    conflicting.status = AlarmStatus.RESOLVED
+
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                _alarm(changed_id, value_for_test("workflow-changed")),
+                conflicting,
+            ]
+        )
+        await session.commit()
+
+    async with app_client(settings=settings, engine=engine, redis=fake_redis) as client:
+        assert (await login_admin(client, TEST_ADMIN_API_KEY, "Workflow Ops")).status_code == 303
+        worklist = await client.get("/admin")
+        response = await client.post(
+            "/admin/alarms/bulk",
+            data={
+                "csrf_token": hidden_input(worklist.text, "csrf_token"),
+                "action": "ack",
+                "alarm_id": [
+                    str(changed_id),
+                    str(conflicting_id),
+                    str(missing_id),
+                    "not-an-alarm-id",
+                ],
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 303
+        token = client.cookies["admin_session"]
+        assert fake_redis._store[f"admin_session:{token}:flash"] == "success:bulk_1_1_2"
+
+    async with sessionmaker() as session:
+        assert (await session.get(Alarm, changed_id)).status == AlarmStatus.ACKNOWLEDGED
+        assert (await session.get(Alarm, conflicting_id)).status == AlarmStatus.RESOLVED
 
 
 async def test_admin_export_rejects_invalid_status(engine, seeded_db, fake_redis, settings) -> None:

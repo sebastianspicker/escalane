@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Reject private or generated files from the public repository candidate.
 
 The candidate includes tracked files and non-ignored untracked files. Ignored
@@ -272,14 +271,8 @@ def _symlink_reason(path: Path) -> str | None:
     return None
 
 
-def _content_reason(path: Path, relative_path: str = "") -> str | None:
-    """Inspect readable content and symlinks for private or machine-specific data."""
-    if path.is_symlink():
-        return _symlink_reason(path)
-
-    data = path.read_bytes()
-    if b"\0" in data:
-        return None
+def _text_content_reason(data: bytes, relative_path: str) -> str | None:
+    """Return the first private marker found in text-like candidate content."""
     if any(marker in data for marker in PRIVATE_TEXT_MARKERS):
         return "private key material or absolute user-home path"
     if any(pattern.search(data) for pattern in PRIVATE_TOKEN_PATTERNS):
@@ -289,6 +282,17 @@ def _content_reason(path: Path, relative_path: str = "") -> str | None:
     ):
         return "legacy product identifier outside the migration allowlist"
     return None
+
+
+def _content_reason(path: Path, relative_path: str = "") -> str | None:
+    """Inspect readable content and symlinks for private or machine-specific data."""
+    if path.is_symlink():
+        return _symlink_reason(path)
+
+    data = path.read_bytes()
+    if b"\0" in data:
+        return None
+    return _text_content_reason(data, relative_path)
 
 
 def _curated_screenshot_reason(path: Path, relative_path: str) -> str | None:

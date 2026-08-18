@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
@@ -19,6 +20,7 @@ from escalane.api.routes.admin_console import (
     _requested_locale,
     _session_from_request,
 )
+from escalane.core.errors import ConflictError
 from escalane.db.models import (
     Alarm,
     AlarmNote,
@@ -40,6 +42,16 @@ logger = logging.getLogger("escalane")
 AlarmCsrfToken = Annotated[str | None, Form()]
 OptionalAlarmNoteForm = Annotated[str | None, Form(max_length=2000)]
 AlarmSessionCookie = Annotated[str | None, Cookie()]
+
+
+@dataclass(frozen=True)
+class _BulkTransition:
+    """Keep the shared browser bulk-operation inputs explicit within this route module."""
+
+    target_status: AlarmStatus
+    actor: str
+    reason: str | None
+    redis: Any
 
 
 async def _detail_context(session: AsyncSession, alarm: Alarm, locale: str) -> dict[str, Any]:
@@ -360,10 +372,12 @@ async def admin_bulk_action(
     changed, unchanged, newly_missing = await _apply_bulk_actions(
         session,
         alarm_ids,
-        action=action,
-        actor=browser_session.operator_name,
-        reason=reason,
-        request=request,
+        _bulk_transition(
+            action,
+            actor=browser_session.operator_name,
+            reason=reason,
+            redis=get_redis(request),
+        ),
     )
     missing += newly_missing
     await set_flash(
@@ -392,14 +406,18 @@ def _parse_alarm_ids(raw_ids: list[Any]) -> tuple[list[uuid.UUID], int]:
     return alarm_ids, invalid
 
 
+def _bulk_transition(action: str, *, actor: str, reason: str | None, redis: Any) -> _BulkTransition:
+    """Translate the form action once before processing the ordered selection."""
+    target_status = AlarmStatus.RESOLVED if action == "resolve" else AlarmStatus.CANCELLED
+    if action == "ack":
+        target_status = AlarmStatus.ACKNOWLEDGED
+    return _BulkTransition(target_status, actor, reason, redis)
+
+
 async def _apply_bulk_actions(
     session: AsyncSession,
     alarm_ids: list[uuid.UUID],
-    *,
-    action: str,
-    actor: str,
-    reason: str | None,
-    request: Request,
+    transition: _BulkTransition,
 ) -> tuple[int, int, int]:
     """Process each selected alarm independently so concurrent changes do not abort the batch."""
     changed = unchanged = missing = 0
@@ -408,62 +426,52 @@ async def _apply_bulk_actions(
         if alarm is None or alarm.deleted_at is not None:
             missing += 1
             continue
-        try:
-            outcome = await _apply_bulk_action(
-                session,
-                alarm,
-                action=action,
-                actor=actor,
-                reason=reason,
-                redis=get_redis(request),
-            )
-        except Exception as exc:
-            if _is_conflict(exc):
-                unchanged += 1
-                continue
-            raise
-        if outcome.pending:
-            logger.warning(
-                "bulk_event_delivery_pending",
-                extra={
-                    "alarm_id": str(alarm.id),
-                    "published": outcome.published,
-                },
-            )
-        if outcome.changed:
+        outcome = await _apply_bulk_transition(session, alarm, transition)
+        if outcome is None:
+            unchanged += 1
+            continue
+        if _bulk_action_changed(alarm, outcome):
             changed += 1
         else:
             unchanged += 1
     return changed, unchanged, missing
 
 
-async def _apply_bulk_action(
+async def _apply_bulk_transition(
     session: AsyncSession,
     alarm: Alarm,
-    *,
-    action: str,
-    actor: str,
-    reason: str | None,
-    redis: Any,
-) -> AlarmStateOutcome:
-    """Map console action names to domain states and delegate atomic transition handling."""
-    target_status = AlarmStatus.RESOLVED if action == "resolve" else AlarmStatus.CANCELLED
-    if action == "ack":
-        target_status = AlarmStatus.ACKNOWLEDGED
-    return await apply_alarm_state_change(
-        session,
-        redis,
-        alarm,
-        target_status=target_status,
-        actor=actor,
-        note=reason,
-        logger=logger,
-    )
+    transition: _BulkTransition,
+) -> AlarmStateOutcome | None:
+    """Apply one browser transition, normalizing only known concurrent-state conflicts."""
+    try:
+        return await apply_alarm_state_change(
+            session,
+            transition.redis,
+            alarm,
+            target_status=transition.target_status,
+            actor=transition.actor,
+            note=transition.reason,
+            logger=logger,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+    except ConflictError:
+        pass
+    return None
 
 
-def _is_conflict(exc: Exception) -> bool:
-    """Recognize domain conflicts without coupling the bulk loop to exception import paths."""
-    return getattr(exc, "status_code", None) == 409 or exc.__class__.__name__ == "ConflictError"
+def _bulk_action_changed(alarm: Alarm, outcome: AlarmStateOutcome) -> bool:
+    """Log deferred delivery while returning the state-change count contribution."""
+    if outcome.pending:
+        logger.warning(
+            "bulk_event_delivery_pending",
+            extra={
+                "alarm_id": str(alarm.id),
+                "published": outcome.published,
+            },
+        )
+    return outcome.changed
 
 
 # Reuse the canonical API serializer after authenticating the browser session.

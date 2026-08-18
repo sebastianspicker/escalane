@@ -38,6 +38,41 @@ def _webhook_request_options(
     )
 
 
+async def _post_webhook_to_validated_address(
+    client: httpx.AsyncClient,
+    webhook_url: str,
+    payload: NotificationPayload,
+    resolved_address: str,
+    target_id: str,
+    delivery_id: str,
+) -> Exception | None:
+    """Post to one pinned address and return a retryable delivery failure."""
+    request_url, request_headers, request_extensions = _webhook_request_options(
+        webhook_url, resolved_address, delivery_id
+    )
+    try:
+        response = await client.post(
+            request_url,
+            json=payload,
+            headers=request_headers,
+            extensions=request_extensions,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        logger.warning(
+            "webhook_notification_address_failed",
+            extra={
+                "target_id": target_id,
+                "url": redact_url_for_logging(webhook_url),
+                "error": safe_delivery_error(exc),
+            },
+        )
+        if not is_retryable_delivery_error(exc):
+            raise
+        return exc
+    return None
+
+
 async def post_webhook_to_validated_addresses(
     webhook_url: str,
     payload: NotificationPayload,
@@ -51,30 +86,10 @@ async def post_webhook_to_validated_addresses(
     async with asyncio.timeout(30.0):
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             for address in resolved_addresses:
-                request_url, request_headers, request_extensions = _webhook_request_options(
-                    webhook_url, address, delivery_id
+                retryable_error = await _post_webhook_to_validated_address(
+                    client, webhook_url, payload, address, target_id, delivery_id
                 )
-                try:
-                    response = await client.post(
-                        request_url,
-                        json=payload,
-                        headers=request_headers,
-                        extensions=request_extensions,
-                    )
-                    response.raise_for_status()
-                except Exception as exc:
-                    last_error = exc
-                    logger.warning(
-                        "webhook_notification_address_failed",
-                        extra={
-                            "target_id": target_id,
-                            "url": redact_url_for_logging(webhook_url),
-                            "error": safe_delivery_error(exc),
-                        },
-                    )
-                    if not is_retryable_delivery_error(exc):
-                        raise
-                    retryable_error = exc
-                    continue
-                return
+                if retryable_error is None:
+                    return
+                last_error = retryable_error
     raise retryable_error or last_error
