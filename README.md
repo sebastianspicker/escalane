@@ -54,7 +54,6 @@ For local development:
 - Python 3.14.x. CI uses Python 3.14.6.
 - GNU Make
 - PostgreSQL and Redis for integration and runtime checks
-- Playwright browser binaries for browser E2E tests
 
 ## Quick start
 
@@ -121,20 +120,8 @@ python3 -m http.server 8082 --bind 127.0.0.1 --directory build/pages
 Open <http://127.0.0.1:8082/>. The Pages workflow repeats the build and
 validation before publishing `build/pages`; the generated directory is local
 output and is not committed. This walkthrough proves only the sanitized
-in-browser fixture flow. It does not exercise the API, persistence, workers,
+static interaction flow. It does not exercise the API, persistence, workers,
 connectors, authentication, or a remote Pages deployment.
-
-![Operator alarm worklist with two triggered alarms, status totals, filters, and bulk actions](docs/assets/screenshots/01-admin-overview.png)
-
-![Triggered alarm detail with context, delivery activity, lifecycle actions, and note entry](docs/assets/screenshots/04-admin-alarm-detail.png)
-
-![Mobile responder page with alarm context, optional responder fields, and acknowledgement action](docs/assets/screenshots/06-ack-page-triggered-mobile.png)
-
-![Simulation delivery table with Zammad, Signal, and SMS results](docs/assets/screenshots/09-simulation-feed.png)
-
-These images use the repository's Mock University fixtures. The capture and
-review procedure is in
-[docs/assets/screenshots/README.md](docs/assets/screenshots/README.md).
 
 ## Configuration
 
@@ -172,11 +159,11 @@ contracts and [Operations](docs/OPERATIONS.md) for runtime procedures.
 .
 ├── deploy/                    Compose definition and sample seed
 ├── docs/                      Architecture, setup, operations, and release guides
-├── scripts/                   Validation, container smoke, and screenshot tools
+├── scripts/                   Validation and container smoke tools
 ├── services/escalane/
 │   ├── alembic/               Database migrations
 │   ├── escalane/              Application package
-│   ├── tests/                 Unit, integration, security, repository, and E2E tests
+│   ├── tests/                 Direct alarm, outbox, connector, and ingress contracts
 │   └── pyproject.toml         Package and tool configuration
 ├── Dockerfile                 Runtime image
 └── Makefile                   Development and validation commands
@@ -188,13 +175,12 @@ contracts and [Operations](docs/OPERATIONS.md) for runtime procedures.
 make install
 make lint
 make test
-make e2e
 make hygiene-check
 ```
 
 `make dev` installs development dependencies and runs the verbose test suite.
 It does not start the API. See [Contributing](CONTRIBUTING.md) for the complete
-workflow and [Frontend](docs/FRONTEND.md) for browser-specific checks.
+workflow and [Frontend](docs/FRONTEND.md) for manual browser checks.
 
 ## Deployment and operation
 

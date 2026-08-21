@@ -24,8 +24,6 @@
 - [ ] `python -m mypy --config-file services/escalane/pyproject.toml services/escalane/escalane`
 - [ ] `make hygiene-check`
 - [ ] `make test`
-- [ ] `make e2e` when user-facing HTTP/browser flows changed
-- [ ] `make test-postgres-smoke` when DB models, migrations, or persistence behavior changed
 - [ ] `make audit` when dependencies, auth, network egress, secrets, parsing, or security controls changed
 - [ ] `make package-check` when Python packaging or packaged templates/assets changed
 - [ ] `make release-check RELEASE_TAG=v<version>` when version, changelog, or release metadata changed

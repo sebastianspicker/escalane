@@ -8,7 +8,6 @@ development requires Python 3.14.x; CI uses Python 3.14.6.
 Optional checks also require:
 
 - PostgreSQL and Redis for the runtime and integration checks
-- Playwright browser binaries for browser E2E tests
 - `curl` for HTTP examples
 - GNU Make for repository command targets
 
@@ -251,7 +250,7 @@ See [OPERATIONS.md](OPERATIONS.md) for upgrades, backups, and troubleshooting.
 |---|---|
 | `services/escalane/escalane/` | Application package |
 | `services/escalane/alembic/` | Schema migrations |
-| `services/escalane/tests/` | Unit, integration, security, repository-contract, and E2E tests |
+| `services/escalane/tests/` | Direct application contracts |
 | `deploy/docker-compose.yml` | Local and digest-based Compose deployment |
 | `deploy/seed.example.yaml` | Sample entities and escalation policy |
 | `scripts/` | Release, hygiene, smoke, and screenshot tools |

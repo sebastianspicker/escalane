@@ -11,7 +11,6 @@ Start with the guide that matches the task:
 | [FRONTEND.md](FRONTEND.md) | Server-rendered browser surface and UI checks |
 | [RELEASING.md](RELEASING.md) | Version, tag, image, and publication workflow |
 | [ROADMAP.md](ROADMAP.md) | Current alpha boundaries and unresolved work |
-| [assets/screenshots/README.md](assets/screenshots/README.md) | Screenshot capture and review procedure |
 | [../SECURITY.md](../SECURITY.md) | Security controls and private reporting |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | Development and pull-request workflow |
 | [../SUPPORT.md](../SUPPORT.md) | Public support boundary |

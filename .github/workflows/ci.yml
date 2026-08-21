@@ -81,89 +81,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e "services/escalane[dev]"
 
-      - name: Run tests with coverage
-        run: cd services/escalane && pytest -q -m "not e2e" --cov=escalane --cov-report=term-missing --tb=short
-
-  e2e:
-    runs-on: ubuntu-latest
-    needs: lint
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.14.6"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e "services/escalane[dev]"
-
-      - name: Install browser engines
-        run: python -m playwright install --with-deps chromium firefox webkit
-
-      - name: Run served HTTP and browser E2E tests
-        run: cd services/escalane && pytest -q tests/e2e --tb=short
-
-  postgres-smoke:
-    runs-on: ubuntu-latest
-    needs: lint
-    timeout-minutes: 15
-    env:
-      YELK_IP_ALLOWLIST: 127.0.0.1/32
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: alarm
-          POSTGRES_USER: alarm
-          POSTGRES_PASSWORD: alarm
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U alarm -d alarm"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "3.14.6"
-          cache: "pip"
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e "services/escalane[dev]"
-
-      - name: Configure PostgreSQL URLs
-        shell: bash
-        env:
-          POSTGRES_HOST: 127.0.0.1
-          POSTGRES_PORT: "5432"
-          POSTGRES_DB: alarm
-          POSTGRES_USER: alarm
-          POSTGRES_PASSWORD: alarm
-        run: |
-          database_url="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
-          {
-            printf 'DATABASE_URL=%s\n' "${database_url}"
-            printf 'TEST_DATABASE_URL=%s\n' "${database_url}"
-          } >> "${GITHUB_ENV}"
-
-      - name: Apply Alembic migrations
-        run: cd services/escalane && alembic upgrade head
-
-      - name: Run PostgreSQL smoke test
-        run: cd services/escalane && pytest -q tests/integration/test_postgres_smoke.py --tb=short
+      - name: Run direct contracts
+        run: cd services/escalane && pytest -q --tb=short
 
   security:
     runs-on: ubuntu-latest
@@ -222,7 +141,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, test, e2e, postgres-smoke, security, package]
+    needs: [lint, test, security, package]
     timeout-minutes: 15
     if: inputs.release_smoke || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:

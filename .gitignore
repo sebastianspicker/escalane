@@ -100,7 +100,6 @@ build/
 .history/
 
 node_modules/
-playwright-report/
 test-results/
 blob-report/
 *.har
@@ -111,9 +110,6 @@ trace.zip
 /deploy/docker-compose.override.yml
 /deploy/docker-compose.override.yaml
 
-# Unreviewed screenshot captures. Curated public PNGs live one level above.
-/docs/assets/screenshots/generated/
-/screenshot-review/
 
 # Local workspace tooling state
 /.claude/
@@ -185,3 +181,16 @@ xcuserdata/
 *.sqlite3-wal
 *.sqlite3-shm
 junit*.xml
+
+# Generated test and coverage output (local only)
+/coverage/
+/htmlcov/
+/.coverage
+/.coverage.*
+/.pytest_cache/
+/test-results/
+/playwright-report/
+/blob-report/
+/coverage.xml
+/junit.xml
+/junit-*.xml

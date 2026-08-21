@@ -33,8 +33,6 @@ Additional gates:
 
 | Command | Use |
 |---|---|
-| `make e2e` | HTTP or browser behavior |
-| `make browser-e2e` | Browser UI changes |
 | `make test-postgres-smoke` | Schema, migration, or PostgreSQL behavior |
 | `make package-check` | Package metadata, templates, or static assets |
 | `make audit` | Dependency or security-sensitive changes |
@@ -49,27 +47,15 @@ Run mypy directly because the Makefile has no type-check target:
   services/escalane/escalane
 ```
 
-Install Playwright browsers before local E2E runs when needed:
-
-```bash
-./.venv/bin/python -m playwright install chromium firefox webkit
-```
-
-The active suite is organized by test boundary:
+The active suite is deliberately compact:
 
 ```text
 services/escalane/tests/
-├── unit/          Isolated services, connectors, settings, and worker behavior
-├── integration/   API, database, Redis, lifecycle, and outbox behavior
-├── security/      Ingress, browser, configuration, and HTTP security regressions
-├── repository/    Scripts, workflows, package assets, docs, and release contracts
-├── e2e/           Served HTTP and cross-browser workflows
-└── *.py           Shared fixtures, assertions, constants, and test helpers
+└── test_core.py   Alarm, outbox, simulation, ingress, and trigger contracts
 ```
 
-Keep active test source tracked. Only local reports, coverage output, caches,
-temporary databases, browser traces, and failure media belong in ignored
-paths.
+Keep active test source tracked. Local reports, caches, and temporary databases
+belong in ignored paths.
 
 Do not describe a skipped check as passing. Record the exact command, result,
 and environment limitation in the pull request.

@@ -11,7 +11,7 @@ release risk rather than feature count.
 3. Exercise backup, restore, Redis persistence, migration, and rollback in the
    target environment.
 4. Complete manual VoiceOver with Safari and NVDA with Firefox review.
-5. Capture the curated screenshots from the exact candidate.
+5. Review operator and acknowledgement surfaces manually on the exact candidate.
 6. Approve deployment-specific secret storage, retention, alerting, recovery
    objectives, and network policy.
 

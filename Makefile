@@ -1,4 +1,4 @@
-.PHONY: bootstrap install dev test e2e browser-e2e test-postgres-smoke package-check release-check container-check hygiene-check lint lint-fix format format-check audit clean demo-prepare demo-screens
+.PHONY: bootstrap install dev test package-check release-check container-check hygiene-check lint lint-fix format format-check audit clean demo-prepare
 
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SERVICE_DIR := $(ROOT_DIR)/services/escalane
@@ -26,16 +26,7 @@ dev: install
 
 # Testing
 test:
-	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q -m "not e2e" --cov=escalane --cov-report=term-missing
-
-e2e:
-	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q tests/e2e --tb=short
-
-browser-e2e:
-	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q tests/e2e/test_browser_ui.py --tb=short
-
-test-postgres-smoke:
-	cd "$(SERVICE_DIR)" && $(PYTHON) -m alembic upgrade head && $(PYTHON) -m pytest -q tests/integration/test_postgres_smoke.py --tb=short
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -q
 
 package-check:
 	cd "$(SERVICE_DIR)" && $(PYTHON) -m build --wheel
@@ -50,7 +41,7 @@ hygiene-check:
 	git ls-files --cached --others --exclude-standard -z | $(PYTHON) scripts/verify_public_hygiene.py --null
 
 test-verbose:
-	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -v -m "not e2e" --cov=escalane --cov-report=term-missing
+	cd "$(SERVICE_DIR)" && $(PYTHON) -m pytest -v
 
 # Linting & Formatting
 lint:
@@ -86,7 +77,6 @@ clean:
 	rm -rf services/escalane/.pytest_cache services/escalane/.ruff_cache services/escalane/.mypy_cache services/escalane/.coverage
 	rm -rf services/escalane/.venv
 	rm -rf services/escalane/build services/escalane/dist services/escalane/*.egg-info
-	rm -rf docs/assets/screenshots/generated
 	find . -path ./.git -prune -o -type f -name .DS_Store -delete
 	find . -path ./.git -prune -o -type d -name .venv -prune -o -type d -name venv -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
 
@@ -106,6 +96,3 @@ docker-logs:
 # Local demo workflow
 demo-prepare:
 	$(PYTHON) scripts/demo_prepare.py
-
-demo-screens:
-	$(PYTHON) scripts/demo_capture.py

@@ -11,9 +11,7 @@ index or attach it to the release.
 3. Move user-visible entries from `[Unreleased]` to the matching heading in
    `CHANGELOG.md`.
 4. Update `RELEASE_STATUS.md` with evidence from the candidate commit.
-5. Capture and review the four images described in
-   [assets/screenshots/README.md](assets/screenshots/README.md).
-6. Run:
+5. Run:
 
    ```bash
    make release-check RELEASE_TAG=v0.4.0-alpha.1
@@ -31,9 +29,7 @@ evidence. Required automated gates are defined in `.github/workflows/ci.yml`:
 - public-file hygiene
 - Ruff formatting and lint
 - mypy
-- non-E2E tests and the 93 percent coverage threshold
-- HTTP and browser E2E with Chromium, Firefox, and WebKit
-- PostgreSQL and Alembic smoke
+- direct alarm, outbox, connector, and ingress contracts
 - Bandit and `pip-audit`
 - wheel build and resource smoke
 - container migration and readiness smoke

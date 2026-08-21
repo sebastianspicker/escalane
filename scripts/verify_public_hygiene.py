@@ -9,7 +9,6 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
-import struct
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -159,13 +158,6 @@ LEGACY_BRAND_MARKERS = (
 )
 LEGACY_BRAND_ALLOWED_PATHS = frozenset({"CHANGELOG.md", "docs/SETUP.md"})
 
-CURATED_SCREENSHOTS = {
-    "docs/assets/screenshots/01-admin-overview.png": (1440, 720),
-    "docs/assets/screenshots/04-admin-alarm-detail.png": (1440, 720),
-    "docs/assets/screenshots/06-ack-page-triggered-mobile.png": (390, 700),
-    "docs/assets/screenshots/09-simulation-feed.png": (1440, 720),
-}
-
 
 def _git_paths(arguments: list[str]) -> list[str]:
     """Return NUL-delimited repository paths from one read-only Git query."""
@@ -237,15 +229,9 @@ def _basename_reason(basename: str) -> str | None:
 
 
 def _suffix_reason(relative_path: str, path: PurePosixPath) -> str | None:
-    """Reject sensitive extensions and screenshots outside the curated allowlist."""
+    """Reject sensitive and generated file extensions."""
     if path.suffix.lower() in FORBIDDEN_SUFFIXES:
         return "sensitive or generated file extension"
-    if (
-        relative_path.startswith("docs/assets/screenshots/")
-        and path.suffix.lower() == ".png"
-        and relative_path not in CURATED_SCREENSHOTS
-    ):
-        return "unreviewed screenshot asset"
     return None
 
 
@@ -295,21 +281,6 @@ def _content_reason(path: Path, relative_path: str = "") -> str | None:
     return _text_content_reason(data, relative_path)
 
 
-def _curated_screenshot_reason(path: Path, relative_path: str) -> str | None:
-    """Validate PNG identity and reviewed viewport dimensions for public captures."""
-    reviewed_size = CURATED_SCREENSHOTS.get(relative_path)
-    if reviewed_size is None:
-        return None
-    data = path.read_bytes()
-    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
-        return "curated screenshot is not a valid PNG"
-    width, height = struct.unpack(">II", data[16:24])
-    viewport_width, minimum_height = reviewed_size
-    if width != viewport_width or height < minimum_height:
-        return "curated screenshot does not match the reviewed viewport dimensions"
-    return None
-
-
 def _inspection_reason(path: Path, relative_path: str = "") -> str | None:
     """Inspect one listed candidate and fail closed if it cannot be read."""
     try:
@@ -317,9 +288,7 @@ def _inspection_reason(path: Path, relative_path: str = "") -> str | None:
             return "candidate path is missing or inaccessible"
         if path.is_symlink():
             return _content_reason(path)
-        return _curated_screenshot_reason(path, relative_path) or _content_reason(
-            path, relative_path
-        )
+        return _content_reason(path, relative_path)
     except OSError:
         return "candidate path cannot be inspected"
 

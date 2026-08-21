@@ -83,13 +83,11 @@ Use:
 ```bash
 export ADMIN_API_KEY='<admin-api-key>'
 make demo-prepare
-make demo-screens
 ```
 
-Both commands use `http://localhost:8080` by default and read
+The command uses `http://localhost:8080` by default and reads
 `ADMIN_API_KEY` when `--admin-key` is not supplied. Run
-`./.venv/bin/python scripts/demo_prepare.py --help` and
-`./.venv/bin/python scripts/demo_capture.py --help` for all options.
+`./.venv/bin/python scripts/demo_prepare.py --help` for options.
 
 Simulation verifies application flow, not provider credentials, transport,
 rate limits, idempotency, or delivery.

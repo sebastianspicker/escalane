@@ -21,11 +21,7 @@ Requires Python 3.14.x.
 | `escalane/connectors/` | External delivery clients |
 | `escalane/db/` | Engine, sessions, and models |
 | `alembic/` | Schema migration environment and revisions |
-| `tests/unit/` | Isolated service, connector, settings, and worker tests |
-| `tests/integration/` | API, database, Redis, outbox, and PostgreSQL tests |
-| `tests/security/` | Security regression tests |
-| `tests/repository/` | Script, workflow, package, documentation, and release contracts |
-| `tests/e2e/` | Served HTTP and browser tests |
+| `tests/test_core.py` | Direct alarm, outbox, connector, and ingress contracts |
 
 Repository-level installation, configuration, and validation commands are in
 [../../docs/SETUP.md](../../docs/SETUP.md) and

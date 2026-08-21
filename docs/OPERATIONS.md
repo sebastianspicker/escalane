@@ -166,7 +166,7 @@ SIMULATION_ENABLED=true
 BASE_URL=http://localhost:8080
 ```
 
-Prepare its fixtures and inspect mock delivery:
+Prepare the local simulation state and inspect mock delivery:
 
 ```bash
 make demo-prepare

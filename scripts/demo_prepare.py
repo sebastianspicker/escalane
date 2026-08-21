@@ -1,7 +1,7 @@
 """Prepare a local mock-university demo environment.
 
 This script verifies service readiness, loads the simulation seed, and clears
-simulation notifications to create a deterministic baseline for screenshots.
+simulation notifications to create a deterministic baseline for local review.
 """
 
 from __future__ import annotations
@@ -201,7 +201,7 @@ def _clear_simulation_notifications(
     timeout_seconds: float,
     request_func: RequestFunc,
 ) -> HttpResult:
-    """Clear old simulated deliveries so screenshots start from a known baseline."""
+    """Clear old simulated deliveries so local review starts from a known baseline."""
     clear_result = request_func(
         "POST",
         f"{base_url}/v1/simulation/notifications/clear",
@@ -324,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     print("[demo-prepare] Trigger tokens for demo scenes:")
     for token_key, token_value, token_desc in summary["trigger_tokens"]:
         print(f"  - {token_key}: {token_value} ({token_desc})")
-    print("[demo-prepare] Next step: run `python scripts/demo_capture.py`")
+    print("[demo-prepare] Simulation data is ready for local review")
     return 0
 
 
