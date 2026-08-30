@@ -1,147 +1,95 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Notable changes are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Moved the application to a root `src/escalane` package with explicit
+  configuration, persistence, security, provider, feature, web, and worker
+  boundaries.
+- Moved migrations and tests to repository-level directories and made the
+  root package, CI, Docker, type, architecture, and release checks
+  authoritative.
+- Replaced HTTP-coupled feature inputs with application commands and moved
+  notification workflows and webhook transport into their owning modules.
+
+### Removed
+
+- Removed the nested service package, duplicate webhook implementation,
+  obsolete worker and route facades, and unused internal exports.
+
 ## [0.4.0-alpha.1]
 
-### Added in 0.4.0-alpha.1
-- Escalane route-mark identity, bilingual tagline, operational palette, and same-origin SVG browser assets
-- Bilingual Jinja operator console with named Redis sessions, CSRF-protected form actions, deep-linkable alarm details, configuration, system, simulation, and activity views
-- Versioned and deactivatable master data with redacted administrative audit events
-- Packaged same-origin browser assets, safe revision polling, and Playwright browser-flow coverage
-- Deterministic public repository hygiene check for private, local-only, and generated files
-- Transactional lifecycle-event outbox with bounded recovery and deterministic queue identities
-- Public contribution, conduct, security-reporting, and alpha-release guidance
-- Review-only GitHub workflow for exact-candidate Mock University screenshots
-- Public support boundary and issue-routing guidance
+### Added
 
-### Changed in 0.4.0-alpha.1
-- Renamed the product, Python distribution and imports, container image, logger, metrics, release coordinates, and repository paths to Escalane
-- Responder acknowledgement now uses localized, mobile-first HTML recovery states and progressive enhancement
-- Content Security Policy now permits only same-origin scripts, styles, and connections
-- Wheel smoke verification checks the actual Jinja templates and browser assets
-- Development extras now include the wheel build frontend used by `make package-check`
-- API, health, and operator-system views now report the package version from one shared source
-- Public project identity now consistently describes a pre-production alpha rather than a release candidate
-- Compose applies one optional digest-pinned `ESCALANE_IMAGE` to migration, API, and worker
+- Bilingual server-rendered operator and responder interfaces with Redis
+  sessions, CSRF protection, configuration, system, simulation, and activity
+  views.
+- Versioned master data with redacted administrative audit events.
+- A transactional lifecycle-event outbox with ordered recovery and stable job
+  identities.
+- Public contribution, security-reporting, support, and release guidance.
 
-### Fixed in 0.4.0-alpha.1
-- Restricted seed placeholders to their documented settings fields and rejected
-  YAML aliases, cycles, excessive nesting, and excessive node counts.
-- Required HTTPS for activated Zammad and SendXMS endpoints, rejected URL
-  userinfo, and prevented raw provider exceptions from entering logs or audit
-  rows.
-- Required enabled state-change webhooks to use HTTPS, an exact allowlisted
-  host, and a secret of at least 32 characters.
-- Restricted `BASE_URL` to an origin without URL credentials, path, query, or
-  fragment; required HTTPS outside loopback; and restricted simulation values
-  to loopback hosts. Removed absolute installation paths and source-checkout
-  dependencies from simulation seed metadata responses.
-- Corrected FastAPI dependency signatures for the configured mypy check, added
-  high-confidence token checks to public hygiene validation, and updated
-  project license metadata to PEP 639 syntax.
-- Made lifecycle transitions compare-and-set safe and persisted their worker events through a transactional outbox with ordered recovery
-- Prevented webhook DNS rebinding, proxy bypass, malformed-URL crashes, and credential-bearing URL leakage in logs and audit rows
-- Corrected public and operator keyset pagination so filtered cursors and non-unique sort values cannot skip alarms
-- Replaced time-bucket trigger deduplication with a stable token-derived lease and stopped generated device IDs from embedding bearer tokens
-- Applied optimistic versions and parent/dependency locks consistently across browser, API, policy, and seed administration writes
-- Refreshed explicit admin-session cookie expiry and made HSTS honor forwarded HTTPS only from trusted proxies
-- Made Compose upgrades migration-first and made readiness fail closed until the database is at the single packaged Alembic head
-- Gated tag publication on main-branch ancestry, release metadata validation, reusable CI, and a migrated container readiness smoke test
-- Rejected enabled but incomplete connector configuration and reserved placeholder endpoints outside simulation mode
-- Made soft deletion atomic, suppressed queued work for deleted alarms, and based delivery status on remaining durable events instead of publish-count guesses
-- Failed API, worker, and online migration startup before using an implicit placeholder database password
-- Rejected negative, empty, or contradictory escalation schedules and made legacy schedule reads deterministic and fail closed
-- Disabled raw Uvicorn access logging and added bounded failover across validated webhook addresses without hostname fallback
-- Made the release workflow smoke-test the exact container image before pushing it and publish its immutable digest
-- Enabled Redis append-only persistence in the documented Compose deployment
-- Removed the obsolete Pygments vulnerability ignore and required the fixed development release
-- Kept worktree hygiene fail-closed for unreadable files while excluding intentional unstaged deletions
+### Changed
 
-### Removed in 0.4.0-alpha.1
-- Legacy package, import, image-variable, logger, and Prometheus aliases; the alpha cutover is intentionally breaking
-- Unused settings/env examples for `SENDXMS_MODE`, `WEBHOOK_MAX_RETRIES`, `WEBHOOK_RETRY_DELAY_SECONDS`, and `SIMULATION_SEED_URL`
-- Dead `alarm.resolved` / `alarm.cancelled` event publisher helpers and no-op worker dispatch branches
-- Obsolete `string.Template` loader and admin-template compatibility shim
+- Renamed the product, Python package, container image, logger, metrics, and
+  release coordinates from Alarm Broker to Escalane.
+- Packaged the Jinja templates and same-origin browser assets in the wheel.
+- Applied a single optional digest-pinned image to migrations, the API, and
+  the worker in Compose deployments.
+- Made readiness fail closed until PostgreSQL, Redis, and the packaged Alembic
+  head are available.
 
-### Migration from Alarm Broker
+### Security
 
-- Repository: `sebastianspicker/alarm-broker` → `sebastianspicker/escalane`
-- Service path: `services/alarm_broker` → `services/escalane`
-- Python distribution/import: `alarm-broker` / `alarm_broker` → `escalane`
-- Compose image variable: `ALARM_BROKER_IMAGE` → `ESCALANE_IMAGE`
-- Container image: `ghcr.io/sebastianspicker/alarm-broker` → `ghcr.io/sebastianspicker/escalane`
-- Prometheus prefix: `alarm_broker_` → `escalane_`
+- Restricted seed placeholders and rejected YAML aliases, cycles, excessive
+  nesting, and excessive node counts.
+- Required validated HTTPS endpoints for enabled Zammad, SendXMS, and signed
+  callback delivery, with exact webhook host allowlisting.
+- Restricted `BASE_URL`, hardened trusted-proxy handling, and prevented raw
+  provider errors or credential-bearing URLs from entering logs and audit
+  records.
+- Added compare-and-set lifecycle transitions, safe keyset pagination,
+  token-independent device identifiers, versioned administration writes, and
+  atomic soft deletion.
 
-Database schemas, alarm-domain API routes, event names, and persisted data do
-not change. No compatibility aliases are emitted.
+### Removed
+
+- Removed legacy package, image-variable, logger, and metric aliases.
+- Removed unused connector settings, obsolete template loaders, and dead event
+  publisher branches.
 
 ## [0.2.0] - 2026-04-19
 
-### Added in 0.2.0
-- `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` settings for connection pool tuning
-- `SLOW_QUERY_LOG_MS` setting; SQLAlchemy slow-query listener logs WARNINGs for queries exceeding threshold
-- `request_id` propagation: stored in `alarm.meta` at trigger time, readable from `X-Request-ID` response header
-- Extended test coverage: 95 new tests targeting errors, event_service, notification_service, trigger_service, and worker/tasks branches
-- `.env.example` entries for all new settings
-- Externalized Admin UI HTML template for better maintainability
-- Dockerfile multi-stage build for optimized image size
-- `pytest-cov` for coverage measurement in the Python service
-- `EnrichedAlarmContext` and `NotificationPayload` TypedDicts for type-safe internal data
-- Expanded test coverage across services, connectors, worker tasks, packaging, and smoke paths
-- `[tool.mypy]` configuration with return-type warnings and typed function-body checks
-- CSV export formula injection protection
-- `services/escalane/escalane/services/message_formatter.py` (canonical location for alarm message formatting)
-- `services/escalane/escalane/services/metrics_queries.py` (DB queries for Prometheus metrics)
+### Added
 
-### Changed in 0.2.0
-- Coverage threshold raised from 89% → 93% (actual: 93.48%)
-- `create_async_engine_from_url` accepts pool and slow-query-log parameters
-- `process_trigger` and `create_alarm` accept optional `request_id` for tracing
-- POST create endpoints (devices, escalation policy) now return 201 Created
-- Added docstrings to all API endpoints for OpenAPI documentation
-- Split `alarms.py` (781 lines) into `alarms.py`, `alarm_operations.py`, `alarm_notes.py`
-- Service layer now uses domain exceptions (`ConflictError`, `NotFoundError`, `ValidationError`) instead of `HTTPException`
-- mypy type checking enforced in CI (removed `|| true`)
-- `services/escalane/escalane/core/metrics.py` decoupled from `services/escalane/escalane/db/models.py`: accepts data as parameters
-- Fixed coverage measurement: `concurrency = ["greenlet", "thread"]` for async tracing
-- Test imports use try/except pattern for directory-independent execution
-- `AlarmPatchSchema` now enforces length limits on title, description, tags
-- Improved code deduplication in API routes
-- Refactored webhook logic into separate functions for better testability
-- CI now includes PostgreSQL + Alembic smoke coverage and a wheel packaging smoke import
+- Database pool and slow-query settings.
+- Request ID propagation from HTTP responses into alarm metadata.
+- CSV export formula-injection protection.
+- A multi-stage runtime image and PostgreSQL/Alembic package smoke checks.
+
+### Changed
+
+- Added optimistic lifecycle and trigger-idempotency handling.
+- Moved browser session state to Redis and made cookie security scheme-aware.
+- Applied validation limits to editable alarm fields and enforced type checks
+  in CI.
 
 ### Fixed
-- Fixed soft-deleted alarms appearing in list, export, dashboard, and bulk operations
-- Fixed export_alarms Content-Disposition header on StreamingResponse
-- Fixed hardcoded status strings in admin_ui.py to use AlarmStatus enum
-- Fixed 54 mypy type errors across 20 files
-- Fixed `seed.py` type inference with entity-specific variable names
-- Fixed `settings.py` AnyHttpUrl/str type mismatch
-- Fixed `mock.py` class-level type annotations
-- Fixed broken documentation links
-- Removed duplicate PUT /devices endpoint
-- Fixed trigger idempotency races and retry-safe event recovery after alarm creation
-- Fixed local HTTP admin/ACK browser flows by making cookie security scheme-aware and moving UI state to Redis
-- Fixed packaged wheel imports by shipping admin and ACK HTML templates as package data
+
+- Excluded soft-deleted alarms from queries, exports, dashboards, and bulk
+  operations.
+- Corrected response headers, status serialization, and packaged template
+  discovery.
 
 ## [0.1.0] - 2024-01-15
 
-### Added in 0.1.0
-- Initial release
-- Alarm management API (create, list, acknowledge)
-- Admin UI for alarm management
-- Notification connectors: SendXMS (SMS), Signal, Zammad
-- Webhook notifications
-- Idempotency handling
-- Rate limiting
-- IP allowlist
-- Seed data loading
-- Health and readiness checks
-- Alarm simulation for testing
-- FastAPI REST API with PostgreSQL (SQLAlchemy), Redis, arq worker, Alembic migrations
+### Added
+
+- Alarm intake and lifecycle APIs, an operator interface, responder
+  acknowledgement, SendXMS, Signal, Zammad and webhook delivery, rate limiting,
+  source allowlisting, seed imports, health checks, and simulation support.

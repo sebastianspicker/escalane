@@ -33,7 +33,7 @@ data, personal data, and internal hostnames.
 - `/metrics` and `/healthz/details` require the admin key.
 
 Do not expose static admin credentials, trigger URLs, acknowledgement URLs, or
-connector secrets in logs, screenshots, issues, or audit data.
+provider secrets in logs, screenshots, issues, or audit data.
 
 ## Network and URL validation
 
@@ -48,9 +48,9 @@ credentials. Enabled signed webhook callbacks require:
 - a `WEBHOOK_SECRET` of at least 32 characters
 
 Generic escalation-target webhooks also require an exact allowed host and pass
-public-address checks. `ALLOW_HTTP_WEBHOOKS=true` permits HTTP for that generic
-target path only. It does not relax host or address validation and does not
-apply to `WEBHOOK_URL`.
+public-address checks. HTTP is permitted only when simulation mode is enabled;
+that does not relax host or address validation and does not apply to
+`WEBHOOK_URL`.
 
 The signed callback uses HMAC-SHA256 in `X-Hub-Signature-256`.
 
@@ -103,6 +103,5 @@ configuration.
 make audit
 ```
 
-This runs Ruff, Bandit on the application package, and `pip-audit` from
-`services/escalane`. Advisory scanning does not replace a deployment inventory
-or update policy.
+This runs Ruff, Bandit on `src/escalane`, and `pip-audit`. Advisory scanning
+does not replace a deployment inventory or update policy.

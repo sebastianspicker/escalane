@@ -21,7 +21,7 @@
 <!-- List exact commands run and results. If skipped, explain why. -->
 
 - [ ] `make lint`
-- [ ] `python -m mypy --config-file services/escalane/pyproject.toml services/escalane/escalane`
+- [ ] `python -m mypy src migrations scripts`
 - [ ] `make hygiene-check`
 - [ ] `make test`
 - [ ] `make audit` when dependencies, auth, network egress, secrets, parsing, or security controls changed

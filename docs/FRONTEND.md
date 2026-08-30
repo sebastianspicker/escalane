@@ -1,7 +1,7 @@
 # Frontend
 
-Escalane uses Jinja templates and packaged static assets served by FastAPI.
-There is no SPA, package-manager step, or frontend bundle.
+Escalane serves Jinja templates and packaged static assets from the web
+adapter. There is no SPA, package-manager command, or frontend bundle.
 
 ## Routes
 
@@ -16,33 +16,35 @@ There is no SPA, package-manager step, or frontend bundle.
 | `/admin/simulation` | Mock delivery feed | Browser session and simulation mode |
 | `/a/{ack_token}` | Responder acknowledgement | Capability token |
 
-Authenticated form posts require a CSRF token. JavaScript enhances confirmation,
-busy states, dialogs, local timestamps, navigation, and revision polling; it
-does not authorize an action.
+Authenticated form posts require CSRF protection. JavaScript enhances
+confirmation, busy states, dialogs, local times, navigation, and revision
+polling; it does not authorize actions or decide lifecycle transitions.
 
 ## Source layout
 
-- `services/escalane/escalane/api/templates/` contains Jinja templates.
-- `services/escalane/escalane/api/assets/` contains CSS, JavaScript, and SVG.
-- `services/escalane/escalane/api/assets/ui.css` imports the CSS modules.
-- `services/escalane/escalane/api/assets/ui.js` contains browser enhancement.
-- `services/escalane/escalane/api/i18n.py` contains English and German strings.
+- `src/escalane/web/templates/` contains Jinja templates.
+- `src/escalane/web/assets/` contains CSS, JavaScript, and SVG.
+- `src/escalane/web/assets/ui.css` imports the CSS modules.
+- `src/escalane/web/assets/ui.js` contains browser enhancement.
+- `src/escalane/web/i18n.py` contains English and German strings.
 
-These resources are included in the wheel by
-`services/escalane/pyproject.toml`.
+## Interaction contract
+
+- Use semantic landmarks, one visible `h1`, native buttons, labelled controls,
+  tables, description lists, and fieldsets.
+- Pair status colour with text and preserve visible `:focus-visible` treatment.
+- Return focus to the control that opened a dialog.
+- Keep responder controls at least 44 CSS pixels high.
+- Avoid page-level horizontal overflow at 320 CSS pixels. Wide tables may
+  scroll only inside a labelled container.
+- Do not require hover, animation, or JavaScript for a critical action.
 
 ## Validation
 
-For user-facing changes, also check:
+For user-facing changes, check keyboard access and visible focus; sign-in,
+worklist, detail, configuration, and acknowledgement flows; loading, empty,
+error, stale-session, and conflict states; 320 CSS pixel reflow; reduced
+motion and forced colours; and English and German string parity.
 
-- keyboard access and visible focus
-- sign-in, worklist, detail, configuration, and acknowledgement flows
-- loading, empty, error, stale-session, and conflict states
-- 320 CSS pixel reflow and page-level horizontal overflow
-- reduced motion, forced colours, and light and dark schemes
-- English and German string parity
-
-The compact direct suite does not automate browser interaction. Manual
-screen-reader and target-browser review remains appropriate for UI changes.
-
-See [../DESIGN.md](../DESIGN.md) for the browser interaction contract.
+The direct suite does not replace manual screen-reader and target-browser
+review.

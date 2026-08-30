@@ -8,7 +8,7 @@ on:
       - "pages/**"
       - "scripts/build_pages.py"
       - "scripts/validate_pages.py"
-      - "services/escalane/escalane/api/assets/**"
+      - "src/escalane/web/assets/**"
   workflow_dispatch:
 
 permissions:

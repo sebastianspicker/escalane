@@ -8,9 +8,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PAGES_SOURCE = REPOSITORY_ROOT / "pages"
-PRODUCT_ASSETS = (
-    REPOSITORY_ROOT / "services" / "escalane" / "escalane" / "api" / "assets"
-)
+PRODUCT_ASSETS = REPOSITORY_ROOT / "src" / "escalane" / "web" / "assets"
 BUILD_ROOT = REPOSITORY_ROOT / "build"
 
 
@@ -31,13 +29,9 @@ def _safe_output_destination(output: Path) -> Path:
     """Resolve and reject destinations that could erase source or user data."""
     destination = output.resolve()
     if destination == REPOSITORY_ROOT.resolve() or _overlaps_source(destination):
-        raise ValueError(
-            "Pages output must not overlap repository sources or product assets"
-        )
+        raise ValueError("Pages output must not overlap repository sources or product assets")
     if destination.exists() and not _is_managed_build_destination(destination):
-        raise ValueError(
-            "Pages output must be new or inside the managed build directory"
-        )
+        raise ValueError("Pages output must be new or inside the managed build directory")
     return destination
 
 

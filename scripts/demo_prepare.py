@@ -90,9 +90,7 @@ def _request_json(
     """Perform one bounded HTTP request and decode JSON when possible."""
     parsed = _parse_http_url(url)
     connection_cls = (
-        http.client.HTTPSConnection
-        if parsed.scheme == "https"
-        else http.client.HTTPConnection
+        http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
     )
     port = parsed.port
     host = parsed.hostname
@@ -186,9 +184,7 @@ def _load_seed(
     if seed_result.status_code == 401:
         raise DemoPrepareError("Seed request unauthorized (401). Check ADMIN_API_KEY.")
     if seed_result.status_code == 409:
-        raise DemoPrepareError(
-            f"Seed request conflict (409): {detail or seed_result.body}"
-        )
+        raise DemoPrepareError(f"Seed request conflict (409): {detail or seed_result.body}")
     raise DemoPrepareError(
         f"Seed request failed (HTTP {seed_result.status_code}): {detail or seed_result.body}"
     )
@@ -217,17 +213,13 @@ def _clear_simulation_notifications(
 
     detail = _extract_detail(clear_result.json_body)
     if clear_result.status_code == 401:
-        raise DemoPrepareError(
-            "Simulation clear unauthorized (401). Check ADMIN_API_KEY."
-        )
+        raise DemoPrepareError("Simulation clear unauthorized (401). Check ADMIN_API_KEY.")
     if clear_result.status_code == 404:
         raise DemoPrepareError(
-            "Simulation endpoint not found (404). "
-            "Set SIMULATION_ENABLED=true and restart stack."
+            "Simulation endpoint not found (404). Set SIMULATION_ENABLED=true and restart stack."
         )
     raise DemoPrepareError(
-        "Simulation clear failed "
-        f"(HTTP {clear_result.status_code}): {detail or clear_result.body}"
+        f"Simulation clear failed (HTTP {clear_result.status_code}): {detail or clear_result.body}"
     )
 
 

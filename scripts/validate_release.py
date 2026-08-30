@@ -64,9 +64,7 @@ def version_from_tag(tag: str) -> tuple[str, bool]:
 
     version = tag[1:]
     public_version, build_separator, build = version.partition("+")
-    if not _optional_identifiers_are_valid(
-        build_separator, build, _identifier_chars_are_valid
-    ):
+    if not _optional_identifiers_are_valid(build_separator, build, _identifier_chars_are_valid):
         raise ValueError(f"release tag must be strict SemVer with a v prefix: {tag!r}")
 
     core, prerelease_separator, prerelease = public_version.partition("-")
@@ -83,9 +81,7 @@ def version_from_tag(tag: str) -> tuple[str, bool]:
 
 def package_version(version_file: Path) -> str:
     """Read ``escalane.__version__`` without importing application dependencies."""
-    tree = ast.parse(
-        version_file.read_text(encoding="utf-8"), filename=str(version_file)
-    )
+    tree = ast.parse(version_file.read_text(encoding="utf-8"), filename=str(version_file))
     for statement in tree.body:
         if (
             isinstance(statement, ast.Assign)
@@ -101,9 +97,7 @@ def package_version(version_file: Path) -> str:
 
 def changelog_has_release(changelog: Path, version: str) -> bool:
     """Return whether the changelog declares a level-two heading for ``version``."""
-    heading = re.compile(
-        rf"^##\s+\[?{re.escape(version)}\]?(?:\s+-\s+.+)?\s*$", re.MULTILINE
-    )
+    heading = re.compile(rf"^##\s+\[?{re.escape(version)}\]?(?:\s+-\s+.+)?\s*$", re.MULTILINE)
     return heading.search(changelog.read_text(encoding="utf-8")) is not None
 
 
@@ -127,7 +121,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--version-file",
         type=Path,
-        default=Path("services/escalane/escalane/__init__.py"),
+        default=Path("src/escalane/__init__.py"),
     )
     parser.add_argument("--changelog", type=Path, default=Path("CHANGELOG.md"))
     parser.add_argument("--github-output", type=Path)
@@ -138,9 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Validate release metadata and optionally emit GitHub Actions outputs."""
     args = parse_args(argv)
     try:
-        version, prerelease = validate_release(
-            args.tag, args.version_file, args.changelog
-        )
+        version, prerelease = validate_release(args.tag, args.version_file, args.changelog)
     except (OSError, SyntaxError, ValueError) as error:
         print(f"release validation failed: {error}")
         return 1

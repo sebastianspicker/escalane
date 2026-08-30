@@ -12,12 +12,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev="${LIBPQ_DEV_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
-# A self-contained virtual environment can be copied unchanged into production.
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install the package normally so templates and browser assets become wheel data.
-COPY services/escalane/ /build/
+# Build from the repository root so setuptools discovers the src package.
+COPY pyproject.toml README.md LICENSE alembic.ini /build/
+COPY src /build/src
+COPY migrations /build/migrations
 RUN pip install --no-cache-dir /build
 
 # Start again from the minimal pinned base to reduce runtime attack surface.
@@ -30,43 +31,33 @@ LABEL org.opencontainers.image.title="escalane" \
     org.opencontainers.image.source="https://github.com/sebastianspicker/escalane" \
     org.opencontainers.image.licenses="MIT"
 
-# PostgreSQL needs only the client library at runtime, not compiler headers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5="${LIBPQ5_VERSION}" \
     && rm -rf /var/lib/apt/lists/*
 
-# The service has no reason to mutate the image or run with host-level privileges.
 RUN groupadd -r alarm && useradd -r -g alarm -s /usr/sbin/nologin alarm
 
 WORKDIR /app
 
-# Reuse the exact dependency environment produced by the build stage.
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Keep source metadata available for Alembic and operational introspection.
-COPY --chown=alarm:alarm services/escalane /app/services/escalane
-COPY --chown=alarm:alarm LICENSE /app/LICENSE
+# Alembic runs from /app, while application modules come only from site-packages.
+COPY --chown=alarm:alarm alembic.ini /app/
+COPY --chown=alarm:alarm migrations /app/migrations
 
-# Set ownership
-RUN chown -R alarm:alarm /app
-
-# Switch to non-root user
 USER alarm
 
-# Avoid container-local bytecode writes and flush logs directly to the runtime.
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/services/escalane
+    PYTHONUNBUFFERED=1
 
-WORKDIR /app/services/escalane
+# Fail the build if a future Dockerfile change shadows the installed distribution.
+RUN python -c "from pathlib import Path; import escalane; origin = Path(escalane.__file__).resolve(); assert origin.is_relative_to(Path('/opt/venv')), origin"
 
-# Expose ports
 EXPOSE 8080
 
 # Liveness intentionally avoids database/Redis dependencies; readiness is separate.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/healthz')" || exit 1
 
-# Run command
-CMD ["uvicorn", "escalane.api.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header", "--no-access-log"]
+CMD ["uvicorn", "escalane.web.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header", "--no-access-log"]

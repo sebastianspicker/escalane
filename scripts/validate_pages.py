@@ -44,7 +44,7 @@ class DemoParser(HTMLParser):
         self.command_has_label.append(False)
 
     def _mark_simulated_label(self, values: dict[str, str | None]) -> None:
-        if self.command_depth and "simulated-label" in values.get("class", "").split():
+        if self.command_depth and "simulated-label" in (values.get("class") or "").split():
             self.command_has_label[-1] = True
 
     def handle_endtag(self, tag: str) -> None:
@@ -65,9 +65,7 @@ def validate(root: Path) -> list[str]:
 
 
 def _missing_artifact_violations(root: Path) -> list[str]:
-    inventory = {
-        path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()
-    }
+    inventory = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
     missing = sorted((REQUIRED_PAGES | REQUIRED_ASSETS) - inventory)
     return [f"missing artifact: {path}" for path in missing]
 
@@ -91,9 +89,7 @@ def _link_violations(root: Path, page_name: str, page: Path, link: str) -> list[
     parsed = urlsplit(link)
     violations: list[str] = []
     if parsed.path.startswith(FORBIDDEN_ROUTE_PREFIXES):
-        violations.append(
-            f"{page_name}: live application route in static artifact: {link}"
-        )
+        violations.append(f"{page_name}: live application route in static artifact: {link}")
     external_violations = _external_link_violations(page_name, link, parsed)
     if external_violations is not None:
         violations.extend(external_violations)
@@ -102,9 +98,7 @@ def _link_violations(root: Path, page_name: str, page: Path, link: str) -> list[
     return violations
 
 
-def _external_link_violations(
-    page_name: str, link: str, parsed: SplitResult
-) -> list[str] | None:
+def _external_link_violations(page_name: str, link: str, parsed: SplitResult) -> list[str] | None:
     if parsed.scheme:
         if parsed.scheme in ALLOWED_EXTERNAL_SCHEMES:
             return []

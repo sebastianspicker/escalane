@@ -167,7 +167,7 @@ jobs:
               backups, restore, alerting, capacity, accessibility, and rollback
               in the intended environment.
             - See the
-              [release status](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/RELEASE_STATUS.md),
+              [operations guide](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/docs/OPERATIONS.md),
               [security policy](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/SECURITY.md),
               and
               [changelog](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/CHANGELOG.md)

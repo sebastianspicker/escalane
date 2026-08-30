@@ -16,7 +16,7 @@ The service requires Python 3.14.x. CI uses Python 3.14.6.
 make install
 ```
 
-This creates `.venv` and installs `services/escalane[dev]` in editable mode.
+This creates `.venv` and installs `.[dev]` in editable mode.
 
 ## Validation
 
@@ -33,25 +33,33 @@ Additional gates:
 
 | Command | Use |
 |---|---|
-| `make test-postgres-smoke` | Schema, migration, or PostgreSQL behavior |
+| `DATABASE_URL=postgresql+asyncpg://… YELK_IP_ALLOWLIST=127.0.0.1/32 make test-postgres-smoke` | Schema, migration, or PostgreSQL behavior |
 | `make package-check` | Package metadata, templates, or static assets |
 | `make audit` | Dependency or security-sensitive changes |
+| `make architecture-check` | Internal import boundaries |
+| `make coverage` | Test coverage and configured threshold |
 | `make container-check` | Docker, migration, startup, or readiness changes |
 | `make release-check RELEASE_TAG=v<version>` | Release metadata |
 
-Run mypy directly because the Makefile has no type-check target:
+Run the complete local gate before a broad change:
 
 ```bash
-./.venv/bin/python -m mypy \
-  --config-file services/escalane/pyproject.toml \
-  services/escalane/escalane
+make pages-build
+make check
 ```
 
-The active suite is deliberately compact:
+The active suite is organized by feature and boundary:
 
 ```text
-services/escalane/tests/
-└── test_core.py   Alarm, outbox, simulation, ingress, and trigger contracts
+tests/
+├── alarms/          lifecycle, triggers, and ordered outbox contracts
+├── configuration/   seed, policy, and redacted admin-audit contracts
+├── contracts/       settings, runtime, persistence, and worker boundaries
+├── integration/     HTTP, worker, lifecycle, and operator workflows
+├── notifications/   provider delivery and audit behavior
+├── security/        ingress and HTTP security regressions
+├── support/         test-only helpers
+└── conftest.py      shared SQLite application fixtures
 ```
 
 Keep active test source tracked. Local reports, caches, and temporary databases

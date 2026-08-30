@@ -10,7 +10,7 @@ updates:
           - "*"
 
   - package-ecosystem: "pip"
-    directory: "/services/escalane"
+    directory: "/"
     schedule:
       interval: "weekly"
     groups:
