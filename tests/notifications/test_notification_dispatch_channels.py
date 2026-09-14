@@ -66,6 +66,7 @@ def test_get_priority_unknown_defaults_to_critical():
 async def test_send_skips_disabled_target():
     svc = _make_svc()
     session = await _noop_session()
+    session.scalar.return_value = None
     target = _make_target(enabled=False)
 
     # _send_to_channel should never be called for disabled targets
@@ -91,6 +92,7 @@ async def test_send_skips_disabled_target():
 async def test_send_attempts_every_target_then_raises_for_retryable_failures():
     svc = _make_svc()
     session = await _noop_session()
+    session.scalar.return_value = None
     successful = _make_target(channel="signal", target_id="successful")
     failed = _make_target(channel="sms", target_id="failed")
 
@@ -125,11 +127,7 @@ async def test_send_retry_skips_a_target_with_durable_success():
     still_pending = _make_target(channel="sms", target_id="still-pending")
     successful_row = MagicMock()
     successful_row.payload = {"step_no": 0}
-    successful_result = MagicMock()
-    successful_result.all.return_value = [successful_row]
-    pending_result = MagicMock()
-    pending_result.all.return_value = []
-    session.scalars = AsyncMock(side_effect=[successful_result, pending_result])
+    session.scalar = AsyncMock(side_effect=[successful_row, None])
 
     with patch.object(
         notification_targets,

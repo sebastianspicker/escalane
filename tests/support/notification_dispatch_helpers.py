@@ -83,6 +83,7 @@ async def _noop_session() -> AsyncMock:
     scalar_result = MagicMock()
     scalar_result.all.return_value = []
     session.scalars = AsyncMock(return_value=scalar_result)
+    session.scalar = AsyncMock(return_value=None)
     return session
 
 

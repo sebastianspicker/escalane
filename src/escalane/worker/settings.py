@@ -15,6 +15,7 @@ from escalane.persistence.session import create_sessionmaker
 from escalane.providers.mock import MockSendXmsClient, MockSignalClient, MockZammadClient
 from escalane.providers.sendxms import SendXmsClient, SendXmsConfig
 from escalane.providers.signal import SignalClient, SignalConfig
+from escalane.providers.webhook import WebhookClientPool
 from escalane.providers.zammad import ZammadClient, ZammadConfig
 from escalane.worker.tasks import (
     MAX_DELIVERY_ATTEMPTS,
@@ -24,6 +25,7 @@ from escalane.worker.tasks import (
     alarm_state_changed,
     escalate,
     process_alarm_event,
+    publish_worker_heartbeat,
     recover_incomplete_alarm_events,
 )
 
@@ -40,6 +42,7 @@ async def startup(ctx: WorkerContext) -> None:
         engine = create_async_engine_from_settings(settings)
         ctx["engine"] = engine
         ctx["sessionmaker"] = create_sessionmaker(engine)
+        ctx["webhook_pool"] = WebhookClientPool()
 
         http = httpx.AsyncClient(timeout=httpx.Timeout(10.0), trust_env=False)
         ctx["http"] = http
@@ -79,6 +82,7 @@ async def startup(ctx: WorkerContext) -> None:
                     send_path=settings.signal_send_path,
                 ),
             )
+        await publish_worker_heartbeat(ctx)
     except Exception:
         await _close_worker_resources(ctx)
         raise
@@ -91,6 +95,12 @@ async def shutdown(ctx: WorkerContext) -> None:
 
 async def _close_worker_resources(ctx: WorkerContext) -> None:
     """Close independently so one cleanup failure cannot leak the other resource."""
+    webhook_pool = ctx.get("webhook_pool")
+    if isinstance(webhook_pool, WebhookClientPool):
+        try:
+            await webhook_pool.aclose()
+        except Exception:
+            logger.exception("worker_webhook_pool_close_failed")
     http = ctx.get("http")
     if isinstance(http, httpx.AsyncClient):
         try:
@@ -110,6 +120,7 @@ class _LazyRedisSettings:
 
     def __set_name__(self, owner: type, name: str) -> None:
         self._attr = f"_lazy_{name}"
+        self._owner = owner
 
     def __get__(self, obj: object, objtype: type | None = None) -> RedisSettings:
         owner = objtype or type(obj)
@@ -118,6 +129,10 @@ class _LazyRedisSettings:
             cached = RedisSettings.from_dsn(str(get_settings().redis_url))
             setattr(owner, self._attr, cached)
         return cached
+
+    def __getattr__(self, name: str) -> Any:
+        # ARQ reads the class dictionary directly, bypassing __get__.
+        return getattr(self.__get__(None, self._owner), name)
 
 
 class WorkerSettings:
@@ -142,5 +157,11 @@ class WorkerSettings:
             second=0,
             run_at_startup=True,
             job_id="recover-incomplete-alarm-events",
-        )
+        ),
+        cron(
+            cast(Any, publish_worker_heartbeat),
+            second={0, 15, 30, 45},
+            run_at_startup=False,
+            job_id="publish-worker-heartbeat",
+        ),
     ]

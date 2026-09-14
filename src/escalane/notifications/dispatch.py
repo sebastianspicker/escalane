@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -23,10 +24,10 @@ from escalane.notifications import (
     zammad as notification_zammad,
 )
 from escalane.notifications.formatting import format_alarm_message
-from escalane.operations.metrics import record_event
+from escalane.operations.metrics import observe_latency, record_event
 from escalane.persistence.models import Alarm, EscalationTarget
 from escalane.providers.base import SignalGroupProvider, SmsProvider, ZammadTicketProvider
-from escalane.providers.webhook import post_webhook_to_validated_addresses
+from escalane.providers.webhook import WebhookClientPool, post_webhook_to_validated_addresses
 from escalane.security.url_validation import (
     RetryableSSRFError,
     SSRFError,
@@ -50,6 +51,7 @@ class NotificationService:
         zammad: ZammadTicketProvider,
         sendxms: SmsProvider,
         signal: SignalGroupProvider,
+        webhook_pool: WebhookClientPool | None = None,
     ) -> None:
         """Initialize the notification service.
 
@@ -61,6 +63,7 @@ class NotificationService:
         self._zammad = zammad
         self._sendxms = sendxms
         self._signal = signal
+        self._webhook_pool = webhook_pool
 
     async def send(
         self,
@@ -87,7 +90,7 @@ class NotificationService:
         for target in targets:
             if not target.enabled:
                 continue
-            if await notification_delivery.successful_notification(
+            if await notification_delivery.completed_notification(
                 session,
                 alarm_id=alarm.id,
                 channel=target.channel,
@@ -289,7 +292,11 @@ class NotificationService:
             )
             return True
         try:
-            await send()
+            started_at = time.monotonic()
+            try:
+                await send()
+            finally:
+                observe_latency("provider_delivery", time.monotonic() - started_at)
         except Exception as exc:
             safe_error = notification_delivery.safe_delivery_error(exc)
             logger.error(failure_event, extra={"target_id": target.id, "error": safe_error})
@@ -337,18 +344,23 @@ class NotificationService:
             payload=payload,
         )
         try:
-            await post_webhook_to_validated_addresses(
-                webhook_url,
-                payload,
-                resolved_addresses,
-                target.id,
-                delivery_id,
-                (
-                    settings.webhook_timeout_seconds
-                    if settings
-                    else Settings().webhook_timeout_seconds
-                ),
-            )
+            started_at = time.monotonic()
+            try:
+                await post_webhook_to_validated_addresses(
+                    webhook_url,
+                    payload,
+                    resolved_addresses,
+                    target.id,
+                    delivery_id,
+                    (
+                        settings.webhook_timeout_seconds
+                        if settings
+                        else Settings().webhook_timeout_seconds
+                    ),
+                    client_pool=self._webhook_pool,
+                )
+            finally:
+                observe_latency("provider_delivery", time.monotonic() - started_at)
         except Exception as e:
             safe_error = notification_delivery.safe_delivery_error(e)
             logger.error(
@@ -453,8 +465,10 @@ class NotificationService:
         contract for ambiguous/transient failures.
         """
         safe_error = error or notification_delivery.safe_delivery_error(exception)
-        await self._log_notification_result(session, target, payload, "error", safe_error)
-        return not notification_delivery.is_retryable_delivery_error(exception)
+        retryable = notification_delivery.is_retryable_delivery_error(exception)
+        result = "error" if retryable else "permanent_error"
+        await self._log_notification_result(session, target, payload, result, safe_error)
+        return not retryable
 
     async def handle_zammad_ticket(
         self,

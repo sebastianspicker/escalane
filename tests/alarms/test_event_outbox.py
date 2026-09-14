@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -37,6 +39,16 @@ class _FailFirstRedis:
         self.calls += 1
         if self.calls == 1:
             raise ConnectionError("first event unavailable")
+        return object()
+
+
+class _DelayedRedis:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def enqueue_job(self, *_args, **_kwargs):
+        self.calls += 1
+        await asyncio.sleep(0.01)
         return object()
 
 
@@ -178,3 +190,157 @@ async def test_outbox_stops_an_alarm_stream_after_the_first_failed_event(
         "alarm.acknowledged",
         "alarm.state_changed",
     ]
+
+
+async def test_ack_recovery_filters_completed_rows_before_applying_limit(
+    sessionmaker, seeded_db
+) -> None:
+    """More than one page of completed ACKs cannot hide pending recovery work."""
+    cutoff = datetime.now(UTC) - timedelta(minutes=11)
+    completed_alarm = _alarm()
+    completed_alarm.zammad_ticket_id = 42
+    pending_alarm = _alarm()
+    pending_alarm.ack_token = value_for_test("outbox-ack-pending")
+    pending_alarm.zammad_ticket_id = 43
+    completed_events = [
+        AlarmEventOutbox(
+            alarm_id=completed_alarm.id,
+            event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+            payload={},
+            published_at=cutoff - timedelta(seconds=index),
+        )
+        for index in range(501)
+    ]
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                completed_alarm,
+                pending_alarm,
+                *completed_events,
+                AlarmEventOutbox(
+                    alarm_id=pending_alarm.id,
+                    event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+                    payload={},
+                    published_at=cutoff,
+                ),
+                AlarmNotification(
+                    alarm_id=completed_alarm.id,
+                    channel="zammad",
+                    target_id=None,
+                    logical_delivery_key="ack_update:42",
+                    payload={"action": "ack_update", "ticket_id": 42},
+                    result="ok",
+                ),
+            ]
+        )
+        await session.commit()
+
+        assert await rearm_stale_acknowledgement_events(session, limit=500) == 1
+        pending = await session.scalar(
+            select(AlarmEventOutbox).where(AlarmEventOutbox.alarm_id == pending_alarm.id)
+        )
+        assert pending is not None and pending.published_at is None
+
+
+async def test_outbox_commits_short_batches(sessionmaker, seeded_db, fake_redis) -> None:
+    """Accepted queue writes are checkpointed at the configured batch boundary."""
+    alarms = [_alarm() for _ in range(5)]
+    for alarm in alarms:
+        alarm.ack_token = None
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                item
+                for alarm in alarms
+                for item in (
+                    alarm,
+                    AlarmEventOutbox(
+                        alarm_id=alarm.id,
+                        event_type=constants.EVENT_ALARM_CREATED,
+                        payload={},
+                    ),
+                )
+            ]
+        )
+        await session.commit()
+        original_commit = session.commit
+        commits = 0
+
+        async def counted_commit() -> None:
+            nonlocal commits
+            commits += 1
+            await original_commit()
+
+        session.commit = counted_commit  # type: ignore[method-assign]
+        assert (
+            await dispatch_pending_alarm_events(session, fake_redis, logger=logger, batch_size=2)
+            == 5
+        )
+
+    assert commits == 3
+
+
+async def test_outbox_stops_before_a_second_batch_when_commit_fails(
+    sessionmaker, seeded_db, fake_redis
+) -> None:
+    alarms = [_alarm() for _ in range(3)]
+    for alarm in alarms:
+        alarm.ack_token = None
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                item
+                for alarm in alarms
+                for item in (
+                    alarm,
+                    AlarmEventOutbox(
+                        alarm_id=alarm.id,
+                        event_type=constants.EVENT_ALARM_CREATED,
+                        payload={},
+                    ),
+                )
+            ]
+        )
+        await session.commit()
+        session.commit = AsyncMock(side_effect=RuntimeError("commit unavailable"))  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="commit unavailable"):
+            await dispatch_pending_alarm_events(session, fake_redis, logger=logger, batch_size=2)
+
+    assert len(fake_redis.jobs) == 2
+
+
+async def test_outbox_checks_soft_budget_only_after_committed_batch(
+    sessionmaker, seeded_db
+) -> None:
+    alarms = [_alarm() for _ in range(2)]
+    for alarm in alarms:
+        alarm.ack_token = None
+    delayed = _DelayedRedis()
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                item
+                for alarm in alarms
+                for item in (
+                    alarm,
+                    AlarmEventOutbox(
+                        alarm_id=alarm.id,
+                        event_type=constants.EVENT_ALARM_CREATED,
+                        payload={},
+                    ),
+                )
+            ]
+        )
+        await session.commit()
+        assert (
+            await dispatch_pending_alarm_events(
+                session,
+                delayed,
+                logger=logger,
+                batch_size=1,
+                budget_seconds=0.001,
+            )
+            == 1
+        )
+
+    assert delayed.calls == 1

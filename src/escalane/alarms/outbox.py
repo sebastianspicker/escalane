@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -13,7 +14,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 
 from escalane.config import constants
-from escalane.operations.metrics import record_event
+from escalane.operations.metrics import observe_latency, record_event
 from escalane.persistence.models import AlarmEventOutbox
 
 ARQ_JOB_NAME = "process_alarm_event"
@@ -75,7 +76,11 @@ async def _publish_outbox_event(
         return str(exc)
 
     try:
-        await redis.enqueue_job(ARQ_JOB_NAME, payload, _job_id=_job_id_for_payload(payload))
+        started_at = time.monotonic()
+        try:
+            await redis.enqueue_job(ARQ_JOB_NAME, payload, _job_id=_job_id_for_payload(payload))
+        finally:
+            observe_latency("redis_enqueue", time.monotonic() - started_at)
     except Exception as exc:
         log_message = {
             constants.EVENT_ALARM_CREATED: "enqueue alarm_created failed",
@@ -141,13 +146,22 @@ async def dispatch_pending_alarm_events(
     logger: logging.Logger,
     alarm_id: uuid.UUID | None = None,
     limit: int = 500,
+    batch_size: int = 25,
+    budget_seconds: float | None = None,
 ) -> int:
     """Publish pending lifecycle events and durably record accepted queue writes."""
+    if limit <= 0:
+        return 0
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     published = 0
     blocked_alarms: set[uuid.UUID] = set()
     attempted = 0
+    started_at = time.monotonic()
+    committed_batch = False
     while attempted < limit:
-        stmt = _pending_outbox_statement(alarm_id, blocked_alarms, limit - attempted)
+        remaining = limit - attempted
+        stmt = _pending_outbox_statement(alarm_id, blocked_alarms, min(batch_size, remaining))
         events = list((await session.scalars(stmt)).all())
         if not events:
             break
@@ -171,7 +185,13 @@ async def dispatch_pending_alarm_events(
                     "error": error,
                 },
             )
-    await session.commit()
+        await session.commit()
+        committed_batch = True
+        if budget_seconds is not None and time.monotonic() - started_at >= budget_seconds:
+            break
+    if not committed_batch:
+        # Preserve the direct-call transaction boundary even when no work is found.
+        await session.commit()
     return published
 
 

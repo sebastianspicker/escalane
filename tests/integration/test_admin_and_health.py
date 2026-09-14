@@ -10,6 +10,7 @@ from sqlalchemy import text
 
 from escalane.contracts.alarms import AlarmStatus
 from escalane.persistence.models import Alarm
+from escalane.web.i18n import CATALOGUE
 from escalane.web.routes.health import EXPECTED_ALEMBIC_HEAD
 from tests.support.api_test_helpers import app_client
 from tests.support.api_test_helpers import make_alarm as _base_alarm
@@ -24,6 +25,19 @@ def _make_alarm(**overrides) -> Alarm:
     """Build an admin-route fixture with a distinct non-secret token label."""
     overrides.setdefault("ack_token", value_for_test(f"admin-{uuid.uuid4().hex[:8]}"))
     return _base_alarm(**overrides)
+
+
+def test_instrument_panel_strings_are_translated_in_supported_locales() -> None:
+    """Visible enhancement controls retain an explicit English and German contract."""
+    for key in (
+        "live",
+        "severity_filter",
+        "clear_selection",
+        "switch_to_dark_theme",
+        "switch_to_light_theme",
+    ):
+        assert CATALOGUE["en"][key]
+        assert CATALOGUE["de"][key]
 
 
 def _expect_filter_result(html: str, *, visible_id: uuid.UUID, hidden_id: uuid.UUID) -> None:
@@ -107,6 +121,57 @@ async def test_admin_dashboard_status_filter(engine, sessionmaker, seeded_db, fa
 
     expect(response.status_code == 200)
     _expect_filter_result(response.text, visible_id=resolved_id, hidden_id=triggered_id)
+
+
+async def test_admin_dashboard_severity_filter_and_instrument_markup(
+    engine, sessionmaker, seeded_db, fake_redis, settings
+):
+    """The dashboard keeps the selected severity in its server-rendered filter controls."""
+    settings.admin_api_key = TEST_ADMIN_API_KEY
+    p0_id, p1_id = uuid.uuid4(), uuid.uuid4()
+    async with sessionmaker() as session:
+        session.add_all(
+            [
+                _make_alarm(alarm_id=p0_id, severity="P0", ack_token=value_for_test("severity-p0")),
+                _make_alarm(alarm_id=p1_id, severity="P1", ack_token=value_for_test("severity-p1")),
+            ]
+        )
+        await session.commit()
+
+    async with app_client(settings=settings, engine=engine, redis=fake_redis) as client:
+        await admin_login(client, TEST_ADMIN_API_KEY)
+        response = await client.get("/admin", params={"severity": "P0", "lang": "en"})
+
+    expect(response.status_code == 200)
+    _expect_filter_result(response.text, visible_id=p0_id, hidden_id=p1_id)
+    expect('class="severity-filter"' in response.text)
+    expect('aria-current="page">P0</a>' in response.text)
+    expect("data-theme-toggle" in response.text)
+
+
+async def test_admin_alarm_drawer_requires_session_and_renders_safe_forms(
+    engine, sessionmaker, seeded_db, fake_redis, settings
+):
+    """The enhancement fragment remains authenticated and includes real action forms."""
+    settings.admin_api_key = TEST_ADMIN_API_KEY
+    alarm_id = uuid.uuid4()
+    async with sessionmaker() as session:
+        session.add(_make_alarm(alarm_id=alarm_id, ack_token=value_for_test("drawer-alarm")))
+        await session.commit()
+
+    drawer_url = f"/admin/alarms/{alarm_id}/drawer?lang=de"
+    async with app_client(settings=settings, engine=engine, redis=fake_redis) as client:
+        unauthenticated = await client.get(drawer_url)
+        await admin_login(client, TEST_ADMIN_API_KEY)
+        response = await client.get(drawer_url)
+
+    expect(unauthenticated.status_code == 401)
+    expect(response.status_code == 200)
+    expect("data-drawer-fragment" in response.text)
+    expect(f'action="/admin/alarms/{alarm_id}/ack?lang=de"' in response.text)
+    expect(f'action="/admin/alarms/{alarm_id}/cancel?lang=de"' in response.text)
+    expect('name="csrf_token"' in response.text)
+    expect('name="reason"' in response.text)
 
 
 async def test_admin_dashboard_without_api_key_returns_401(engine, seeded_db, fake_redis, settings):

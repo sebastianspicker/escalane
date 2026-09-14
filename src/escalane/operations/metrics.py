@@ -5,15 +5,62 @@ from __future__ import annotations
 from collections import Counter
 from threading import Lock
 
+from escalane.persistence.telemetry import BUCKETS, acquisition_snapshot
+
 _lock = Lock()
 _http_requests_total: Counter[tuple[str, str, str]] = Counter()
 _http_request_duration_ms_total: Counter[tuple[str, str, str]] = Counter()
 _events_total: Counter[str] = Counter()
+_LATENCY_KINDS = frozenset({"http", "provider_delivery", "redis_enqueue"})
+_histograms: dict[str, tuple[list[int], int, float]] = {}
+
+
+def observe_latency(kind: str, seconds: float) -> None:
+    """Observe seconds with fixed families and buckets; no delivery or target labels."""
+    if kind not in _LATENCY_KINDS:
+        raise ValueError("Unsupported latency kind")
+    seconds = max(0.0, seconds)
+    with _lock:
+        counts, count, total = _histograms.get(kind, ([0] * len(BUCKETS), 0, 0.0))
+        for index, boundary in enumerate(BUCKETS):
+            if seconds <= boundary:
+                counts[index] += 1
+        _histograms[kind] = counts, count + 1, total + seconds
+
+
+def latency_snapshot() -> dict[str, tuple[list[int], int, float]]:
+    with _lock:
+        snapshot = {key: (list(value[0]), value[1], value[2]) for key, value in _histograms.items()}
+    snapshot["connection_acquisition"] = acquisition_snapshot()
+    return snapshot
+
+
+def _render_histogram(
+    kind: str, observation: tuple[list[int], int, float], *, worker: bool = False
+) -> list[str]:
+    counts, count, total = observation
+    name = f"escalane_{'worker_' if worker else ''}{kind}_duration_seconds"
+    description = "Latency in seconds."
+    if kind == "connection_acquisition":
+        description = "Connection acquisition including pool wait and connection setup in seconds."
+    lines = [f"# HELP {name} {description}", f"# TYPE {name} histogram"]
+    lines.extend(
+        f'{name}_bucket{{le="{boundary}"}} {value}'
+        for boundary, value in zip(BUCKETS, counts, strict=True)
+    )
+    lines.extend(
+        [f'{name}_bucket{{le="+Inf"}} {count}', f"{name}_count {count}", f"{name}_sum {total}"]
+    )
+    return lines
 
 
 def record_http_request(*, method: str, route: str, status_code: int, duration_ms: int) -> None:
     """Accumulate bounded request metrics under a lock for concurrent ASGI handlers."""
-    key = (method.upper(), route, str(status_code))
+    method = method.upper()
+    if method not in {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"}:
+        method = "OTHER"
+    key = (method, route, str(status_code))
+    observe_latency("http", duration_ms / 1000)
     with _lock:
         _http_requests_total[key] += 1
         _http_request_duration_ms_total[key] += max(0, int(duration_ms))
@@ -41,6 +88,8 @@ def render_prometheus_metrics(
     *,
     alarm_counts: dict[str, int],
     notification_counts: list[tuple[str, str, int]],
+    gauges: dict[str, float] | None = None,
+    worker_histograms: dict | None = None,
 ) -> str:
     """Render Prometheus text format metrics.
 
@@ -89,5 +138,12 @@ def render_prometheus_metrics(
             f'{{channel="{_escape(channel)}",result="{_escape(result)}"}} {count}'
         )
 
+    for kind, observation in latency_snapshot().items():
+        lines.extend(_render_histogram(kind, observation))
+    for kind, observation in (worker_histograms or {}).items():
+        if kind in _LATENCY_KINDS | {"connection_acquisition"}:
+            lines.extend(_render_histogram(kind, observation, worker=True))
+    for name, gauge_value in sorted((gauges or {}).items()):
+        lines.extend([f"# TYPE escalane_{name} gauge", f"escalane_{name} {gauge_value}"])
     lines.append("")
     return "\n".join(lines)

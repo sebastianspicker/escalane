@@ -20,6 +20,12 @@ htmlcov/
 coverage/
 junit.xml
 junit-*.xml
+playwright-report/
+blob-report/
+test-results/
+node_modules/
+*.har
+*.webm
 *.sarif
 reports/
 
@@ -38,6 +44,7 @@ reports/
 *.sqlite3-shm
 *.rdb
 *.aof
+*.dump
 /deploy/pgdata/
 /deploy/docker-compose.override.yml
 /deploy/docker-compose.override.yaml
@@ -46,9 +53,6 @@ reports/
 .env
 .env.*
 !.env.example
-!.env.*.example
-!.env.sample
-!.env.template
 .envrc
 .direnv/
 secrets.local.*
@@ -57,6 +61,9 @@ credentials.local.*
 *.key
 *.p12
 *.pfx
+*.der
+*.cer
+*.crt
 *.jks
 *.keystore
 *.kdbx
@@ -91,6 +98,10 @@ service-account*.json
 /backups/
 /exports/
 /archive/
+/docs/archive/
+/private/
+/privat/
+/screenshot-review/
 /conversation-exports/
 *.tmp
 *.temp

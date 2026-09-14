@@ -1,36 +1,36 @@
-## Summary
+## What changed and why?
 
-<!-- What changed, and why? Link the issue or task when possible. -->
+<!-- Describe the problem and how this change addresses it. Link a related issue if there is one. -->
 
-## Risk and runtime impact
+## What should reviewers know?
 
-<!-- Note affected endpoints, workers, DB schema, Redis/arq jobs, connectors, auth/session behavior, ACK links, or operator-visible states. Write "None" only after checking. -->
+<!-- Explain any effect on endpoints, workers, database schema, Redis/ARQ jobs, providers, authentication, acknowledgement links, or the operator interface. Include migration and configuration steps. If none of these change, say so. -->
 
 ## Type of change
 
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Refactor / cleanup
+- [ ] Refactor or cleanup
 - [ ] Documentation
-- [ ] Security / hardening
-- [ ] CI / release / dependency maintenance
+- [ ] Security
+- [ ] CI, release, or dependency maintenance
 - [ ] Other:
 
-## Verification
+## How did you test it?
 
-<!-- List exact commands run and results. If skipped, explain why. -->
+<!-- List the commands you ran and their results. Explain any failed or skipped checks. Check a box only when that check passed. -->
 
 - [ ] `make lint`
-- [ ] `python -m mypy src migrations scripts`
+- [ ] `make type-check`
 - [ ] `make hygiene-check`
 - [ ] `make test`
-- [ ] `make audit` when dependencies, auth, network egress, secrets, parsing, or security controls changed
-- [ ] `make package-check` when Python packaging or packaged templates/assets changed
-- [ ] `make release-check RELEASE_TAG=v<version>` when version, changelog, or release metadata changed
-- [ ] `make container-check` when Docker, migration startup, or readiness behavior changed
+- [ ] `make audit` for changes to dependencies, authentication, outbound requests, secrets, parsing, or security controls
+- [ ] `make package-check` for changes to Python packaging or packaged templates and assets
+- [ ] `make release-check RELEASE_TAG=v<version>` for changes to the version, changelog, or release metadata
+- [ ] `make container-check` for changes to Docker, migration startup, or readiness checks
 
-## Release notes
+## Documentation and release notes
 
-- [ ] `CHANGELOG.md` updated for user-facing, operational, security, or compatibility changes
-- [ ] Docs updated for changed endpoints, env vars, deployment steps, runtime semantics, or operator guidance
-- [ ] No release note needed because:
+- [ ] Updated `CHANGELOG.md` for changes that affect users, operations, security, or compatibility
+- [ ] Updated the docs for changes to endpoints, settings, deployment, or operation
+- [ ] No release note is needed because:

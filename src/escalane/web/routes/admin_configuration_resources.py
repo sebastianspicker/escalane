@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -17,7 +18,12 @@ from escalane.configuration.master_data import lock_active_referenced_parents
 from escalane.persistence.models import Alarm, Device, Person, Room, Site
 from escalane.web.admin_session import AdminSession, pop_flash, set_flash
 from escalane.web.deps import get_app_settings, get_redis, get_session
-from escalane.web.routes.admin_console import UiPageContext, _action_session, _html
+from escalane.web.routes.admin_console import (
+    UiPageContext,
+    _action_session,
+    _html,
+    _requested_locale,
+)
 
 router = APIRouter()
 ConfigurationSessionCookie = Annotated[str | None, Cookie()]
@@ -96,19 +102,31 @@ async def admin_configuration_list(
     request: Request,
     *,
     page: UiPageContext,
+    after: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=100),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     locale, browser_session = page
     model = _resource_model(resource_name)
-    items = list((await session.scalars(select(model).order_by(model.id))).all())
+    query = select(model).order_by(model.id).limit(limit + 1)
+    if after is not None:
+        query = query.where(model.id > after)
+    items = list((await session.scalars(query)).all())
+    has_next = len(items) > limit
+    items = items[:limit]
+    page_url = f"/admin/configuration/{resource_name}"
+    params = {"lang": locale, "limit": str(limit)}
+    next_url = f"{page_url}?{urlencode({**params, 'after': items[-1].id})}" if has_next else None
     return _html(
         request,
         "admin_resources.html",
         locale,
         resource_name=resource_name,
+        next_page_url=next_url,
+        first_page_url=f"{page_url}?{urlencode(params)}" if after is not None else None,
         fields=_RESOURCE_FIELDS[resource_name],
         resources=[_resource_row(resource_name, item) for item in items],
-        save_action=f"/admin/configuration/{resource_name}/save",
+        save_action=f"/admin/configuration/{resource_name}/save?lang={locale}",
         csrf_token=browser_session.csrf_token,
         operator_name=browser_session.operator_name,
         logout_action="/admin/logout",
@@ -243,7 +261,8 @@ async def admin_configuration_save(
     )
     await session.commit()
     await set_saved_flash(request, browser_session)
-    return RedirectResponse(f"/admin/configuration/{resource_name}", status_code=303)
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
 
 
 async def set_saved_flash(request: Request, browser_session: Any) -> None:
@@ -341,7 +360,8 @@ async def admin_configuration_deactivate(
         request_id=getattr(request.state, "request_id", None),
     )
     await _commit_resource_mutation(session, resource_id)
-    return RedirectResponse(f"/admin/configuration/{resource_name}", status_code=303)
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
 
 
 async def _historical_dependency_count(
@@ -389,4 +409,5 @@ async def admin_configuration_delete(
         request_id=getattr(request.state, "request_id", None),
     )
     await _commit_resource_mutation(session, resource_id)
-    return RedirectResponse(f"/admin/configuration/{resource_name}", status_code=303)
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)

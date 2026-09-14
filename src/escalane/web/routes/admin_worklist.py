@@ -9,11 +9,12 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.config.settings import Settings
 from escalane.contracts.alarms import AlarmStatus
+from escalane.operations.dashboard import dashboard_counts, dashboard_revision, visible_counts
 from escalane.persistence.models import Alarm, Person, Room
 from escalane.web.admin_session import pop_flash
 from escalane.web.deps import get_app_settings, get_redis, get_session
@@ -27,7 +28,7 @@ from escalane.web.routes.admin_console import (
 router = APIRouter()
 
 
-def _alarm_statement(status_filter: str | None, search: str | None):
+def _alarm_statement(status_filter: str | None, severity_filter: str | None, search: str | None):
     stmt = (
         select(Alarm, Person.display_name, Room.label)
         .outerjoin(Person, Person.id == Alarm.person_id)
@@ -36,6 +37,8 @@ def _alarm_statement(status_filter: str | None, search: str | None):
     )
     if status_filter in {item.value for item in AlarmStatus}:
         stmt = stmt.where(Alarm.status == AlarmStatus(status_filter))
+    if severity_filter in {"P0", "P1", "P2"}:
+        stmt = stmt.where(Alarm.severity == severity_filter)
     if search:
         pattern = f"%{search.strip()}%"
         stmt = stmt.where(
@@ -87,13 +90,14 @@ async def _apply_alarm_cursor(
 async def _alarm_query(
     session: AsyncSession,
     status_filter: str | None,
+    severity_filter: str | None,
     search: str | None,
     sort_by: str,
     order: str,
     cursor: uuid.UUID | None,
     limit: int,
 ):
-    stmt = _alarm_statement(status_filter, search)
+    stmt = _alarm_statement(status_filter, severity_filter, search)
     sort_name, sort_column = _sort_details(sort_by)
     stmt = await _apply_alarm_cursor(session, stmt, sort_column, sort_name, order, cursor)
     ordering = sort_column.desc() if order == "desc" else sort_column.asc()
@@ -109,17 +113,32 @@ def _next_page_url(request: Request, cursor: uuid.UUID | None) -> str | None:
     return f"{request.url.path}?{urlencode(query)}"
 
 
+def _filter_url(request: Request, locale: str, **updates: str | None) -> str:
+    """Build a fresh worklist URL without carrying a stale cursor into a new view."""
+    query = [
+        (key, value)
+        for key, value in request.query_params.multi_items()
+        if key not in {"cursor", *updates}
+    ]
+    for key, value in updates.items():
+        if value:
+            query.append((key, value))
+    if not any(key == "lang" for key, _ in query):
+        query.append(("lang", locale))
+    return f"/admin?{urlencode(query)}"
+
+
+def _export_url(status_filter: str | None, severity_filter: str | None, export_format: str) -> str:
+    query = [("format", export_format)]
+    if status_filter:
+        query.append(("status", status_filter))
+    if severity_filter:
+        query.append(("severity", severity_filter))
+    return f"/admin/export?{urlencode(query)}"
+
+
 async def _counts(session: AsyncSession) -> dict[str, int]:
-    rows = (
-        await session.execute(
-            select(Alarm.status, func.count(Alarm.id))
-            .where(Alarm.deleted_at.is_(None))
-            .group_by(Alarm.status)
-        )
-    ).all()
-    counts = {item.value: 0 for item in AlarmStatus}
-    counts.update({state.value: int(count) for state, count in rows})
-    return counts
+    return await visible_counts(session)
 
 
 def _display_time(value: datetime) -> str:
@@ -147,24 +166,14 @@ def _worklist_row(
 
 
 async def _revision(session: AsyncSession) -> str:
-    rows = (
-        await session.execute(
-            select(
-                func.count(Alarm.id),
-                func.max(Alarm.created_at),
-                func.max(Alarm.acked_at),
-                func.max(Alarm.resolved_at),
-                func.max(Alarm.cancelled_at),
-            ).where(Alarm.deleted_at.is_(None))
-        )
-    ).one()
-    return uuid.uuid5(uuid.NAMESPACE_OID, "|".join(str(value or "") for value in rows)).hex
+    return await dashboard_revision(session)
 
 
 @router.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
     status_filter: str | None = Query(default=None, alias="status"),
+    severity_filter: str | None = Query(default=None, alias="severity", pattern="^(P0|P1|P2)$"),
     search: str | None = Query(default=None, max_length=120),
     sort_by: str = Query(default="created_at", pattern="^(created_at|status|severity)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -177,7 +186,10 @@ async def admin_dashboard(
 ) -> HTMLResponse:
     locale = _requested_locale(request, lang)
     browser_session = await _session_from_request(request, settings, admin_session, extend=True)
-    statement = await _alarm_query(session, status_filter, search, sort_by, order, cursor, limit)
+    page_revision = await _revision(session)
+    statement = await _alarm_query(
+        session, status_filter, severity_filter, search, sort_by, order, cursor, limit
+    )
     result = list((await session.execute(statement)).all())
     page_rows = result[:limit]
     next_cursor = page_rows[-1][0].id if len(result) > limit and page_rows else None
@@ -188,17 +200,29 @@ async def admin_dashboard(
         locale,
         persist_locale=lang in SUPPORTED_LOCALES,
         alarms=[_worklist_row(alarm, person, room, locale) for alarm, person, room in page_rows],
-        counts=await _counts(session),
+        counts=await dashboard_counts(session, get_redis(request)),
         statuses=[item.value for item in AlarmStatus],
         filters={
             "status": status_filter or "",
+            "severity": severity_filter or "",
             "search": search or "",
             "sort_by": sort_by,
             "order": order,
         },
+        status_urls={
+            status: _filter_url(request, locale, status=status)
+            for status in (item.value for item in AlarmStatus)
+        },
+        severity_urls={
+            severity: _filter_url(request, locale, severity=severity)
+            for severity in ("P0", "P1", "P2")
+        },
+        all_severities_url=_filter_url(request, locale, severity=None),
+        export_csv_url=_export_url(status_filter, severity_filter, "csv"),
+        export_json_url=_export_url(status_filter, severity_filter, "json"),
         poll_url=f"/admin/revision?lang={locale}",
         poll_interval=15,
-        revision=await _revision(session),
+        revision=page_revision,
         next_page_url=_next_page_url(request, next_cursor),
         operator_name=browser_session.operator_name,
         logout_action="/admin/logout",

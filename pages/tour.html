@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#0b1f28">
+  <title>Screenshot tour · Escalane</title>
+  <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/ui.css">
+  <link rel="stylesheet" href="assets/demo.css">
+  <script src="assets/ui.js" defer></script>
+  <script src="assets/demo.js" defer></script>
+</head>
+<body class="has-session page-tour">
+  <a class="skip-link" href="#content">Skip to content</a>
+  <header class="site-header demo-rail">
+    <div class="utility-bar"><div class="brand-cluster"><a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span class="brand-copy"><strong>Escalane</strong><small>Operator console</small></span></a><span class="environment-label">Static demo</span></div></div>
+    <details class="admin-nav" open><summary>Menu</summary><nav aria-label="Primary navigation"><p class="nav-section-label">Operate</p><a href="./"><span aria-hidden="true">⌁</span> Alarms</a><a href="alarm.html"><span aria-hidden="true">◫</span> Alarm detail</a><p class="nav-section-label">Manage</p><a href="simulation.html"><span aria-hidden="true">◌</span> Simulation</a><a href="acknowledge.html"><span aria-hidden="true">✓</span> Responder view</a><p class="nav-section-label">Explore</p><a href="tour.html" aria-current="page"><span aria-hidden="true">▧</span> Screenshot tour</a></nav></details>
+    <div class="demo-operator"><span class="demo-avatar" aria-hidden="true">DO</span><span><strong>Demo Operator</strong><small>Connector fixture</small></span></div>
+  </header>
+  <main id="content" tabindex="-1">
+    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> These screenshots use fictional data. The demo sends no Escalane API or provider requests.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
+    <header class="page-heading"><h1>Take a look around</h1><p class="page-summary">From the operator worklist to a responder’s acknowledgement, in four screens.</p></header>
+    <p class="tour-intro">Open any screenshot at full size, or follow its link to try the screen. The demo shares Escalane’s styles and uses browser-local sample data. Pull cords, door sensors, and pager entries are illustrative; the <a href="https://github.com/sebastianspicker/escalane/blob/main/docs/INTEGRATIONS.md">integration guide</a> lists supported interfaces.</p>
+    <div class="tour-grid">
+      <section class="tour-stop" aria-labelledby="tour-worklist">
+        <h2 id="tour-worklist">1. Find an alarm</h2>
+        <p>Filter by status or severity, search by person or room, then open a row to see its detail drawer.</p>
+        <a class="tour-image" href="assets/screenshots/worklist.png" aria-label="View full-size screenshot: worklist with filters and eight fictional alarms"><img src="assets/screenshots/worklist.png" alt="Worklist with filters and eight fictional alarms" width="1440" height="1000" loading="lazy"></a>
+        <a class="tour-try" href="./">Try this screen <span aria-hidden="true">→</span></a>
+      </section>
+      <section class="tour-stop" aria-labelledby="tour-alarm">
+        <h2 id="tour-alarm">2. Review its history</h2>
+        <p>Read the context and timeline, add a note, and try the lifecycle actions. Changes stay on this page.</p>
+        <a class="tour-image" href="assets/screenshots/alarm.png" aria-label="View full-size screenshot: alarm detail with context, timeline, and lifecycle actions"><img src="assets/screenshots/alarm.png" alt="Alarm detail with context, timeline, and lifecycle actions" width="1440" height="1000" loading="lazy"></a>
+        <a class="tour-try" href="alarm.html">Try this screen <span aria-hidden="true">→</span></a>
+      </section>
+      <section class="tour-stop" aria-labelledby="tour-acknowledge">
+        <h2 id="tour-acknowledge">3. Confirm receipt</h2>
+        <p>Try the responder form with an optional name and note. Use fictional entries here.</p>
+        <a class="tour-image" href="assets/screenshots/acknowledge.png" aria-label="View full-size screenshot: responder acknowledgement form for a fictional alarm"><img src="assets/screenshots/acknowledge.png" alt="Responder acknowledgement form for a fictional alarm" width="1440" height="1000" loading="lazy"></a>
+        <a class="tour-try" href="acknowledge.html">Try this screen <span aria-hidden="true">→</span></a>
+      </section>
+      <section class="tour-stop" aria-labelledby="tour-simulation">
+        <h2 id="tour-simulation">4. Inspect sample deliveries</h2>
+        <p>Browse fictional delivery records, then clear the list. Reloading restores the sample entries.</p>
+        <a class="tour-image" href="assets/screenshots/simulation.png" aria-label="View full-size screenshot: simulation feed with sample delivery records"><img src="assets/screenshots/simulation.png" alt="Simulation feed with sample delivery records" width="1440" height="1000" loading="lazy"></a>
+        <a class="tour-try" href="simulation.html">Try this screen <span aria-hidden="true">→</span></a>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

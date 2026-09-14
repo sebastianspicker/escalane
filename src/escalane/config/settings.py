@@ -327,6 +327,11 @@ class Settings(_SettingsRuntimeSupport, BaseSettings):
     db_pool_timeout: int = Field(default=30, ge=1, le=300)
     db_pool_recycle: int = Field(default=1800, ge=60, le=86400)
 
+    # Recovery limits (the time budget is checked between committed batches).
+    outbox_batch_size: int = Field(default=25, ge=1, le=500)
+    recovery_event_limit: int = Field(default=5000, ge=1, le=100000)
+    recovery_budget_seconds: float = Field(default=10.0, gt=0, le=300)
+
     # Performance diagnostics
     slow_query_log_ms: int = Field(default=200, ge=0)
 

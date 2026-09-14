@@ -1,39 +1,50 @@
-# Setup
+# Set up Escalane
 
-## Requirements
+You can run Escalane with Docker Compose or directly from a local Python
+environment. Both options need PostgreSQL and Redis. The standard test suite
+uses isolated fixtures, while separate checks cover live PostgreSQL and Redis.
 
-The supported deployment reference uses Docker with the Compose plugin. Local
-development uses Python 3.14.x, GNU Make, PostgreSQL, and Redis.
+The Compose deployment needs Docker Engine and the Compose plugin. The package
+supports Python `>=3.14,<3.15`, while the repository bootstrap uses CPython
+3.14.7. Local development also needs GNU Make and pip.
 
-## Compose deployment
+## Run with Docker Compose
 
-Create the local environment file:
+Start by copying the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Set a non-default `POSTGRES_PASSWORD`, make it match `DATABASE_URL`, and set a
-random `ADMIN_API_KEY`. Configure each enabled provider with its own
-credentials. For local simulated delivery, set:
+Open `.env` and replace `POSTGRES_PASSWORD=CHANGE_ME` with a strong password.
+Use the same password in `DATABASE_URL`, then set `ADMIN_API_KEY` and
+`YEALINK_DEVICE_TOKEN` to separate random values. Add credentials for every
+provider you plan to enable.
+
+For local testing with simulated delivery, use:
 
 ```text
 BASE_URL=http://localhost:8080
 SIMULATION_ENABLED=true
+SIGNAL_TARGET_GROUP_ID=demo-group
 ```
 
-Start the stack and check readiness:
+Use `demo-group` only for this simulated setup. The sample seed reads both its
+device token and Signal target from these environment settings, even though
+provider delivery is simulated.
+
+Build and start the stack, then wait for the readiness check to pass:
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
-The Compose deployment starts PostgreSQL, Redis, a one-shot migration service,
-the web process, and the worker. `/readyz` is successful only when both
-dependencies and the schema are ready.
+Compose starts PostgreSQL, Redis, a one-time migration service, the API, and the
+worker. The `/readyz` endpoint succeeds only after PostgreSQL and Redis are
+available and the database has the expected schema revision.
 
-Load the sample seed with an admin key:
+You can load the sample data after the stack is ready:
 
 ```bash
 curl --fail \
@@ -43,62 +54,119 @@ curl --fail \
   http://127.0.0.1:8080/v1/admin/seed
 ```
 
-Sample contact values are placeholders. Replace them before testing a live
+The sample contacts are placeholders. Replace them before testing a real
 provider.
 
-## Local development
+## Run a local development environment
 
-Run these commands from the repository root:
+Direct processes need `DATABASE_URL` and `REDIS_URL` values that the host can
+reach. The `postgres` and `redis` hostnames in `.env.example` resolve only on the
+Compose network, and the reference stack does not publish either service port.
+Use separate reachable PostgreSQL and Redis instances, then create the virtual
+environment, install the project, apply its migrations, and start the
+reloadable API from the repository root:
 
 ```bash
 make install
-alembic upgrade head
-uvicorn escalane.web.main:app --reload
+.venv/bin/alembic upgrade head
+make dev
 ```
 
-Start the worker in a second shell:
+Start the worker in another shell:
 
 ```bash
-arq escalane.worker.settings.WorkerSettings
+.venv/bin/arq escalane.worker.settings.WorkerSettings
 ```
 
-After installation, `make dev` starts the reloadable web process. Use
-`make test`, `make lint`, and `make package-check` for the normal local checks.
+`make install` creates `.venv` and installs Escalane with its development
+dependencies in editable mode. Both direct processes read settings from the
+shell environment and, when present, the root `.env` file. Always apply
+migrations before starting the API or worker. Run `make test`, `make lint`,
+`make type-check`, and `make package-check` for the main local checks.
 
-Direct processes read settings from their environment and an optional root
-`.env`. Apply migrations before starting web or worker processes.
+## Configure the runtime
 
-## Configuration
+Runtime settings are defined in `src/escalane/config/`. These are the main
+variables you will usually set:
 
-Settings are owned by `src/escalane/config/`. The main runtime variables are:
-
-| Variable | Purpose |
+| Variable | What it controls |
 |---|---|
 | `DATABASE_URL` | PostgreSQL connection string |
-| `REDIS_URL` | Redis connection for ARQ and transient state |
-| `BASE_URL` | External origin used in acknowledgement links |
-| `ADMIN_API_KEY` | Admin API and operator sign-in credential |
-| `YELK_IP_ALLOWLIST` | Source CIDRs required outside simulation |
-| `YELK_TOKEN_QUERY_PARAM` | Device-trigger query parameter name |
+| `REDIS_URL` | Redis connection for ARQ and temporary state |
+| `BASE_URL` | Public origin used to build acknowledgement links |
+| `ADMIN_API_KEY` | Credential for the admin API and operator sign-in |
+| `YELK_IP_ALLOWLIST` | Source CIDRs allowed to trigger devices outside simulation |
+| `YELK_TOKEN_QUERY_PARAM` | Query parameter name used for device triggers |
 | `RATE_LIMIT_PER_MINUTE` | Per-device trigger limit |
-| `TRUSTED_PROXY_CIDRS` | Proxy peers trusted to provide forwarded headers |
+| `TRUSTED_PROXY_CIDRS` | Proxy peers allowed to supply forwarded headers |
 | `SIMULATION_ENABLED` | Enables mock delivery and simulation routes |
-| `ENABLE_API_DOCS` | Enables OpenAPI and interactive API documentation |
+| `ENABLE_API_DOCS` | Enables OpenAPI and the interactive API documentation |
 
-Provider-specific settings and their validation are described in
-[Integrations](INTEGRATIONS.md). Do not use placeholder credentials outside a
-local simulation.
+[Integrations](INTEGRATIONS.md) lists the provider settings and their validation
+rules. Placeholder credentials are suitable only for local simulation.
 
-## Repository paths
+## Work with pinned dependencies
 
-| Path | Purpose |
+Local setup, CI, and the container image currently use CPython 3.14.7.
+Compatibility ranges live in `pyproject.toml`. Exact pins are split by purpose:
+
+| File | Contents |
+|---|---|
+| `constraints/python314-build.txt` | Build tools |
+| `constraints/python314-runtime.txt` | Runtime dependencies |
+| `constraints/python314-dev.txt` | Development and test dependencies |
+
+Local installation, wheel validation, and container builds all read these
+files. Build isolation also uses `PIP_BUILD_CONSTRAINT`, which keeps setuptools
+and wheel resolution consistent.
+
+To refresh the pins, use an installed development environment and run:
+
+```bash
+make constraints-refresh
+make install
+make constraints-check
+make check
+make container-check
+```
+
+Review all three constraint files together. The refresh command resolves the
+current compatibility ranges in temporary environments, so handle its output
+like any other dependency update. `make constraints-check` compares the pins,
+checks shared runtime and development versions, verifies that the expected
+workflows consume them, and confirms the Python patch version. On a host with
+Docker, `make container-check` also tests Linux installation and runs API and
+worker smoke checks.
+
+## Run service-backed and synthetic checks
+
+`make test-postgres-smoke` needs an explicit `TEST_POSTGRES_URL` and
+`YELK_IP_ALLOWLIST`. It applies migrations and runs the outbox and dashboard
+concurrency checks, so point it only at a disposable test database. Follow
+[Operations](OPERATIONS.md) for the full service-backed procedure.
+
+You can run synthetic comparisons without external services:
+
+```bash
+.venv/bin/python scripts/benchmark_optimizations.py --output /tmp/escalane-reads.json
+.venv/bin/python scripts/benchmark_delivery.py --output /tmp/escalane-fanout.json
+```
+
+These commands use temporary SQLite databases and synthetic providers by
+default. Their results apply only to that database engine and workload. See
+[Performance validation](OPTIMIZATION_VALIDATION.md) for the recorded results
+and the PostgreSQL checks that remain necessary.
+
+## Find your way around the repository
+
+| Path | Contents |
 |---|---|
 | `src/escalane/` | Application package |
-| `tests/` | Application contracts |
+| `tests/` | Application contracts and tests |
 | `migrations/` | Alembic environment and revisions |
 | `pyproject.toml` | Package, test, lint, and build configuration |
 | `alembic.ini` | Root migration configuration |
 | `deploy/` | Compose deployment and sample seed |
 
-Continue with [Architecture](ARCHITECTURE.md) and
+For more context, read [Architecture](ARCHITECTURE.md) and
 [Operations](OPERATIONS.md).

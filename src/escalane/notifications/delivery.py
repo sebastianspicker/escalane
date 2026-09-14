@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.contracts.notifications import NotificationPayload
@@ -80,6 +80,21 @@ def notification_delivery_id(
     return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
 
 
+def logical_delivery_key(payload: dict[str, Any] | NotificationPayload) -> str | None:
+    """Return the indexed identity for one logical notification delivery."""
+    payload_data: dict[str, Any] = dict(payload)
+    action = payload_data.get("action")
+    if action == "create_ticket":
+        return "create_ticket"
+    if action == "ack_update" and payload_data.get("ticket_id") is not None:
+        return f"ack_update:{payload_data['ticket_id']}"
+    if payload_data.get("state") is not None:
+        return f"state:{payload_data['state']}"
+    if payload_data.get("step_no") is not None:
+        return f"step:{payload_data['step_no']}"
+    return None
+
+
 def payload_with_delivery_id(
     *,
     alarm_id: uuid.UUID,
@@ -125,6 +140,7 @@ async def log_notification(
                 alarm_id=alarm_id,
                 channel=channel,
                 target_id=target_id,
+                logical_delivery_key=logical_delivery_key(payload),
                 payload=payload_with_delivery_id(
                     alarm_id=alarm_id,
                     channel=channel,
@@ -156,25 +172,45 @@ async def _matching_notification(
         if target_id is None
         else AlarmNotification.target_id == target_id
     )
+    key = logical_delivery_key(payload_matches)
+    legacy_matches = []
+    for payload_key, value in payload_matches.items():
+        payload_value = AlarmNotification.payload[payload_key]
+        if value is None:
+            legacy_matches.append(payload_value.as_string().is_(None))
+        elif isinstance(value, bool):
+            legacy_matches.append(payload_value.as_boolean() == value)
+        elif isinstance(value, int):
+            legacy_matches.append(payload_value.as_integer() == value)
+        elif isinstance(value, float):
+            legacy_matches.append(payload_value.as_float() == value)
+        else:
+            legacy_matches.append(payload_value.as_string() == str(value))
+
+    identity_filter = and_(*legacy_matches)
+    if key is not None:
+        identity_filter = or_(
+            AlarmNotification.logical_delivery_key == key,
+            and_(AlarmNotification.logical_delivery_key.is_(None), *legacy_matches),
+        )
+
     try:
-        rows = (
-            await session.scalars(
+        return cast(
+            AlarmNotification | None,
+            await session.scalar(
                 select(AlarmNotification)
                 .where(AlarmNotification.alarm_id == alarm_id)
                 .where(AlarmNotification.channel == channel)
                 .where(target_filter)
                 .where(AlarmNotification.result.in_(results))
-                .order_by(AlarmNotification.created_at.desc())
-            )
-        ).all()
+                .where(identity_filter)
+                .order_by(AlarmNotification.created_at.desc(), AlarmNotification.id.desc())
+                .limit(1)
+            ),
+        )
     except Exception as exc:
         await _rollback_failed_audit(session, exc)
         raise NotificationAuditError("Notification audit lookup failed") from exc
-    for row in rows:
-        payload = row.payload if isinstance(row.payload, dict) else {}
-        if all(payload.get(key) == value for key, value in payload_matches.items()):
-            return row
-    return None
 
 
 async def successful_notification(
