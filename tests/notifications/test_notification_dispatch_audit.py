@@ -49,7 +49,7 @@ async def test_provider_failure_retry_classification(
         delivered = await svc._send_via_signal(session, target, payload["body"], payload)
 
     expect(delivered is expected_delivered)
-    expect(log_result.await_args.args[3] == "error")
+    expect(log_result.await_args.args[3] == ("permanent_error" if expected_delivered else "error"))
 
 
 # ── handle_zammad_ticket ───────────────────────────────────────────────
@@ -58,6 +58,7 @@ async def test_provider_failure_retry_classification(
 async def test_handle_zammad_ticket_disabled_returns_none():
     svc = _make_svc(zammad_enabled=False)
     session = await _noop_session()
+    session.scalar.return_value = None
 
     result = await svc.handle_zammad_ticket(
         session,
@@ -80,6 +81,7 @@ async def test_handle_zammad_ticket_create_exception_requests_worker_retry():
         )
     )
     session = await _noop_session()
+    session.scalar.return_value = None
 
     with pytest.raises(NotificationDeliveryError, match="ticket creation"):
         await svc.handle_zammad_ticket(
@@ -169,6 +171,7 @@ async def test_add_zammad_ack_note_permanent_exception_is_complete_without_retry
     svc = _make_svc(zammad_enabled=True)
     svc._zammad.add_internal_note = AsyncMock(side_effect=RuntimeError("zammad error"))
     session = await _noop_session()
+    session.scalar.return_value = None
 
     result = await svc.add_zammad_ack_note(
         session,
@@ -194,6 +197,7 @@ async def test_add_zammad_ack_note_transient_exception_requests_retry():
         )
     )
     session = await _noop_session()
+    session.scalar.return_value = None
 
     result = await svc.add_zammad_ack_note(
         session,

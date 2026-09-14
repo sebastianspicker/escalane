@@ -21,6 +21,7 @@ class TestCreateAsyncEngineFromUrl:
         """Passing slow_query_log_ms=0 must not install the listener."""
         with (
             patch("escalane.persistence.engine.create_async_engine") as mock_create,
+            patch("escalane.persistence.engine.instrument_engine"),
             patch("escalane.persistence.engine._install_slow_query_listener") as mock_install,
         ):
             mock_engine = MagicMock()
@@ -35,6 +36,7 @@ class TestCreateAsyncEngineFromUrl:
         """Passing slow_query_log_ms>0 installs the slow-query listener."""
         with (
             patch("escalane.persistence.engine.create_async_engine") as mock_create,
+            patch("escalane.persistence.engine.instrument_engine"),
             patch("escalane.persistence.engine._install_slow_query_listener") as mock_install,
         ):
             mock_engine = MagicMock()
@@ -47,7 +49,10 @@ class TestCreateAsyncEngineFromUrl:
 
     def test_pool_params_forwarded_to_create_async_engine(self):
         """Pool parameters are forwarded to create_async_engine."""
-        with patch("escalane.persistence.engine.create_async_engine") as mock_create:
+        with (
+            patch("escalane.persistence.engine.create_async_engine") as mock_create,
+            patch("escalane.persistence.engine.instrument_engine"),
+        ):
             mock_engine = MagicMock()
             mock_engine.sync_engine = MagicMock()
             mock_create.return_value = mock_engine
@@ -72,7 +77,10 @@ class TestCreateAsyncEngineFromUrl:
 
     def test_returns_engine_object(self):
         """create_async_engine_from_url returns the engine produced by create_async_engine."""
-        with patch("escalane.persistence.engine.create_async_engine") as mock_create:
+        with (
+            patch("escalane.persistence.engine.create_async_engine") as mock_create,
+            patch("escalane.persistence.engine.instrument_engine"),
+        ):
             sentinel = MagicMock()
             sentinel.sync_engine = MagicMock()
             mock_create.return_value = sentinel

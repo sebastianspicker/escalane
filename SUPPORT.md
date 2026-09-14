@@ -1,7 +1,7 @@
 # Support
 
-Community support is best effort and has no response-time or availability
-guarantee.
+Use GitHub issues to report bugs and suggest improvements. Maintainers respond
+as time allows; there is no guaranteed response time or availability.
 
 Before opening an issue:
 
@@ -9,16 +9,17 @@ Before opening an issue:
    issues.
 2. Reproduce the problem on the current default branch or identify the exact
    version, tag, or commit.
-3. Include exact commands, observed output, and checks already attempted.
+3. Include the commands you ran, what happened, and what you have already tried.
 4. Remove credentials, acknowledgement links, device tokens, alarm data,
    personal data, and internal hostnames.
 
-Use the bug-report template for reproducible defects and the feature-request
-template for proposed changes.
+Choose the bug-report template for a problem you can reproduce, or the
+feature-request template for an idea you would like to discuss.
 
 Do not use a public issue for a suspected vulnerability. Follow
 [SECURITY.md](SECURITY.md).
 
-This repository does not provide emergency response, production incident
-handling, deployment certification, or safety or compliance assurance. Do not
-depend on maintainers or GitHub issues for time-critical alarm operation.
+Maintainers do not provide emergency response, handle production incidents,
+certify deployments, or provide safety or compliance assurance. Arrange your
+own operational support; GitHub issues are not a way to request urgent help
+with alarms.

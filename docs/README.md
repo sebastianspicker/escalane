@@ -1,17 +1,20 @@
 # Documentation
 
-| Document | Scope |
-|---|---|
-| [SETUP.md](SETUP.md) | Requirements, configuration, and local setup |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Module boundaries, dependency direction, and data flow |
-| [OPERATIONS.md](OPERATIONS.md) | Runtime health, recovery, upgrades, and troubleshooting |
-| [INTEGRATIONS.md](INTEGRATIONS.md) | Device ingress and delivery-provider contracts |
-| [FRONTEND.md](FRONTEND.md) | Server-rendered browser surface and UI validation |
-| [RELEASING.md](RELEASING.md) | Candidate, tag, image, and publication process |
-| [ROADMAP.md](ROADMAP.md) | Current alpha boundaries and outstanding work |
-| [../SECURITY.md](../SECURITY.md) | Security controls and private reporting |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Development workflow |
-| [../SUPPORT.md](../SUPPORT.md) | Public support boundary |
+Start with the [project overview](../README.md) for a quick introduction and
+screenshot tour. To run Escalane, follow [Setup](SETUP.md).
 
-Repository references: [overview](../README.md), [change history](../CHANGELOG.md),
-and [license](../LICENSE).
+| Guide | What you’ll find |
+|---|---|
+| [Setup](SETUP.md) | Requirements, configuration, and local installation |
+| [Operations](OPERATIONS.md) | Health checks, recovery, backups, upgrades, and troubleshooting |
+| [Integrations](INTEGRATIONS.md) | Device triggers and notification providers |
+| [Architecture](ARCHITECTURE.md) | How the packages fit together and how alarms move through the system |
+| [Frontend](FRONTEND.md) | Browser routes, templates, styles, and UI checks |
+| [Performance validation](OPTIMIZATION_VALIDATION.md) | Recorded measurements, their limits, and checks still needed with real services |
+| [Releasing](RELEASING.md) | How to check and publish a release |
+| [Security policy](../SECURITY.md) | Access controls, deployment precautions, and private vulnerability reporting |
+| [Contributing](../CONTRIBUTING.md) | Development setup, tests, and pull requests |
+| [Support](../SUPPORT.md) | How to report a problem or ask for help |
+
+See the [changelog](../CHANGELOG.md) for release history and the
+[license](../LICENSE) for terms of use.

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -40,6 +42,12 @@ class _RecordingRedis:
     ) -> object:
         self.jobs.append(payload)
         return object()
+
+
+class _DelayedRecordingRedis(_RecordingRedis):
+    async def enqueue_job(self, name: str, payload: dict[str, str | None], **kwargs: Any) -> object:
+        await asyncio.sleep(0.01)
+        return await super().enqueue_job(name, payload, **kwargs)
 
 
 @pytest_asyncio.fixture
@@ -165,3 +173,70 @@ async def test_locked_oldest_stream_event_does_not_block_another_alarm(
         assert [event.sequence for event in resumed_first] == [0, 1]
         assert [event.attempts for event in resumed_first] == [1, 1]
         assert all(event.published_at is not None for event in resumed_first)
+
+
+@_POSTGRES_ONLY
+async def test_delayed_publication_commits_one_complete_short_batch_before_budget_exit(
+    postgres_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    alarm_ids = [uuid.uuid4() for _ in range(3)]
+    redis = _DelayedRecordingRedis()
+    async with postgres_sessionmaker() as session:
+        session.add_all(
+            [
+                item
+                for alarm_id in alarm_ids
+                for item in (
+                    _alarm(alarm_id, "postgres-outbox-batch"),
+                    AlarmEventOutbox(
+                        alarm_id=alarm_id,
+                        event_type=constants.EVENT_ALARM_CREATED,
+                        payload={},
+                    ),
+                )
+            ]
+        )
+        await session.commit()
+        original_commit = session.commit
+        session.commit = AsyncMock(wraps=original_commit)  # type: ignore[method-assign]
+
+        published = await dispatch_pending_alarm_events(
+            session,
+            redis,
+            logger=logger,
+            batch_size=2,
+            budget_seconds=0.001,
+        )
+
+        assert published == 2
+        session.commit.assert_awaited_once()
+    assert len(redis.jobs) == 2
+
+
+@_POSTGRES_ONLY
+async def test_commit_failure_stops_before_a_second_postgres_batch(
+    postgres_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    alarm_ids = [uuid.uuid4() for _ in range(3)]
+    redis = _RecordingRedis()
+    async with postgres_sessionmaker() as session:
+        session.add_all(
+            [
+                item
+                for alarm_id in alarm_ids
+                for item in (
+                    _alarm(alarm_id, "postgres-outbox-commit-failure"),
+                    AlarmEventOutbox(
+                        alarm_id=alarm_id,
+                        event_type=constants.EVENT_ALARM_CREATED,
+                        payload={},
+                    ),
+                )
+            ]
+        )
+        await session.commit()
+        session.commit = AsyncMock(side_effect=RuntimeError("commit unavailable"))  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="commit unavailable"):
+            await dispatch_pending_alarm_events(session, redis, logger=logger, batch_size=2)
+
+    assert len(redis.jobs) == 2

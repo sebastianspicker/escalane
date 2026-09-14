@@ -274,3 +274,15 @@ dialog h2 {
 .dialog-actions {
   margin-top: 1rem;
 }
+
+/* The worklist enhancement presents the same server-side detail context in a drawer. */
+.alarm-drawer { width: min(38rem, 100vw); max-width: none; height: 100dvh; max-height: none; margin: 0 0 0 auto; padding: 0; border: 0; border-radius: 0; box-shadow: -12px 0 32px rgb(12 27 34 / 20%); }
+.alarm-drawer::backdrop { background: rgb(8 18 22 / 45%); }.drawer-content { height: 100%; overflow-y: auto; }.drawer-detail { padding: 1.25rem; }.drawer-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }.drawer-heading h2 { margin: 0.35rem 0 0; }.drawer-heading .machine-value { margin: 0.3rem 0 0; color: var(--ink-muted); font-size: 0.75rem; }.drawer-detail > section { margin-top: 1rem; }.drawer-detail .definition-list { grid-template-columns: 1fr; }.drawer-detail .definition-list div { border-right: 0; }.drawer-detail .definition-list div:last-child { border-bottom: 0; }.drawer-actions { display: grid; gap: 0.75rem; }.drawer-actions h3 { margin: 0; }.drawer-actions form { margin: 0; padding-top: 0.75rem; border-top: 1px solid var(--line-soft); }.drawer-actions label { margin-top: 0.5rem; }.drawer-actions textarea { min-height: 4rem; margin-bottom: 0.5rem; }
+.drawer-heading h2:focus { outline: 0; }
+
+.history-navigation { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.75rem; }
+.history-navigation:empty, .history-status:empty { display: none; }
+.history-status { color: var(--ink-muted); font-size: 0.8125rem; }
+[data-history-event]:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+[data-history-event] > span { overflow-wrap: anywhere; }
+[data-older-activity][aria-disabled="true"] { opacity: 0.65; cursor: wait; }

@@ -1,16 +1,16 @@
-# Release process
+# Release Escalane
 
-Tagged releases publish a container image and GitHub prerelease. The wheel is
-an installation and package-integrity artifact, not the documented deployment
-artifact.
+A tagged release publishes a container image and creates a GitHub prerelease.
+The wheel verifies installation and package contents in CI, but it is not the
+documented deployment artifact and is not published.
 
-## Prepare
+## Prepare the version
 
 1. Choose a strict SemVer prerelease, such as `0.4.0-alpha.1`.
 2. Set `escalane.__version__` to that value.
-3. Move the matching user-visible change notes out of `[Unreleased]` in
+3. Move the matching user-visible notes out of `[Unreleased]` in
    `CHANGELOG.md`.
-4. Run:
+4. Run the release checks:
 
    ```bash
    make release-check RELEASE_TAG=v0.4.0-alpha.1
@@ -18,16 +18,38 @@ artifact.
    make container-check
    ```
 
-The release check validates tag syntax, package version, and changelog
-agreement. It does not establish deployment or provider readiness.
+`make release-check` confirms that the tag, package version, and changelog
+agree. It does not test a real deployment or live providers.
 
-## Freeze and publish
+## Check the candidate environment
 
-Use an immutable candidate commit on `main`. Do not tag a dirty checkout or a
-candidate with an unresolved required gate. Create an annotated or signed
-`v<version>` tag. Do not move or overwrite a published tag.
+Record the exact candidate commit before tagging it. Complete the checks that
+depend on the target environment:
 
-Publish and verify a digest, not a mutable image tag:
+- provider behavior and idempotency
+- TLS and reverse proxy configuration
+- secret storage
+- backup and restore
+- rollback
+- data retention
+- alert routing
+- manual accessibility review
+
+The repository cannot supply evidence for these checks on its own. Keep the
+results with the release record so an operator can tell which environment was
+tested.
+
+## Tag and publish
+
+Use an immutable candidate commit on `main`. Resolve every required check before
+tagging, and make sure the checkout is clean. Create an annotated or signed
+`v<version>` tag. Once a tag is published, never move or overwrite it.
+
+The tag starts the release workflow. That workflow verifies that the tagged
+commit belongs to `main`, validates the release metadata, runs CI, builds and
+tests the container, pushes it to GHCR, and creates the GitHub prerelease.
+
+Deploy and verify the published image by digest:
 
 ```bash
 export ESCALANE_IMAGE='ghcr.io/sebastianspicker/escalane@sha256:<digest>'
@@ -38,7 +60,23 @@ docker compose -f deploy/docker-compose.yml up -d --no-deps --force-recreate api
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
-Before release, record the exact candidate commit and complete
-target-environment checks for provider behaviour and idempotency, TLS and proxy
-configuration, secret storage, backup and restore, rollback, retention, alert
-routing, and manual accessibility review.
+The digest identifies the exact image. Mutable version tags are convenient for
+discovery, but they are not a reliable deployment identity.
+
+## Account for the alpha limits
+
+The repository does not define a production capacity limit, recovery
+objectives, or live provider behavior for your environment. Python dependencies
+are pinned in the checked-in constraint files, but every refresh still needs
+review and release validation. The release workflow does not create a Software
+Bill of Materials. The Compose reference also uses version tags for PostgreSQL
+and Redis rather than reviewed digests. Decide and test these details for your
+deployment before calling a candidate production-ready.
+
+Alarm export returns at most 2,000 records. It is not intended as a bulk archive
+or large-scale export interface.
+
+Before version 1.0, changes may affect HTTP routes, worker payloads, the database
+schema, provider contracts, or deployment requirements. Cover those changes
+with tests, add migration or operator instructions when needed, and record the
+user-visible impact in `CHANGELOG.md`.

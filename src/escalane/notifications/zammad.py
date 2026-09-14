@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.notifications import delivery as notification_delivery
+from escalane.operations.metrics import observe_latency
 from escalane.persistence.models import Alarm
 from escalane.providers.base import ZammadTicketProvider
 
@@ -21,9 +23,23 @@ async def create_ticket(
     zammad: ZammadTicketProvider,
     ticket_payload: dict[str, Any],
 ) -> int | None:
-    """Create a ticket, retaining the existing retry and audit contract."""
+    """Create a ticket once a terminal audited outcome is absent."""
+    prior = await notification_delivery.completed_notification(
+        session,
+        alarm_id=alarm.id,
+        channel="zammad",
+        target_id=None,
+        payload_matches={"action": "create_ticket"},
+    )
+    if prior is not None:
+        ticket_id = prior.payload.get("ticket_id") if prior.result == "ok" else None
+        return ticket_id if type(ticket_id) is int else None
     try:
-        ticket_id = await zammad.create_ticket(ticket_payload)
+        started_at = time.monotonic()
+        try:
+            ticket_id = await zammad.create_ticket(ticket_payload)
+        finally:
+            observe_latency("provider_delivery", time.monotonic() - started_at)
     except Exception as error:
         safe_error = notification_delivery.safe_delivery_error(error)
         logger.error(
@@ -36,7 +52,11 @@ async def create_ticket(
             channel="zammad",
             target_id=None,
             payload={"action": "create_ticket"},
-            result="error",
+            result=(
+                "error"
+                if notification_delivery.is_retryable_delivery_error(error)
+                else "permanent_error"
+            ),
             error=safe_error,
         )
         if notification_delivery.is_retryable_delivery_error(error):
@@ -65,7 +85,7 @@ async def add_ack_note(
     zammad: ZammadTicketProvider,
 ) -> bool:
     """Add an acknowledgment note, retaining the existing retry contract."""
-    if await notification_delivery.successful_notification(
+    if await notification_delivery.completed_notification(
         session,
         alarm_id=alarm_id,
         channel="zammad",
@@ -76,7 +96,11 @@ async def add_ack_note(
 
     subject, body = notification_delivery.zammad_ack_note(acked_by, acked_at, note)
     try:
-        await zammad.add_internal_note(ticket_id, subject=subject, body=body)
+        started_at = time.monotonic()
+        try:
+            await zammad.add_internal_note(ticket_id, subject=subject, body=body)
+        finally:
+            observe_latency("provider_delivery", time.monotonic() - started_at)
     except Exception as error:
         retryable = notification_delivery.is_retryable_delivery_error(error)
         safe_error = notification_delivery.safe_delivery_error(error)

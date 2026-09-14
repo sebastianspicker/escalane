@@ -121,6 +121,14 @@ def _safe_log_path(path: str) -> str:
     return path
 
 
+def _metric_route(request: Request) -> str:
+    """Read the matched template only after routing; bound assets and misses."""
+    route = request.scope.get("route")
+    if request.scope.get("endpoint") is not None and request.url.path.startswith("/admin/assets/"):
+        return "/admin/assets/{path}"
+    return getattr(route, "path", None) or "unmatched"
+
+
 def _install_observability_middleware(app: FastAPI) -> None:
     """Install request correlation, structured logging, and latency metrics for every route."""
 
@@ -150,7 +158,7 @@ def _install_observability_middleware(app: FastAPI) -> None:
             )
             record_http_request(
                 method=request.method,
-                route=log_route,
+                route=_metric_route(request),
                 status_code=500,
                 duration_ms=duration_ms,
             )
@@ -171,7 +179,7 @@ def _install_observability_middleware(app: FastAPI) -> None:
         )
         record_http_request(
             method=request.method,
-            route=log_route,
+            route=_metric_route(request),
             status_code=response.status_code,
             duration_ms=duration_ms,
         )

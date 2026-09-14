@@ -19,7 +19,7 @@
       <div class="brand-cluster">
         <a class="brand" href="{{ worklist_url|default('/admin') }}">
           <img src="/admin/assets/escalane-mark.svg" alt="" width="48" height="48">
-          <span>{{ t('product_name') }}</span>
+          <span class="brand-copy"><strong>{{ t('product_name') }}</strong>{% if operator_name %}<small>{{ t('operator_console') }}</small>{% endif %}</span>
         </a>
         {% if simulation_enabled %}<span class="environment-label">{{ t('simulation') }}</span>{% endif %}
       </div>
@@ -31,6 +31,13 @@
           <strong>{{ operator_name }}</strong>
         </p>
         {% endif %}
+        <button class="theme-toggle" type="button" data-theme-toggle
+          data-theme-light-label="{{ t('switch_to_light_theme') }}"
+          data-theme-dark-label="{{ t('switch_to_dark_theme') }}"
+          aria-label="{{ t('switch_to_dark_theme') }}" title="{{ t('switch_to_dark_theme') }}">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+          <span class="visually-hidden">{{ t('theme') }}</span>
+        </button>
         {% if locales %}{{ language_select(locale, locales, t, current_path|default('/admin')) }}{% endif %}
         {% if logout_action %}
         <form class="logout-form" method="post" action="{{ logout_action }}">
@@ -47,10 +54,17 @@
     <details class="admin-nav" open>
       <summary>{{ t('menu') }}</summary>
       <nav aria-label="{{ t('primary_navigation') }}">
+        <p class="nav-section-label">{{ t('operations') }}</p>
         <a href="/admin" {% if current_path == '/admin' or current_path|default('') is string and current_path.startswith('/admin/alarms/') %}aria-current="page"{% endif %}>
           <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9M9 20h6"></path></svg>
           {{ t('alarms') }}
+          {% if counts and counts.get('triggered', 0) %}<span class="nav-badge" aria-hidden="true">{{ counts.get('triggered') }}</span>{% endif %}
         </a>
+        <a href="/admin/activity" {% if current_path == '/admin/activity' %}aria-current="page"{% endif %}>
+          <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"></path></svg>
+          {{ t('audit_log') }}
+        </a>
+        <p class="nav-section-label">{{ t('manage') }}</p>
         <a href="/admin/configuration/sites" {% if current_path|default('') is string and current_path.startswith('/admin/configuration') %}aria-current="page"{% endif %}>
           <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>
           {{ t('configuration') }}
@@ -64,10 +78,6 @@
         <a href="/admin/system" {% if current_path == '/admin/system' %}aria-current="page"{% endif %}>
           <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="10" width="16" height="5" rx="1"></rect><rect x="4" y="17" width="16" height="4" rx="1"></rect><path d="M8 5.5h.01M8 12.5h.01M8 19h.01"></path></svg>
           {{ t('system') }}
-        </a>
-        <a href="/admin/activity" {% if current_path == '/admin/activity' %}aria-current="page"{% endif %}>
-          <svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"></path></svg>
-          {{ t('audit_log') }}
         </a>
       </nav>
     </details>
@@ -84,6 +94,6 @@
   </nav>
   {% endif %}
   <main id="content" tabindex="-1">{% block content %}{% endblock %}</main>
-  <footer class="site-footer"><strong>{{ t('product_name') }}</strong><span>{{ t('brand_tagline') }}</span></footer>
+  {% if not operator_name %}<footer class="site-footer"><strong>{{ t('product_name') }}</strong><span>{{ t('brand_tagline') }}</span></footer>{% endif %}
 </body>
 </html>

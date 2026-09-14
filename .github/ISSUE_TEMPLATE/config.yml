@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
     url: https://github.com/sebastianspicker/escalane/security/advisories/new
-    about: Please report suspected vulnerabilities through a private GitHub Security Advisory.
-  - name: Support guidance
+    about: Report a suspected vulnerability privately. Do not include its details in a public issue.
+  - name: Getting help
     url: https://github.com/sebastianspicker/escalane/blob/main/SUPPORT.md
-    about: Review issue routing, redaction, and the public-alpha support boundary.
+    about: Find out where to report problems and what to remove from logs before sharing them.

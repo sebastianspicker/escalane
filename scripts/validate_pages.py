@@ -7,10 +7,11 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import SplitResult, urlsplit
 
-REQUIRED_PAGES = {"index.html", "alarm.html", "acknowledge.html", "simulation.html"}
+REQUIRED_PAGES = {"index.html", "alarm.html", "acknowledge.html", "simulation.html", "tour.html"}
 REQUIRED_ASSETS = {"assets/ui.css", "assets/ui.js", "assets/demo.css", "assets/demo.js"}
 FORBIDDEN_ROUTE_PREFIXES = ("/admin", "/a/", "/v1/")
 ALLOWED_EXTERNAL_SCHEMES = ("http", "https")
+SIMULATED_FORM_MARKERS = {"data-demo-note", "data-demo-responder", "data-drawer-note"}
 
 
 class DemoParser(HTMLParser):
@@ -26,6 +27,8 @@ class DemoParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
         self._collect_links(values)
+        if tag == "form" and not SIMULATED_FORM_MARKERS.intersection(values):
+            self.violations.append("form has no recognized browser-local submit handler")
         if tag == "button":
             self._start_command(values)
             return

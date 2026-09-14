@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from escalane.persistence.telemetry import instrument_engine
+
 logger = logging.getLogger("escalane")
 
 if TYPE_CHECKING:
@@ -32,6 +34,9 @@ def create_async_engine_from_url(
         pool_timeout=pool_timeout,
         pool_recycle=pool_recycle,
     )
+
+    instrument_engine(engine)
+    engine.sync_engine.update_execution_options(escalane_pool_capacity=pool_size + max_overflow)
 
     if slow_query_log_ms > 0:
         _install_slow_query_listener(engine.sync_engine, slow_query_log_ms)

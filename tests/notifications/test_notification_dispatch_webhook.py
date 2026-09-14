@@ -381,7 +381,7 @@ async def test_send_webhook_stops_on_permanent_response() -> None:
 
     expect(delivered is True)
     expect(attempts == ["https://1.1.1.1/hook"])
-    expect(log_result.await_args.args[3] == "error")
+    expect(log_result.await_args.args[3] == "permanent_error")
 
 
 async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fail():
@@ -435,3 +435,72 @@ async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fai
     error = mock_log.await_args.args[4]
     expect(mock_log.await_args.args[3] == "error")
     expect(secret not in error)
+
+
+async def test_webhook_pool_isolates_original_origins_and_reuses_paths(monkeypatch) -> None:
+    """Pinned addresses never cause two original TLS origins to share a client."""
+    clients: list[MagicMock] = []
+
+    def make_client() -> MagicMock:
+        client = MagicMock()
+        client.aclose = AsyncMock()
+        clients.append(client)
+        return client
+
+    pool = webhook_delivery.WebhookClientPool(max_origins=2)
+    monkeypatch.setattr(pool, "_new_client", make_client)
+    async with pool.client_for("https://first.example.test/a") as first:
+        async with pool.client_for("https://first.example.test/b") as same_origin:
+            assert same_origin is first
+        async with pool.client_for("https://second.example.test/a") as second:
+            assert second is not first
+
+    assert len(clients) == 2
+    await pool.aclose()
+    assert all(client.aclose.await_count == 1 for client in clients)
+
+
+async def test_webhook_pool_uses_temporary_client_when_all_origins_are_busy(
+    monkeypatch,
+) -> None:
+    clients: list[MagicMock] = []
+
+    def make_client() -> MagicMock:
+        client = MagicMock()
+        client.aclose = AsyncMock()
+        clients.append(client)
+        return client
+
+    pool = webhook_delivery.WebhookClientPool(max_origins=1)
+    monkeypatch.setattr(pool, "_new_client", make_client)
+    async with pool.client_for("https://busy.example.test/a"):
+        async with pool.client_for("https://temporary.example.test/a"):
+            assert len(pool._entries) == 1
+        clients[1].aclose.assert_awaited_once()
+
+    async with pool.client_for("https://replacement.example.test/a"):
+        clients[0].aclose.assert_awaited_once()
+        assert len(pool._entries) == 1
+
+    await pool.aclose()
+    clients[2].aclose.assert_awaited_once()
+
+
+async def test_pool_shutdown_closes_busy_temporary_clients_and_rejects_new_leases(monkeypatch):
+    pool = webhook_delivery.WebhookClientPool(max_origins=1)
+
+    def make_client():
+        client = MagicMock()
+        client.aclose = AsyncMock()
+        return client
+
+    monkeypatch.setattr(pool, "_new_client", make_client)
+    async with pool.client_for("https://same.example.test/") as first:
+        async with pool.client_for("https://same.example.test./") as temporary:
+            assert first is not temporary
+            await pool.aclose()
+            first.aclose.assert_awaited()
+            temporary.aclose.assert_awaited()
+            with pytest.raises(RuntimeError, match="closed"):
+                async with pool.client_for("https://new.example.test/"):
+                    pass
