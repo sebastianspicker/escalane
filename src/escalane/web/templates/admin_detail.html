@@ -53,16 +53,7 @@
 
     <section class="activity-section" aria-labelledby="activity-title">
       <h2 id="activity-title" class="section-title">{{ t('activity') }}</h2>
-      <ol class="timeline">
-        {% for event in events %}
-        <li>
-          <time datetime="{{ event.at_iso }}">{{ event.at }}</time>
-          <span>{{ event.description }}</span>
-        </li>
-        {% else %}
-        <li>{{ t('no_records') }}</li>
-        {% endfor %}
-      </ol>
+      {% include "admin_history.html" %}
     </section>
   </div>
 

@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from arq import connections
+from arq.worker import get_kwargs
 
 from escalane.config.settings import Settings
 from escalane.worker import settings as worker_settings
@@ -88,3 +90,30 @@ def test_worker_settings_registers_delivery_tasks_and_caches_redis_settings(
         worker_settings.recover_incomplete_alarm_events in worker_settings.WorkerSettings.functions
     )
     assert worker_settings.WorkerSettings.max_tries == worker_settings.MAX_DELIVERY_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_arq_can_connect_using_settings_extracted_from_worker_class(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _settings(simulation=True)
+    settings.redis_url = "redis://redis.example.test:6381/2"
+    load_settings = MagicMock(return_value=settings)
+    monkeypatch.setattr(worker_settings, "get_settings", load_settings)
+    monkeypatch.setattr(worker_settings.WorkerSettings, "_lazy_redis_settings", None, raising=False)
+    pool = MagicMock()
+    pool.ping = AsyncMock()
+    create_redis = MagicMock(return_value=pool)
+    monkeypatch.setattr(connections, "ArqRedis", create_redis)
+
+    # ARQ extracts the class dictionary without invoking descriptors.
+    redis_settings = get_kwargs(worker_settings.WorkerSettings)["redis_settings"]
+    load_settings.assert_not_called()
+    result = await connections.create_pool(redis_settings)
+
+    assert result is pool
+    assert create_redis.call_args.kwargs["host"] == "redis.example.test"
+    assert create_redis.call_args.kwargs["port"] == 6381
+    assert create_redis.call_args.kwargs["db"] == 2
+    pool.ping.assert_awaited_once()
+    load_settings.assert_called_once_with()

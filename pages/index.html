@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#0b1f28">
-  <title>Alarm worklist · Escalane static demo</title>
+  <title>Worklist · Escalane static demo</title>
   <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/ui.css">
   <link rel="stylesheet" href="assets/demo.css">
@@ -14,63 +14,52 @@
 </head>
 <body class="has-session page-worklist">
   <a class="skip-link" href="#content">Skip to content</a>
-  <header class="site-header">
+  <header class="site-header demo-rail">
     <div class="utility-bar">
       <div class="brand-cluster">
-        <a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span>Escalane</span></a>
+        <a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span class="brand-copy"><strong>Escalane</strong><small>Operator console</small></span></a>
         <span class="environment-label">Static demo</span>
-      </div>
-      <div class="session-tools">
-        <p class="operator-name"><svg class="utility-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"></circle><path d="M5 21v-2a7 7 0 0 1 14 0v2"></path></svg><span>Signed in as</span><strong>Demo Operator</strong></p>
-        <form class="logout-form"><button class="button button-quiet button-small" type="submit" data-simulated-action data-demo-generic><svg class="utility-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M10 4H5v16h5M14 8l4 4-4 4M8 12h10"></path></svg>Sign out <span class="simulated-label">Simulated</span></button></form>
       </div>
     </div>
     <details class="admin-nav" open>
       <summary>Menu</summary>
       <nav aria-label="Primary navigation">
-        <a href="./" aria-current="page"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9M9 20h6"></path></svg>Alarms</a>
-        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Configuration</a>
-        <a href="simulation.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3M8 15h8"></path></svg>Simulation</a>
-        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="5" rx="1"></rect><rect x="4" y="10" width="16" height="5" rx="1"></rect><rect x="4" y="17" width="16" height="4" rx="1"></rect></svg>System</a>
-        <a class="demo-unavailable" href="#" data-demo-unavailable><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 2h9l4 4v16H6zM14 2v5h5M9 12h7M9 16h7"></path></svg>Audit log</a>
-      </nav>
+        <p class="nav-section-label">Operate</p>
+        <a href="./" aria-current="page"><span aria-hidden="true">⌁</span> Alarms <span class="nav-badge" data-triggered-nav-count>3</span></a>
+        <a href="alarm.html"><span aria-hidden="true">◫</span> Alarm detail</a>
+        <p class="nav-section-label">Manage</p>
+        <a href="simulation.html"><span aria-hidden="true">◌</span> Simulation</a>
+        <a href="acknowledge.html"><span aria-hidden="true">✓</span> Responder view</a>
+      <p class="nav-section-label">Explore</p><a href="tour.html"><span aria-hidden="true">▧</span> Screenshot tour</a></nav>
     </details>
+    <div class="demo-operator"><span class="demo-avatar" aria-hidden="true">DO</span><span><strong>Demo Operator</strong><small>On-call · Fixture campus</small></span><button class="demo-signout" type="button" data-demo-generic data-simulated-action>Sign out <span class="simulated-label">Simulated</span></button></div>
   </header>
   <main id="content" tabindex="-1">
-    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> This click-through uses sanitized Mock University fixtures and sends no requests to an Escalane service. Every command-capable control is marked <span class="simulated-label">Simulated</span>.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
-    <header class="page-heading worklist-heading">
-      <div><h1>Alarm worklist</h1><p class="page-summary">Review current alarm state, age, location, and ownership.</p></div>
-      <div class="worklist-utilities">
-        <details class="export-menu"><summary class="button button-quiet">Export <span class="simulated-label">Simulated</span></summary><div class="export-options"><a href="#" data-demo-export>Export CSV <span class="simulated-label">Simulated</span></a><a href="#" data-demo-export>Export JSON <span class="simulated-label">Simulated</span></a></div></details>
-        <p class="page-freshness"><span>Updated</span> <time>fixture time</time></p>
-      </div>
+    <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> Sanitized fictional fixture data only. No Escalane API or provider requests are sent. Actions change only this page; reloading resets it.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
+    <header class="page-heading demo-page-heading">
+      <div><h1>Worklist</h1><p class="page-summary">Alarm intake and escalation for the Fixture Care Campus.</p></div>
+      <div class="demo-heading-tools"><button class="theme-toggle worklist-theme-toggle" type="button" data-theme-toggle data-simulated-action data-theme-light-label="Switch to light theme" data-theme-dark-label="Switch to dark theme" aria-label="Switch to dark theme" title="Switch to dark theme"><span aria-hidden="true">◐</span><span class="visually-hidden">Toggle theme</span><span class="simulated-label">Simulated</span></button><span class="live-pill"><span class="live-dot" aria-hidden="true"></span>Fixture live · <time data-demo-freshness>updated now</time></span><button class="button button-quiet button-small" type="button" data-demo-export data-simulated-action>Export fixture <span class="simulated-label">Simulated</span></button></div>
     </header>
-    <dl class="status-summary" aria-label="Alarm counts">
-      <div class="summary-triggered"><dt><a href="#worklist-table">Triggered</a></dt><dd>2</dd></div>
-      <div class="summary-acknowledged"><dt><a href="#worklist-table">Acknowledged</a></dt><dd>0</dd></div>
-      <div class="summary-resolved"><dt><a href="#worklist-table">Resolved</a></dt><dd>0</dd></div>
-      <div class="summary-cancelled"><dt><a href="#worklist-table">Cancelled</a></dt><dd>0</dd></div>
-    </dl>
-    <form class="filters" data-demo-filters>
-      <div class="filter-field filter-field-search"><label for="search">Search alarms</label><div class="search-control"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 5 5"></path></svg><input id="search" name="search" type="search" maxlength="120" placeholder="ID, person, room, source, or event"></div></div>
-      <div class="filter-field"><label for="status">Status</label><select id="status" name="status"><option value="">All statuses</option><option value="triggered">Triggered</option><option value="acknowledged">Acknowledged</option></select></div>
-      <div class="filter-field"><label for="sort-by">Sort by</label><select id="sort-by" name="sort_by"><option>Age</option><option>Status</option><option>Severity</option></select></div>
-      <div class="filter-field"><label for="order">Order</label><select id="order" name="order"><option>Newest first</option><option>Oldest first</option></select></div>
-      <button class="button button-primary" type="submit" data-simulated-action>Apply filters <span class="simulated-label">Simulated</span></button>
-    </form>
-    <form data-demo-bulk>
-      <div class="table-scroll" id="worklist-table" tabindex="0" aria-label="Alarm worklist">
-        <table class="worklist-table"><caption class="visually-hidden">Alarm worklist</caption><thead><tr><th scope="col"><span class="visually-hidden">Select</span></th><th scope="col">Status</th><th scope="col">Age</th><th scope="col">Person</th><th scope="col">Room</th><th scope="col">ID</th><th scope="col">Source</th><th scope="col">Severity</th><th scope="col">Owner</th><th scope="col">Action</th></tr></thead>
-          <tbody>
-            <tr class="alarm-row alarm-row-triggered" data-alarm-row data-status="triggered"><td><input aria-label="Select alarm ab2142e1" type="checkbox" data-alarm-select></td><td><span class="status status-triggered"><span></span>Triggered</span></td><td><time>2 min</time></td><td>Medical On-Call</td><td>Surgical Unit OR Control</td><td><a class="alarm-id" href="alarm.html">ab2142e1</a></td><td>yealink</td><td><span class="severity severity-p0">P0</span></td><td>Unassigned</td><td><a class="row-link button button-quiet button-small" href="alarm.html">Open</a></td></tr>
-            <tr class="alarm-row alarm-row-triggered" data-alarm-row data-status="triggered"><td><input aria-label="Select alarm 40300ac4" type="checkbox" data-alarm-select></td><td><span class="status status-triggered"><span></span>Triggered</span></td><td><time>4 min</time></td><td>Campus Operations Coordinator</td><td>Main Library Service Desk</td><td><a class="alarm-id" href="alarm.html">40300ac4</a></td><td>yealink</td><td><span class="severity severity-p0">P0</span></td><td>Unassigned</td><td><a class="row-link button button-quiet button-small" href="alarm.html">Open</a></td></tr>
-          </tbody>
-        </table>
+    <section class="status-summary demo-status-strip" aria-label="Filter alarms by status" data-status-filter>
+      <button class="summary-triggered" type="button" data-simulated-action data-status="triggered" aria-pressed="false"><span class="status-swatch" aria-hidden="true"></span><span><span class="stat-label">Triggered</span><strong data-count="triggered">0</strong></span><span class="simulated-label">Simulated</span></button>
+      <button class="summary-acknowledged" type="button" data-simulated-action data-status="acknowledged" aria-pressed="false"><span class="status-swatch" aria-hidden="true"></span><span><span class="stat-label">Acknowledged</span><strong data-count="acknowledged">0</strong></span><span class="simulated-label">Simulated</span></button>
+      <button class="summary-resolved" type="button" data-simulated-action data-status="resolved" aria-pressed="false"><span class="status-swatch" aria-hidden="true"></span><span><span class="stat-label">Resolved</span><strong data-count="resolved">0</strong></span><span class="simulated-label">Simulated</span></button>
+      <button class="summary-cancelled" type="button" data-simulated-action data-status="cancelled" aria-pressed="false"><span class="status-swatch" aria-hidden="true"></span><span><span class="stat-label">Cancelled</span><strong data-count="cancelled">0</strong></span><span class="simulated-label">Simulated</span></button>
+    </section>
+    <div class="toolbar demo-toolbar">
+      <label class="search-control demo-search"><span class="visually-hidden">Search alarms</span><span aria-hidden="true">⌕</span><input type="search" data-demo-search placeholder="Search person, room, ID, or source" autocomplete="off"><kbd>⌘K</kbd></label>
+      <div class="severity-filter demo-severity" role="group" aria-label="Filter by severity" data-severity-filter>
+        <button type="button" data-simulated-action data-severity="" aria-pressed="true">All <span class="simulated-label">Simulated</span></button><button type="button" data-simulated-action data-severity="P0" aria-pressed="false">P0 <span class="simulated-label">Simulated</span></button><button type="button" data-simulated-action data-severity="P1" aria-pressed="false">P1 <span class="simulated-label">Simulated</span></button><button type="button" data-simulated-action data-severity="P2" aria-pressed="false">P2 <span class="simulated-label">Simulated</span></button>
       </div>
-      <fieldset class="bulk-actions"><legend>Selected alarms <span class="selection-count" data-selection-count aria-live="polite">0</span></legend><div class="bulk-grid"><div><label for="bulk-action" class="visually-hidden">Action</label><select id="bulk-action" name="action"><option value="acknowledge">Acknowledge</option><option value="resolve">Resolve</option><option value="cancel">Cancel</option></select></div><div class="bulk-reason"><label class="visually-hidden" for="bulk-reason">Reason</label><input id="bulk-reason" name="reason" maxlength="2000" placeholder="Reason required for cancellation"></div><button class="button button-primary" type="submit" data-simulated-action>Apply to selected <span class="simulated-label">Simulated</span></button></div></fieldset>
-    </form>
+      <label class="demo-sort"><span class="visually-hidden">Sort alarms</span><select data-demo-sort><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="severity">Severity</option><option value="status">Status</option></select></label>
+    </div>
+    <div class="table-scroll demo-table-wrap" tabindex="0" aria-label="Alarm worklist">
+      <table class="worklist-table"><caption class="visually-hidden">Fixture alarm worklist. Select a row to open its local detail drawer.</caption><thead><tr><th scope="col" class="check-cell"><span class="visually-hidden">Select</span></th><th scope="col" class="severity-edge"><span class="visually-hidden">Severity</span></th><th scope="col">Status</th><th scope="col">Age</th><th scope="col">Person · room</th><th scope="col">ID</th><th scope="col">Source</th><th scope="col">Sev</th><th scope="col">Owner</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead><tbody data-demo-rows></tbody></table>
+      <p class="demo-empty" data-demo-empty hidden><strong>No fixture alarms match.</strong> Clear a status, severity, or search filter to return to the worklist.</p>
+    </div>
+    <section class="bulk-actions demo-selection-bar" data-demo-selection-bar hidden aria-label="Selected alarm actions"><strong><span data-selection-count>0</span> selected</strong><button type="button" data-bulk-transition="acknowledged" data-simulated-action>Acknowledge <span class="simulated-label">Simulated</span></button><button type="button" data-bulk-transition="resolved" data-simulated-action>Resolve <span class="simulated-label">Simulated</span></button><button type="button" data-bulk-transition="cancelled" data-simulated-action>Cancel <span class="simulated-label">Simulated</span></button><button type="button" data-clear-selection data-simulated-action>Clear <span class="simulated-label">Simulated</span></button></section>
   </main>
-  <footer class="site-footer"><strong>Escalane</strong><span>Alarm intake, acknowledgement, and escalation.</span></footer>
+  <dialog class="alarm-drawer demo-drawer" data-demo-drawer aria-labelledby="drawer-title"><div class="drawer-content"><div class="drawer-detail"><header class="drawer-heading"><div><p class="machine-value" data-drawer-id></p><h2 id="drawer-title" tabindex="-1" data-drawer-title>Alarm detail</h2><div class="detail-status-row"><span class="status" data-drawer-status></span><span class="severity" data-drawer-severity></span><span class="machine-value" data-drawer-age></span></div></div><button class="button button-quiet button-small" type="button" data-drawer-close data-simulated-action>Close <span class="simulated-label">Simulated</span></button></header><section><h3 class="section-title">Context</h3><dl class="definition-list demo-drawer-context" data-drawer-context></dl></section><section><h3 class="section-title">Fixture escalation</h3><ol class="demo-stepper" data-drawer-escalation></ol></section><section><h3 class="section-title">Timeline</h3><ol class="timeline" data-drawer-timeline></ol></section><section class="drawer-actions"><h3 class="section-title">Local fixture actions</h3><button class="button button-primary" type="button" data-drawer-transition="acknowledged" data-simulated-action>Acknowledge <span class="simulated-label">Simulated</span></button><button class="button" type="button" data-drawer-transition="resolved" data-simulated-action>Resolve <span class="simulated-label">Simulated</span></button><button class="button button-danger" type="button" data-drawer-transition="cancelled" data-simulated-action>Cancel <span class="simulated-label">Simulated</span></button><form data-drawer-note><label for="drawer-note">Add fixture note</label><textarea id="drawer-note" name="note" rows="3" maxlength="500" required></textarea><button class="button" type="submit" data-simulated-action>Add note <span class="simulated-label">Simulated</span></button></form><a href="alarm.html">Open full fixture detail</a></section></div></div></dialog>
   <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
 </body>
 </html>

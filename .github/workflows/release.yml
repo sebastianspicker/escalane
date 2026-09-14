@@ -144,31 +144,31 @@ jobs:
           make_latest: false
           body: |
             > [!WARNING]
-            > This is a public alpha reference implementation. It is not
-            > validated for safety-, security-, compliance-, or
-            > mission-critical deployment.
+            > Escalane is a public alpha for evaluation. It has not been
+            > validated for deployments that require safety, security,
+            > compliance, or mission-critical assurance.
 
-            ## Supported artifact
+            ## Container image
 
-            The supported alpha artifact is the GHCR image tested by this
-            workflow:
+            Deploy the GHCR image tested by this release workflow:
 
             `${{ steps.publish.outputs.primary_tag }}@${{ steps.publish.outputs.digest }}`
 
-            The digest is the immutable deployment identity. GitHub source
-            archives are also available; the Python wheel is CI packaging
-            evidence and is not published.
+            Pin the image by digest to use the exact build tested here. GitHub
+            also provides source archives. CI checks the Python wheel to verify
+            packaging, but the wheel is not published.
 
             ## Alpha limitations
 
-            - Connector delivery is audited and retryable but remains
-              at-least-once; external providers can still observe duplicates.
-            - Deployment owners must validate credentials, network policy,
-              backups, restore, alerting, capacity, accessibility, and rollback
-              in the intended environment.
+            - Escalane records delivery results and retries failures. A provider
+              may receive the same request more than once.
+            - Before deploying, test credentials, network rules, backups and
+              restore, alerting, capacity, accessibility, and rollback in your
+              own environment.
             - See the
               [operations guide](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/docs/OPERATIONS.md),
               [security policy](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/SECURITY.md),
               and
               [changelog](https://github.com/${{ github.repository }}/blob/${{ needs.preflight.outputs.tag_sha }}/CHANGELOG.md)
-              for the exact boundary and known limitations.
+              for setup requirements, known limitations, and changes in this
+              release.

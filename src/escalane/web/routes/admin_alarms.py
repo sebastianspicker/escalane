@@ -6,6 +6,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -29,6 +30,7 @@ from escalane.persistence.models import (
     Room,
 )
 from escalane.web.admin_session import AdminSession, set_flash
+from escalane.web.alarm_history import history_page, parse_history_cursor
 from escalane.web.deps import get_app_settings, get_redis, get_session
 from escalane.web.routes.admin_console import (
     _action_session,
@@ -54,50 +56,36 @@ class _BulkTransition:
     redis: Any
 
 
-async def _detail_context(session: AsyncSession, alarm: Alarm, locale: str) -> dict[str, Any]:
-    """Assemble the minimal related data needed by the alarm-detail template."""
-    person = await _alarm_person(session, alarm)
-    room = await _alarm_room(session, alarm)
-    notes, notifications = await _alarm_history(session, alarm.id)
+async def _detail_context(
+    session: AsyncSession, alarm: Alarm, locale: str, before: str | None = None
+) -> dict[str, Any]:
+    """Project display labels and one bounded page of activity."""
+    cursor = parse_history_cursor(before)
+    labels = (
+        await session.execute(
+            select(Person.display_name, Room.label)
+            .select_from(Alarm)
+            .outerjoin(Person, Person.id == Alarm.person_id)
+            .outerjoin(Room, Room.id == Alarm.room_id)
+            .where(Alarm.id == alarm.id)
+        )
+    ).one_or_none()
+    view = _alarm_detail_view(alarm, None, None)
+    if labels is not None:
+        view["person"] = labels[0] if labels[0] is not None else view["person"]
+        view["room"] = labels[1] if labels[1] is not None else view["room"]
+    events, next_cursor, include_creation = await history_page(session, alarm.id, cursor)
+    if include_creation:
+        events.insert(0, {**_created_event(alarm, locale), "key": "created"})
+    params = urlencode({"lang": locale, "before": next_cursor}) if next_cursor else ""
+    path = f"/admin/alarms/{alarm.id}"
     return {
-        "alarm": _alarm_detail_view(alarm, person, room),
-        "events": _alarm_timeline(alarm, locale, notes, notifications),
+        "alarm": view,
+        "events": events,
+        "older_activity_url": f"{path}?{params}#activity-title" if params else None,
+        "older_activity_fragment_url": f"{path}/history?{params}" if params else None,
+        "latest_activity_url": f"{path}?lang={locale}#activity-title" if before else None,
     }
-
-
-async def _alarm_person(session: AsyncSession, alarm: Alarm) -> Person | None:
-    """Load the optional person once so deleted or anonymous records remain renderable."""
-    return await session.get(Person, alarm.person_id) if alarm.person_id else None
-
-
-async def _alarm_room(session: AsyncSession, alarm: Alarm) -> Room | None:
-    """Load the optional room once so alarm history survives master-data changes."""
-    return await session.get(Room, alarm.room_id) if alarm.room_id else None
-
-
-async def _alarm_history(
-    session: AsyncSession, alarm_id: uuid.UUID
-) -> tuple[list[AlarmNote], list[AlarmNotification]]:
-    """Fetch stable chronological history components for the detail timeline."""
-    notes = list(
-        (
-            await session.scalars(
-                select(AlarmNote)
-                .where(AlarmNote.alarm_id == alarm_id)
-                .order_by(AlarmNote.created_at.asc())
-            )
-        ).all()
-    )
-    notifications = list(
-        (
-            await session.scalars(
-                select(AlarmNotification)
-                .where(AlarmNotification.alarm_id == alarm_id)
-                .order_by(AlarmNotification.created_at.asc())
-            )
-        ).all()
-    )
-    return notes, notifications
 
 
 def _alarm_timeline(
@@ -176,6 +164,7 @@ async def admin_alarm_detail(
     alarm_id: uuid.UUID,
     request: Request,
     lang: str | None = Query(default=None),
+    before: str | None = Query(default=None, max_length=300),
     admin_session: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
@@ -183,7 +172,7 @@ async def admin_alarm_detail(
     locale = _requested_locale(request, lang)
     browser_session = await _session_from_request(request, settings, admin_session, extend=True)
     alarm = await get_alarm_or_404(session, alarm_id)
-    detail = await _detail_context(session, alarm, locale)
+    detail = await _detail_context(session, alarm, locale, before)
     return _html(
         request,
         "admin_detail.html",
@@ -198,6 +187,52 @@ async def admin_alarm_detail(
         operator_name=browser_session.operator_name,
         logout_action="/admin/logout",
     )
+
+
+@router.get("/admin/alarms/{alarm_id}/drawer", response_class=HTMLResponse)
+async def admin_alarm_drawer(
+    alarm_id: uuid.UUID,
+    request: Request,
+    lang: str | None = Query(default=None),
+    before: str | None = Query(default=None, max_length=300),
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    """Return current, authenticated alarm context for progressive drawer enhancement."""
+    locale = _requested_locale(request, lang)
+    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    alarm = await get_alarm_or_404(session, alarm_id)
+    detail = await _detail_context(session, alarm, locale, before)
+    return _html(
+        request,
+        "admin_detail_drawer.html",
+        locale,
+        **detail,
+        ack_action=f"/admin/alarms/{alarm_id}/ack?lang={locale}",
+        resolve_action=f"/admin/alarms/{alarm_id}/resolve?lang={locale}",
+        cancel_action=f"/admin/alarms/{alarm_id}/cancel?lang={locale}",
+        note_action=f"/admin/alarms/{alarm_id}/notes?lang={locale}",
+        csrf_token=browser_session.csrf_token,
+    )
+
+
+@router.get("/admin/alarms/{alarm_id}/history", response_class=HTMLResponse)
+async def admin_alarm_history(
+    alarm_id: uuid.UUID,
+    request: Request,
+    lang: str | None = Query(default=None),
+    before: str | None = Query(default=None, max_length=300),
+    admin_session: str | None = Cookie(default=None),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_app_settings),
+) -> HTMLResponse:
+    """Serve an authenticated history fragment for progressive enhancement."""
+    locale = _requested_locale(request, lang)
+    await _session_from_request(request, settings, admin_session, extend=True)
+    alarm = await get_alarm_or_404(session, alarm_id)
+    detail = await _detail_context(session, alarm, locale, before)
+    return _html(request, "admin_history.html", locale, **detail)
 
 
 # Acknowledge one alarm and show whether downstream event delivery remains pending.
@@ -230,7 +265,7 @@ async def admin_ack_alarm(
         "success" if delivery_ok else "warning",
         "alarm_acknowledged" if delivery_ok else "alarm_acknowledged_delivery_pending",
     )
-    return RedirectResponse(f"/admin/alarms/{alarm_id}", status_code=303)
+    return _detail_redirect(alarm_id, request)
 
 
 async def _transition_from_form(
@@ -261,7 +296,7 @@ async def _transition_from_form(
     await set_flash(
         get_redis(request), browser_session, "success" if delivery_ok else "warning", target.value
     )
-    return RedirectResponse(f"/admin/alarms/{alarm_id}", status_code=303)
+    return _detail_redirect(alarm_id, request)
 
 
 # Resolve from the detail view after session and CSRF validation.
@@ -327,7 +362,7 @@ async def admin_add_note(
     )
     await session.commit()
     await set_flash(get_redis(request), browser_session, "success", "note_added")
-    return RedirectResponse(f"/admin/alarms/{alarm_id}", status_code=303)
+    return _detail_redirect(alarm_id, request)
 
 
 # Soft deletion retains the record for audit and recovery.
@@ -351,7 +386,8 @@ async def admin_delete_alarm(
         note=reason.strip(),
     )
     await set_flash(get_redis(request), browser_session, "success", "alarm_deleted")
-    return RedirectResponse("/admin", status_code=303)
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin?lang={locale}", status_code=303)
 
 
 # Apply a bounded selection while separately counting concurrent or missing records.
@@ -383,7 +419,13 @@ async def admin_bulk_action(
     await set_flash(
         get_redis(request), browser_session, "success", f"bulk_{changed}_{unchanged}_{missing}"
     )
-    return RedirectResponse("/admin", status_code=303)
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin?lang={locale}", status_code=303)
+
+
+def _detail_redirect(alarm_id: uuid.UUID, request: Request) -> RedirectResponse:
+    locale = _requested_locale(request, request.query_params.get("lang"))
+    return RedirectResponse(f"/admin/alarms/{alarm_id}?lang={locale}", status_code=303)
 
 
 def _validate_bulk_request(action: str, reason: str | None, raw_ids: list[Any]) -> None:
@@ -480,6 +522,7 @@ async def admin_export(
     request: Request,
     export_format: str = Query(default="csv", alias="format", pattern="^(csv|json)$"),
     status_filter: AlarmStatus | None = Query(default=None, alias="status"),
+    severity_filter: str | None = Query(default=None, alias="severity", pattern="^(P0|P1|P2)$"),
     admin_session: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
@@ -491,6 +534,7 @@ async def admin_export(
     return await export_alarms(
         AlarmExportQuery(
             status=status_filter,
+            severity=severity_filter,
             format=ExportFormat(export_format),
             limit=2000,
         ),

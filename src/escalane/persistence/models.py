@@ -6,7 +6,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.sqltypes import JSON
@@ -14,6 +25,17 @@ from sqlalchemy.types import Uuid
 
 from escalane.contracts import alarms as alarm_contracts
 from escalane.persistence.base import Base
+
+
+class DashboardRevision(Base):
+    """Singleton invalidation token changed in the same transaction as visible data."""
+
+    __tablename__ = "dashboard_revision"
+    __table_args__ = (CheckConstraint("id = 1", name="dashboard_revision_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    epoch: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
 
 
 class Site(Base):
@@ -218,6 +240,8 @@ class AlarmEventOutbox(AlarmRecordMixin, Base):
 class AlarmNotification(AlarmRecordMixin, Base):
     __tablename__ = "alarm_notifications"
 
+    logical_delivery_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+
     channel: Mapped[str] = mapped_column(String, nullable=False, index=True)
     target_id: Mapped[str | None] = mapped_column(
         ForeignKey("escalation_targets.id"), nullable=True
@@ -245,3 +269,7 @@ class AlarmNote(AlarmRecordMixin, Base):
     note_type: Mapped[str] = mapped_column(
         String, nullable=False, default="manual", server_default="manual"
     )  # manual, system, escalation
+
+
+# Metadata-created SQLite databases need the same transactional revision behavior.
+from escalane.persistence import revision_schema as _revision_schema  # noqa: E402, F401

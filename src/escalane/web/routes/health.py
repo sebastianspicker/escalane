@@ -21,7 +21,7 @@ router = APIRouter()
 
 # Keep this value synchronized with the single Alembic head packaged in
 # migrations/versions. The regression test verifies it.
-EXPECTED_ALEMBIC_HEAD = "0007"
+EXPECTED_ALEMBIC_HEAD = "0008"
 
 _start_time = time.time()
 
@@ -131,17 +131,24 @@ async def healthz_details(
 
 @router.get("/metrics", dependencies=[Depends(require_admin)])
 async def metrics(
+    request: Request,
     sessionmaker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker),
 ) -> PlainTextResponse:
-    from escalane.operations.queries import get_alarm_counts, get_notification_counts
+    from escalane.operations.queries import historical_metrics, outbox_gauges
+    from escalane.operations.worker_snapshot import pool_gauges, read_worker_snapshot
 
     async with sessionmaker() as session:
-        alarm_counts = await get_alarm_counts(session)
-        notification_counts = await get_notification_counts(session)
+        alarm_counts, notification_counts = await historical_metrics(session, get_redis(request))
+        gauges = await outbox_gauges(session)
+    gauges.update(pool_gauges(request.app.state.engine))
+    worker_gauges, worker_histograms = await read_worker_snapshot(get_redis(request))
+    gauges.update(worker_gauges)
 
     content = render_prometheus_metrics(
         alarm_counts=alarm_counts,
         notification_counts=notification_counts,
+        gauges=gauges,
+        worker_histograms=worker_histograms,
     )
     return PlainTextResponse(content=content, media_type="text/plain")
 

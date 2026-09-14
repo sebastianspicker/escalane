@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane import __version__
 from escalane.config.settings import Settings
-from escalane.persistence.models import AdminAuditEvent, Alarm
+from escalane.persistence.models import AdminAuditEvent
 from escalane.providers.mock import get_mock_store
 from escalane.web.deps import get_app_settings, get_session
 from escalane.web.routes.admin_console import (
@@ -57,7 +57,7 @@ async def admin_system(
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
     locale, browser_session = page
-    database_ok = (await session.scalar(select(func.count(Alarm.id)))) is not None
+    database_ok = (await session.scalar(select(1))) is not None
     states = [
         {"name": "Application", "status": "ok", "detail": __version__},
         {"name": "Database", "status": "ok" if database_ok else "error", "detail": "query"},

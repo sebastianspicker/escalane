@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -16,6 +15,7 @@ from escalane.notifications.delivery import (
     completed_notification,
     is_retryable_delivery_error,
     log_notification,
+    logical_delivery_key,
     notification_delivery_id,
     safe_delivery_error,
     successful_notification,
@@ -74,8 +74,24 @@ async def test_log_notification_adds_deterministic_delivery_payload_and_commits(
     expected_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{_ALARM_ID}:signal:group-1:ack:42"))
     assert payload == original_payload
     assert record.payload == {**original_payload, "delivery_id": expected_id}
+    assert record.logical_delivery_key is None
     assert events == ["add", "commit"]
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"action": "create_ticket", "ticket_id": 42}, "create_ticket"),
+        ({"action": "ack_update", "ticket_id": 42}, "ack_update:42"),
+        ({"state": "acknowledged"}, "state:acknowledged"),
+        ({"step_no": 3}, "step:3"),
+    ],
+)
+def test_logical_delivery_keys_are_stable_and_ignore_ticket_creation_result(
+    payload: dict[str, object], expected: str
+) -> None:
+    assert logical_delivery_key(payload) == expected
 
 
 async def test_log_notification_rolls_back_and_raises_auditable_error() -> None:
@@ -191,12 +207,9 @@ def test_safe_delivery_error_is_bounded_and_never_uses_provider_query_text() -> 
 
 
 async def test_successful_and_completed_lookup_use_their_public_result_sets() -> None:
-    matching = SimpleNamespace(payload={"delivery_id": "same"})
-    non_matching = SimpleNamespace(payload={"delivery_id": "other"})
-    rows = MagicMock()
-    rows.all.return_value = [non_matching, matching]
+    matching = object()
     session = await _noop_session()
-    session.scalars = AsyncMock(return_value=rows)
+    session.scalar = AsyncMock(return_value=matching)
 
     assert (
         await successful_notification(
@@ -208,8 +221,10 @@ async def test_successful_and_completed_lookup_use_their_public_result_sets() ->
         )
         is matching
     )
-    successful_params = session.scalars.await_args.args[0].compile().params.values()
+    successful_statement = session.scalar.await_args.args[0]
+    successful_params = successful_statement.compile().params.values()
     assert ["ok"] in successful_params
+    assert successful_statement._limit_clause is not None
 
     assert (
         await completed_notification(
@@ -221,13 +236,13 @@ async def test_successful_and_completed_lookup_use_their_public_result_sets() ->
         )
         is matching
     )
-    completed_params = session.scalars.await_args.args[0].compile().params.values()
+    completed_params = session.scalar.await_args.args[0].compile().params.values()
     assert ["ok", "permanent_error"] in completed_params
 
 
 async def test_lookup_failure_rolls_back_and_raises_notification_audit_error() -> None:
     session = await _noop_session()
-    session.scalars.side_effect = RuntimeError("database unavailable")
+    session.scalar.side_effect = RuntimeError("database unavailable")
     session.rollback = AsyncMock()
 
     with pytest.raises(NotificationAuditError, match="Notification audit lookup failed"):

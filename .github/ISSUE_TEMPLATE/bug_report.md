@@ -4,59 +4,56 @@ about: Something isn't working
 labels: bug
 ---
 
-> **Security reports:** Do not disclose suspected vulnerabilities here. Use the
-> private [GitHub Security Advisory form](https://github.com/sebastianspicker/escalane/security/advisories/new)
-> instead.
+For a suspected vulnerability, follow the
+[security policy](https://github.com/sebastianspicker/escalane/security/policy)
+instead of describing it in a public issue.
 
-**What happened?**
+## What happened?
 
-**What did you expect?**
+Describe the problem and what you expected to happen.
 
-**Steps to reproduce**
+## How can we reproduce it?
+
+Include the steps and commands needed to reproduce the problem with fictional
+data. If you have already tried a fix or a check, tell us what happened.
 
 1.
 2.
 3.
 
-**Affected area**
+## Where does it happen?
 
 - [ ] Alarm trigger / Yealink endpoint
-- [ ] ACK link UI
-- [ ] Admin UI/API
-- [ ] Notification connector
-- [ ] Escalation / worker job
-- [ ] Database / migration
-- [ ] Deployment / configuration
+- [ ] Acknowledgement link
+- [ ] Admin UI or API
+- [ ] Notification provider
+- [ ] Escalation or worker job
+- [ ] Database or migration
+- [ ] Deployment or configuration
 - [ ] Documentation
 - [ ] Other:
 
-### Environment
-- escalane version:
-- Python:
-- Deployment (Docker Compose / bare metal / other):
-- PostgreSQL:
-- Redis:
+## Environment
 
-**Configuration context**
-
+- Escalane version, tag, or commit:
+- Python version:
+- Deployment method (Docker Compose, local processes, or other):
+- PostgreSQL version:
+- Redis version:
 - `SIMULATION_ENABLED`:
-- Relevant environment variables, with secrets and internal hostnames redacted:
+- Other relevant configuration, with secrets and internal hostnames removed:
 
-### Impact
+## Impact
 
-- [ ] Crash or startup failure
-- [ ] Alarm not created
-- [ ] Alarm created but notification/escalation failed
-- [ ] Incorrect status shown to user/operator
-- [ ] Other:
+For example: does startup fail, is an alarm missing, does a notification fail,
+or does the interface show the wrong status?
 
-**Logs / error output**
+## Logs or error output
 
+Include only the output needed to explain the problem. Remove credentials,
+tokens, acknowledgement URLs, personal alarm data, and internal hostnames
+before posting it.
+
+```text
+Paste redacted output here.
 ```
-paste here
-```
-
-**Verification already tried**
-
-- Commands run:
-- Result:

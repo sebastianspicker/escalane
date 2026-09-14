@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -17,14 +18,15 @@ from escalane.config.settings import Settings
 from escalane.notifications.delivery import (
     NotificationAuditError,
     NotificationDeliveryError,
+    completed_notification,
     is_retryable_delivery_error,
     notification_delivery_id,
     safe_delivery_error,
     successful_notification,
 )
-from escalane.operations.metrics import record_event
+from escalane.operations.metrics import observe_latency, record_event
 from escalane.persistence.models import Alarm
-from escalane.providers.webhook import post_webhook_bytes_to_validated_addresses
+from escalane.providers.webhook import WebhookClientPool, post_webhook_bytes_to_validated_addresses
 from escalane.security.url_validation import (
     RetryableSSRFError,
     SSRFError,
@@ -217,19 +219,25 @@ async def _send_state_webhook(
     delivery_id: str,
     resolved_addresses: Sequence[str],
     log_notification: Callable[..., Awaitable[None]],
+    webhook_client_pool: WebhookClientPool | None = None,
 ) -> None:
     """Send and audit a state callback, surfacing only retryable failures."""
     try:
-        await post_webhook_bytes_to_validated_addresses(
-            http,
-            settings.webhook_url,
-            payload_bytes,
-            _state_webhook_headers(settings, payload_bytes),
-            settings.webhook_timeout_seconds,
-            delivery_id,
-            resolved_addresses,
-            log_extra={"alarm_id": str(alarm.id), "state": state},
-        )
+        started_at = time.monotonic()
+        try:
+            await post_webhook_bytes_to_validated_addresses(
+                http,
+                settings.webhook_url,
+                payload_bytes,
+                _state_webhook_headers(settings, payload_bytes),
+                settings.webhook_timeout_seconds,
+                delivery_id,
+                resolved_addresses,
+                log_extra={"alarm_id": str(alarm.id), "state": state},
+                client_pool=webhook_client_pool,
+            )
+        finally:
+            observe_latency("provider_delivery", time.monotonic() - started_at)
     except Exception as exc:
         safe_error = safe_delivery_error(exc)
         logger.error(
@@ -242,7 +250,7 @@ async def _send_state_webhook(
             channel="webhook",
             target_id=None,
             payload={"state": state},
-            result="error",
+            result="error" if is_retryable_delivery_error(exc) else "permanent_error",
             error=safe_error,
         )
         record_event("webhook_delivery_error")
@@ -268,9 +276,10 @@ async def deliver_state_webhook(
     settings: Settings,
     http: Any,
     log_notification: Callable[..., Awaitable[None]],
+    webhook_client_pool: WebhookClientPool | None = None,
 ) -> None:
     """Send one durable state transition callback unless it already succeeded."""
-    if await successful_notification(
+    if await completed_notification(
         session,
         alarm_id=alarm.id,
         channel="webhook",
@@ -308,4 +317,5 @@ async def deliver_state_webhook(
         delivery_id=delivery_id,
         resolved_addresses=resolved_addresses,
         log_notification=log_notification,
+        webhook_client_pool=webhook_client_pool,
     )

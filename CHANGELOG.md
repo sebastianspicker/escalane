@@ -1,6 +1,6 @@
 # Changelog
 
-Notable changes are recorded here. The format follows
+This file records notable changes to Escalane. It follows
 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -9,40 +9,45 @@ Notable changes are recorded here. The format follows
 ### Changed
 
 - Moved the application to a root `src/escalane` package with explicit
-  configuration, persistence, security, provider, feature, web, and worker
-  boundaries.
+  packages for configuration, persistence, security, providers, features,
+  web routes, and workers.
 - Moved migrations and tests to repository-level directories and made the
-  root package, CI, Docker, type, architecture, and release checks
-  authoritative.
-- Replaced HTTP-coupled feature inputs with application commands and moved
-  notification workflows and webhook transport into their owning modules.
+  root package the basis for CI, Docker builds, type checking, import-boundary
+  checks, and release validation.
+- Decoupled feature inputs from HTTP requests by using application commands.
+  Moved notification workflows and webhook transport into dedicated modules.
 
 ### Removed
 
 - Removed the nested service package, duplicate webhook implementation,
   obsolete worker and route facades, and unused internal exports.
 
+### Fixed
+
+- Fixed worker startup when ARQ reads Redis settings directly from the worker
+  class. Settings still load lazily and use the configured Redis connection.
+
 ## [0.4.0-alpha.1]
 
 ### Added
 
-- Bilingual server-rendered operator and responder interfaces with Redis
-  sessions, CSRF protection, configuration, system, simulation, and activity
-  views.
+- English and German operator and responder pages, rendered on the server,
+  with Redis sessions and CSRF protection. Added configuration, system,
+  simulation, and activity views.
 - Versioned master data with redacted administrative audit events.
-- A transactional lifecycle-event outbox with ordered recovery and stable job
-  identities.
+- A transactional outbox that records alarm events, recovers them in order,
+  and preserves job identifiers across retries.
 - Public contribution, security-reporting, support, and release guidance.
 
 ### Changed
 
 - Renamed the product, Python package, container image, logger, metrics, and
-  release coordinates from Alarm Broker to Escalane.
+  release identifiers from Alarm Broker to Escalane.
 - Packaged the Jinja templates and same-origin browser assets in the wheel.
-- Applied a single optional digest-pinned image to migrations, the API, and
-  the worker in Compose deployments.
-- Made readiness fail closed until PostgreSQL, Redis, and the packaged Alembic
-  head are available.
+- Made migrations, the API, and the worker use the same image in Compose,
+  with optional pinning by digest.
+- Made readiness checks fail until PostgreSQL and Redis are available and
+  the database matches the packaged Alembic migration head.
 
 ### Security
 
@@ -75,7 +80,8 @@ Notable changes are recorded here. The format follows
 ### Changed
 
 - Added optimistic lifecycle and trigger-idempotency handling.
-- Moved browser session state to Redis and made cookie security scheme-aware.
+- Moved browser session state to Redis and made cookie security settings
+  follow the request’s HTTP or HTTPS scheme.
 - Applied validation limits to editable alarm fields and enforced type checks
   in CI.
 

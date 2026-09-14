@@ -1,0 +1,10 @@
+<div data-history-fragment>
+  <div class="history-navigation" data-history-navigation>
+    {% if older_activity_url %}<a class="button button-small" href="{{ older_activity_url }}" data-older-activity data-history-url="{{ older_activity_fragment_url }}">{{ t('older_activity') }}</a>{% endif %}
+    {% if latest_activity_url %}<a class="button button-quiet button-small" href="{{ latest_activity_url }}" data-latest-activity>{{ t('latest_activity') }}</a>{% endif %}
+  </div>
+  <p class="history-status" tabindex="-1" role="status" aria-live="polite" data-history-status data-loading="{{ t('loading_activity') }}" data-error="{{ t('activity_load_error') }}" data-empty="{{ t('no_older_activity') }}"></p>
+  <ol class="timeline" data-history-list>
+    {% for event in events %}<li tabindex="-1" data-history-event="{{ event.key }}"><time datetime="{{ event.at_iso }}">{{ event.at }}</time><span>{{ event.description }}</span></li>{% else %}<li data-history-empty>{{ t('no_records') }}</li>{% endfor %}
+  </ol>
+</div>

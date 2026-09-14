@@ -37,8 +37,10 @@ from escalane.notifications.workflows import (
     restore_zammad_ticket_id,
 )
 from escalane.operations.metrics import record_event
+from escalane.operations.worker_snapshot import publish_worker_snapshot
 from escalane.persistence.models import Alarm
 from escalane.providers.base import SignalGroupProvider, SmsProvider, ZammadTicketProvider
+from escalane.providers.webhook import WebhookClientPool
 from escalane.security.url_validation import RetryableSSRFError
 
 logger = logging.getLogger("escalane")
@@ -64,6 +66,7 @@ class WorkerContext(TypedDict, total=False):
     zammad: ZammadTicketProvider
     sendxms: SmsProvider
     signal: SignalGroupProvider
+    webhook_pool: WebhookClientPool
     job_try: int
 
 
@@ -251,6 +254,7 @@ def _get_notification_service(ctx: WorkerContext) -> NotificationService:
         zammad=ctx["zammad"],
         sendxms=ctx["sendxms"],
         signal=ctx["signal"],
+        webhook_pool=ctx.get("webhook_pool"),
     )
 
 
@@ -421,6 +425,7 @@ async def alarm_state_changed(ctx: WorkerContext, alarm_id: str, state: str) -> 
                 settings=settings,
                 http=ctx["http"],
                 log_notification=log_notification,
+                webhook_client_pool=ctx.get("webhook_pool"),
             )
         except RetryableSSRFError as exc:
             _raise_delivery_retry(
@@ -440,17 +445,39 @@ async def recover_incomplete_alarm_events(ctx: WorkerContext) -> None:
     """Rearm stale ACK work and publish pending durable lifecycle events."""
     sessionmaker = ctx["sessionmaker"]
     redis = ctx["redis"]
-    batch_size = 500
+    settings = ctx["settings"]
 
-    async with sessionmaker() as session:
-        zammad = ctx.get("zammad")
-        if zammad is not None and zammad.enabled():
-            rearmed = await rearm_stale_acknowledgement_events(session, limit=batch_size)
-            if rearmed:
-                logger.warning("stale_alarm_acknowledgements_rearmed", extra={"count": rearmed})
+    try:
+        async with sessionmaker() as session:
+            zammad = ctx.get("zammad")
+            if zammad is not None and zammad.enabled():
+                rearmed = await rearm_stale_acknowledgement_events(
+                    session, limit=settings.recovery_event_limit
+                )
+                if rearmed:
+                    logger.warning("stale_alarm_acknowledgements_rearmed", extra={"count": rearmed})
 
-        published = await dispatch_pending_alarm_events(
-            session, redis, logger=logger, limit=batch_size
-        )
-        if published:
-            logger.info("alarm_event_outbox_recovered", extra={"published": published})
+            published = await dispatch_pending_alarm_events(
+                session,
+                redis,
+                logger=logger,
+                limit=settings.recovery_event_limit,
+                batch_size=settings.outbox_batch_size,
+                budget_seconds=settings.recovery_budget_seconds,
+            )
+            if published:
+                logger.info("alarm_event_outbox_recovered", extra={"published": published})
+    finally:
+        await publish_worker_heartbeat(ctx)
+
+
+async def publish_worker_heartbeat(ctx: WorkerContext) -> None:
+    """Publish best-effort worker liveness without affecting delivery work."""
+    redis = ctx.get("redis")
+    engine = ctx.get("engine")
+    if redis is None or engine is None:
+        return
+    try:
+        await publish_worker_snapshot(redis, engine)
+    except Exception:
+        logger.exception("worker_snapshot_publish_failed")

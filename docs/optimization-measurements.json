@@ -1,0 +1,646 @@
+{
+  "date": "2026-09-07",
+  "environment": {
+    "os": "Darwin",
+    "architecture": "arm64",
+    "python": "3.14.7",
+    "sqlalchemy": "2.0.52",
+    "sqlite": "3.53.4"
+  },
+  "source_sha256": {
+    "baseline": "157e70bb377939416a5b3e7a8996fb246b304545fb44c2f8f8e72bf36a1fad4b",
+    "after": "8a635fe288dc44b3ca4f56923027ca3b65b2c7cde488a228725979730d72f908"
+  },
+  "limitations": "SQLite and synthetic providers/queue only. Large run variance and unisolated host scheduling preclude general speedup or regression attribution. PostgreSQL and real Redis not measured.",
+  "reads": {
+    "seed": 20260907,
+    "repetitions": 5,
+    "warmups": 2,
+    "engine": "sqlite",
+    "five_operator_model": "five sequential polling queries",
+    "workloads": [
+      {
+        "alarms": 1000,
+        "notifications": 10000,
+        "queries": {
+          "legacy_revision": {
+            "median_ms": 7.364083001448307,
+            "p95_ms": 8.592916005000006,
+            "runs_ms": [
+              6.165291997604072,
+              6.967624998651445,
+              7.364083001448307,
+              8.026499999687076,
+              8.592916005000006
+            ],
+            "plan": [
+              [
+                3,
+                0,
+                216,
+                "SCAN alarms"
+              ]
+            ]
+          },
+          "durable_revision": {
+            "median_ms": 8.982917002867907,
+            "p95_ms": 56.69520900119096,
+            "runs_ms": [
+              5.52116700418992,
+              11.834958000690676,
+              56.69520900119096,
+              8.982917002867907,
+              5.207915994105861
+            ],
+            "plan": [
+              [
+                2,
+                0,
+                33,
+                "SEARCH dashboard_revision USING INTEGER PRIMARY KEY (rowid=?)"
+              ]
+            ]
+          },
+          "chronological": {
+            "median_ms": 2.147417006199248,
+            "p95_ms": 6.028083000273909,
+            "runs_ms": [
+              2.3912090036901645,
+              2.147417006199248,
+              1.960292000148911,
+              1.3806670031044632,
+              6.028083000273909
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                222,
+                "SCAN alarms USING INDEX ix_alarms_created_at"
+              ],
+              [
+                30,
+                0,
+                0,
+                "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+              ]
+            ]
+          },
+          "filtered": {
+            "median_ms": 3.0608330052928068,
+            "p95_ms": 10.503249999601394,
+            "runs_ms": [
+              10.503249999601394,
+              9.60299999860581,
+              3.0608330052928068,
+              2.919040998676792,
+              1.2602080023498274
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                61,
+                "SEARCH alarms USING INDEX ix_alarms_severity (severity=?)"
+              ],
+              [
+                27,
+                0,
+                0,
+                "USE TEMP B-TREE FOR ORDER BY"
+              ]
+            ]
+          },
+          "substring": {
+            "median_ms": 1.5566250003757887,
+            "p95_ms": 3.0135829947539605,
+            "runs_ms": [
+              1.5566250003757887,
+              1.000750002276618,
+              2.024000001256354,
+              0.9969590028049424,
+              3.0135829947539605
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                222,
+                "SCAN alarms USING INDEX ix_alarms_created_at"
+              ],
+              [
+                37,
+                0,
+                0,
+                "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+              ]
+            ]
+          }
+        }
+      },
+      {
+        "alarms": 10000,
+        "notifications": 100000,
+        "queries": {
+          "legacy_revision": {
+            "median_ms": 187.2629580029752,
+            "p95_ms": 222.6340409979457,
+            "runs_ms": [
+              211.26100000401493,
+              178.86429200007115,
+              222.6340409979457,
+              152.13054200285114,
+              187.2629580029752
+            ],
+            "plan": [
+              [
+                3,
+                0,
+                216,
+                "SCAN alarms"
+              ]
+            ]
+          },
+          "durable_revision": {
+            "median_ms": 3.6700839991681278,
+            "p95_ms": 3.73362500249641,
+            "runs_ms": [
+              3.73362500249641,
+              3.6760000002686866,
+              2.611041003547143,
+              3.6700839991681278,
+              2.897291000408586
+            ],
+            "plan": [
+              [
+                2,
+                0,
+                33,
+                "SEARCH dashboard_revision USING INTEGER PRIMARY KEY (rowid=?)"
+              ]
+            ]
+          },
+          "chronological": {
+            "median_ms": 1.7106249943026341,
+            "p95_ms": 71.58233300287975,
+            "runs_ms": [
+              1.2628749973373488,
+              71.58233300287975,
+              3.8948329965933226,
+              1.6807909996714443,
+              1.7106249943026341
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                222,
+                "SCAN alarms USING INDEX ix_alarms_created_at"
+              ],
+              [
+                30,
+                0,
+                0,
+                "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+              ]
+            ]
+          },
+          "filtered": {
+            "median_ms": 13.286417000927031,
+            "p95_ms": 18.31783299712697,
+            "runs_ms": [
+              4.312791999836918,
+              3.453124998486601,
+              18.31783299712697,
+              13.286417000927031,
+              15.275416000804398
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                61,
+                "SEARCH alarms USING INDEX ix_alarms_severity (severity=?)"
+              ],
+              [
+                27,
+                0,
+                0,
+                "USE TEMP B-TREE FOR ORDER BY"
+              ]
+            ]
+          },
+          "substring": {
+            "median_ms": 1.3506659961421974,
+            "p95_ms": 1.891125000838656,
+            "runs_ms": [
+              1.1280830003670417,
+              1.7297079975833185,
+              1.3506659961421974,
+              1.891125000838656,
+              1.1009169975295663
+            ],
+            "plan": [
+              [
+                8,
+                0,
+                222,
+                "SCAN alarms USING INDEX ix_alarms_created_at"
+              ],
+              [
+                37,
+                0,
+                0,
+                "USE TEMP B-TREE FOR LAST TERM OF ORDER BY"
+              ]
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "fanout_before": {
+    "engine": "SQLite",
+    "seed": 20260907,
+    "warmups": 2,
+    "repetitions": 5,
+    "sqlalchemy": "2.0.52",
+    "python": "3.14.7",
+    "workloads": [
+      {
+        "targets": 1,
+        "provider_delay_ms": 0.0,
+        "median_ms": 138.60824999574106,
+        "p95_ms": 553.6396669995156,
+        "runs_ms": [
+          9.756166997249238,
+          138.60824999574106,
+          553.6396669995156,
+          19.063791994994972,
+          476.8833329944755
+        ],
+        "query_counts": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "delivery_count_including_warmups": 7,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 5,
+        "provider_delay_ms": 0.0,
+        "median_ms": 860.5626249991474,
+        "p95_ms": 1430.2377499989234,
+        "runs_ms": [
+          860.5626249991474,
+          964.9292089961818,
+          1430.2377499989234,
+          711.8856249944656,
+          688.1719589946442
+        ],
+        "query_counts": [
+          12,
+          12,
+          12,
+          12,
+          12
+        ],
+        "delivery_count_including_warmups": 35,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 20,
+        "provider_delay_ms": 0.0,
+        "median_ms": 1077.4111249993439,
+        "p95_ms": 1435.9728330018697,
+        "runs_ms": [
+          1435.9728330018697,
+          1191.5447499995935,
+          681.9206250002026,
+          546.4654589959537,
+          1077.4111249993439
+        ],
+        "query_counts": [
+          42,
+          42,
+          42,
+          42,
+          42
+        ],
+        "delivery_count_including_warmups": 140,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 1,
+        "provider_delay_ms": 5.0,
+        "median_ms": 58.309874999395106,
+        "p95_ms": 378.19729200418806,
+        "runs_ms": [
+          237.97254099918064,
+          16.039582995290402,
+          57.54320899723098,
+          378.19729200418806,
+          58.309874999395106
+        ],
+        "query_counts": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "delivery_count_including_warmups": 7,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 5,
+        "provider_delay_ms": 5.0,
+        "median_ms": 218.58899999642745,
+        "p95_ms": 272.6836660003755,
+        "runs_ms": [
+          189.1404159978265,
+          258.53900000220165,
+          272.6836660003755,
+          118.90391699853353,
+          218.58899999642745
+        ],
+        "query_counts": [
+          12,
+          12,
+          12,
+          12,
+          12
+        ],
+        "delivery_count_including_warmups": 35,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 20,
+        "provider_delay_ms": 5.0,
+        "median_ms": 819.3858329977957,
+        "p95_ms": 1108.4351249955944,
+        "runs_ms": [
+          819.3858329977957,
+          723.6262920050649,
+          1108.4351249955944,
+          906.4261249950505,
+          683.8417920007487
+        ],
+        "query_counts": [
+          42,
+          42,
+          42,
+          42,
+          42
+        ],
+        "delivery_count_including_warmups": 140,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      }
+    ]
+  },
+  "fanout_after": {
+    "engine": "SQLite",
+    "seed": 20260907,
+    "warmups": 2,
+    "repetitions": 5,
+    "sqlalchemy": "2.0.52",
+    "python": "3.14.7",
+    "workloads": [
+      {
+        "targets": 1,
+        "provider_delay_ms": 0.0,
+        "median_ms": 225.92350000195438,
+        "p95_ms": 598.4182499960298,
+        "runs_ms": [
+          38.433292000263464,
+          598.4182499960298,
+          310.72054200194543,
+          225.92350000195438,
+          15.318958001444116
+        ],
+        "query_counts": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "delivery_count_including_warmups": 7,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 5,
+        "provider_delay_ms": 0.0,
+        "median_ms": 242.60537499503698,
+        "p95_ms": 301.904291001847,
+        "runs_ms": [
+          301.904291001847,
+          242.60537499503698,
+          249.21099999482976,
+          231.06016700330656,
+          52.71045800327556
+        ],
+        "query_counts": [
+          12,
+          12,
+          12,
+          12,
+          12
+        ],
+        "delivery_count_including_warmups": 35,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 20,
+        "provider_delay_ms": 0.0,
+        "median_ms": 624.7852919987054,
+        "p95_ms": 1821.0165410055197,
+        "runs_ms": [
+          1209.2195000004722,
+          314.10529199638404,
+          315.5039589983062,
+          1821.0165410055197,
+          624.7852919987054
+        ],
+        "query_counts": [
+          42,
+          42,
+          42,
+          42,
+          42
+        ],
+        "delivery_count_including_warmups": 140,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 1,
+        "provider_delay_ms": 5.0,
+        "median_ms": 22.813708004832733,
+        "p95_ms": 79.7485829971265,
+        "runs_ms": [
+          31.05070799938403,
+          21.306458998878952,
+          16.56979199469788,
+          22.813708004832733,
+          79.7485829971265
+        ],
+        "query_counts": [
+          4,
+          4,
+          4,
+          4,
+          4
+        ],
+        "delivery_count_including_warmups": 7,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 5,
+        "provider_delay_ms": 5.0,
+        "median_ms": 381.8082500001765,
+        "p95_ms": 405.7671670016134,
+        "runs_ms": [
+          85.24354200199014,
+          399.24120900104754,
+          381.8082500001765,
+          164.59374999976717,
+          405.7671670016134
+        ],
+        "query_counts": [
+          12,
+          12,
+          12,
+          12,
+          12
+        ],
+        "delivery_count_including_warmups": 35,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      },
+      {
+        "targets": 20,
+        "provider_delay_ms": 5.0,
+        "median_ms": 750.599749997491,
+        "p95_ms": 1457.5597500006552,
+        "runs_ms": [
+          1457.5597500006552,
+          1105.6265419974807,
+          750.599749997491,
+          514.3563750025351,
+          598.3472919979249
+        ],
+        "query_counts": [
+          42,
+          42,
+          42,
+          42,
+          42
+        ],
+        "delivery_count_including_warmups": 140,
+        "max_concurrent_deliveries": 1,
+        "audit_and_retry_correct": true
+      }
+    ]
+  },
+  "recovery_before": {
+    "engine": "SQLite",
+    "seed": 20260907,
+    "events": 1000,
+    "warmups": 2,
+    "repetitions": 5,
+    "median_ms": 318.9434169980814,
+    "p95_ms": 433.66691699338844,
+    "runs_ms": [
+      318.9434169980814,
+      253.51545899320627,
+      416.98320800060173,
+      433.66691699338844,
+      202.0031249994645
+    ],
+    "query_counts": [
+      3,
+      3,
+      3,
+      3,
+      3
+    ],
+    "commits": [
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "accepted_jobs": 1000,
+    "published_audits": 1000
+  },
+  "recovery_after": {
+    "engine": "SQLite",
+    "seed": 20260907,
+    "events": 1000,
+    "warmups": 2,
+    "repetitions": 5,
+    "median_ms": 863.2677500063437,
+    "p95_ms": 1238.397791996249,
+    "runs_ms": [
+      1238.397791996249,
+      663.8195420018747,
+      1007.5082499970449,
+      863.2677500063437,
+      786.7798749939539
+    ],
+    "query_counts": [
+      81,
+      81,
+      81,
+      81,
+      81
+    ],
+    "commits": [
+      40,
+      40,
+      40,
+      40,
+      40
+    ],
+    "accepted_jobs": 1000,
+    "published_audits": 1000
+  },
+  "docker_registry": {
+    "registry": "https://registry-1.docker.io/v2/library/python/",
+    "pinned_index": "sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5",
+    "platforms": [
+      {
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        },
+        "python_version": "3.14.7",
+        "manifest": "sha256:5b945726c4d7ffe6595dc7498ad17fd0397e373c5181c24819a7028e8b1276dc"
+      },
+      {
+        "platform": {
+          "architecture": "arm64",
+          "os": "linux",
+          "variant": "v8"
+        },
+        "python_version": "3.14.7",
+        "manifest": "sha256:de1d3e88b8ab340de928906e98846611ea7cece9ed335fdeba5309bfcd89117b"
+      }
+    ],
+    "scope": "registry metadata only; no container execution"
+  }
+}
