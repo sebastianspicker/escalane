@@ -1,5 +1,5 @@
 # Build dependencies separately so compilers and headers never enter the runtime image.
-FROM python:3.14.7-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
+FROM python:3.15.0rc2-slim-trixie@sha256:14684656c0069b49e897c63d52bbbe7df8a4bf189911a597403fd3b4ffeaae06 AS builder
 
 ARG BUILD_ESSENTIAL_VERSION=12.*
 ARG LIBPQ_DEV_VERSION=17.*
@@ -29,7 +29,7 @@ RUN pip install --no-cache-dir \
     /build
 
 # Start again from the minimal pinned base to reduce runtime attack surface.
-FROM python:3.14.7-slim-trixie@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS production
+FROM python:3.15.0rc2-slim-trixie@sha256:14684656c0069b49e897c63d52bbbe7df8a4bf189911a597403fd3b4ffeaae06 AS production
 
 ARG LIBPQ5_VERSION=17.*
 
