@@ -90,7 +90,7 @@ package-check:
 		$(PYTHON) -m venv "$$package_dir/venv"; \
 		"$$package_dir/venv/bin/python" -m pip install --constraint "$(BUILD_CONSTRAINTS)" --upgrade pip; \
 		"$$package_dir/venv/bin/python" -m pip install --constraint "$(RUNTIME_CONSTRAINTS)" "$$package_dir"/escalane-*.whl; \
-		env -i HOME="$$HOME" PATH="$$package_dir/venv/bin:/usr/bin:/bin" PYTHONPATH="" "$$package_dir/venv/bin/python" -c "from importlib.resources import files; from pathlib import Path; import escalane; origin = Path(escalane.__file__).resolve(); assert origin.is_relative_to(Path('$$package_dir/venv').resolve()), origin; root = files('escalane.web'); assert root.joinpath('templates', 'base.html').is_file(); assert root.joinpath('templates', 'ack.html').is_file(); assert root.joinpath('assets', 'ui.css').is_file(); assert root.joinpath('assets', 'ui.js').is_file(); assert root.joinpath('assets', 'escalane-mark.svg').is_file()"
+		env -i HOME="$$HOME" PATH="$$package_dir/venv/bin:/usr/bin:/bin" PYTHONPATH="" "$$package_dir/venv/bin/python" "$(ROOT_DIR)/scripts/validate_wheel.py" --installed
 
 release-check:
 	$(PYTHON) scripts/validate_release.py --tag "$(RELEASE_TAG)"

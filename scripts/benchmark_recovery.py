@@ -17,7 +17,7 @@ from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from escalane.alarms import outbox
-from escalane.config import constants
+from escalane.alarms.outbox import EVENT_ALARM_CREATED
 from escalane.persistence.base import Base
 from escalane.persistence.models import Alarm, AlarmEventOutbox
 from escalane.persistence.session import create_sessionmaker
@@ -57,7 +57,7 @@ async def measure(directory: str) -> dict:
                     AlarmEventOutbox(
                         id=uuid.UUID(int=index + 1),
                         alarm_id=alarm_id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         created_at=base + timedelta(seconds=index),
                         payload={},
                     )

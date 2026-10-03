@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm, AlarmNotification
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNotification, AlarmStatus
 
 logger = logging.getLogger("escalane")
 
@@ -42,8 +43,6 @@ async def historical_metrics(
     session: AsyncSession, redis
 ) -> tuple[dict[str, int], list[tuple[str, str, int]]]:
     """Cache only historical aggregates, retaining soft-deleted-alarm semantics."""
-    import json
-
     key = "escalane:metrics:history:v1"
     try:
         raw = await redis.get(key)
@@ -80,10 +79,6 @@ async def historical_metrics(
 
 async def outbox_gauges(session: AsyncSession) -> dict[str, float]:
     """Report current durable pending work independently of historical caches."""
-    from datetime import UTC, datetime
-
-    from escalane.persistence.models import AlarmEventOutbox
-
     count, oldest = (
         await session.execute(
             select(func.count(AlarmEventOutbox.id), func.min(AlarmEventOutbox.created_at)).where(

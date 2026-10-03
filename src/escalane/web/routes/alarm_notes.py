@@ -5,11 +5,10 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Header, Request, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from escalane.alarms import notes as alarm_notes
 from escalane.alarms.lifecycle import get_alarm_or_404
-from escalane.persistence.models import AlarmNote
 from escalane.web.deps import get_session, require_admin
 from escalane.web.schemas import AlarmNoteIn, AlarmNoteOut
 
@@ -24,13 +23,7 @@ async def list_alarm_notes(
     """List all notes for an alarm."""
     await get_alarm_or_404(session, alarm_id)
 
-    notes = (
-        await session.scalars(
-            select(AlarmNote)
-            .where(AlarmNote.alarm_id == alarm_id)
-            .order_by(AlarmNote.created_at.asc())
-        )
-    ).all()
+    notes = await alarm_notes.list_alarm_notes(session, alarm_id)
 
     return [AlarmNoteOut.model_validate(note, from_attributes=True) for note in notes]
 
@@ -48,14 +41,6 @@ async def create_alarm_note(
     request.state.alarm_id = str(alarm.id)
     created_by = body.created_by or x_admin_email or "admin"
 
-    note = AlarmNote(
-        alarm_id=alarm.id,
-        note=body.note,
-        created_by=created_by,
-        note_type="manual",
-    )
-    session.add(note)
-    await session.commit()
-    await session.refresh(note)
+    note = await alarm_notes.add_alarm_note(session, alarm, note=body.note, created_by=created_by)
 
     return AlarmNoteOut.model_validate(note, from_attributes=True)

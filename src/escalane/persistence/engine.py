@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from escalane.persistence.telemetry import instrument_engine
+from escalane.telemetry.connection_pool import instrument_engine
 
 logger = logging.getLogger("escalane")
 

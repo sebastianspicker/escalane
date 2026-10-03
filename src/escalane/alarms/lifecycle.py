@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import JSON, delete, func, select, update
+from sqlalchemy import cast as sql_cast
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from escalane.alarms.outbox import (
+    EVENT_ALARM_ACKNOWLEDGED,
+    EVENT_ALARM_STATE_CHANGED,
     dispatch_pending_alarm_events,
     has_pending_alarm_events,
+    new_outbox_event,
 )
-from escalane.config import constants
 from escalane.config.errors import ConflictError, NotFoundError
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.json_merge import merge_json_object
-from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNote
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNote, AlarmStatus
 
 _ALLOWED_TRANSITIONS: dict[AlarmStatus, set[AlarmStatus]] = {
     AlarmStatus.TRIGGERED: {
@@ -56,6 +61,45 @@ class AlarmPatchCommand:
     tags: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True)
+class BulkStateOutcome:
+    """Per-request counts of one bulk state command, with absent IDs in request order."""
+
+    changed: int
+    unchanged: int
+    missing: list[uuid.UUID]
+
+
+def _merge_json_object(
+    column: Any,
+    patch: Mapping[Any, Any],
+    *,
+    dialect_name: str,
+) -> ColumnElement[Any]:
+    """Merge top-level keys without a stale read/modify/write round trip.
+
+    PostgreSQL evaluates the JSONB merge after acquiring the row's update lock.
+    SQLite's ``json_set`` has the same top-level replacement semantics for tests
+    and local development while preserving explicit JSON ``null`` values.
+    """
+    if dialect_name == "postgresql":
+        # Let JSONB's bind processor serialize the mapping exactly once. Passing
+        # pre-serialized JSON here turns it into a JSON string, and PostgreSQL's
+        # object || scalar semantics then produce an array instead of an object.
+        merged = sql_cast(column, JSONB).op("||")(sql_cast(dict(patch), JSONB))
+        return cast(ColumnElement[Any], sql_cast(merged, JSON))
+
+    sqlite_merged: Any = column
+    for key, value in patch.items():
+        escaped_key = str(key).replace('"', '\\"')
+        sqlite_merged = func.json_set(
+            sqlite_merged,
+            f'$."{escaped_key}"',
+            func.json(json.dumps(value)),
+        )
+    return cast(ColumnElement[Any], sqlite_merged)
+
+
 def _meta_note_value(
     session: AsyncSession,
     key: str,
@@ -63,7 +107,7 @@ def _meta_note_value(
 ) -> object | None:
     if not note:
         return None
-    return merge_json_object(
+    return _merge_json_object(
         Alarm.meta,
         {key: note},
         dialect_name=session.get_bind().dialect.name,
@@ -115,30 +159,19 @@ async def _set_alarm_state(
     return await _resolve_compare_and_set_loss(session, alarm, target_status=target_status)
 
 
-def _outbox_event(
-    alarm: Alarm, event_type: str, *, sequence: int = 0, **payload: object
-) -> AlarmEventOutbox:
-    return AlarmEventOutbox(
-        alarm_id=alarm.id,
-        event_type=event_type,
-        payload=dict(payload),
-        sequence=sequence,
-    )
-
-
 def _acknowledgement_events(
     alarm: Alarm, acked_by: str | None, note: str | None
 ) -> list[AlarmEventOutbox]:
     return [
-        _outbox_event(
-            alarm,
-            constants.EVENT_ALARM_ACKNOWLEDGED,
+        new_outbox_event(
+            alarm.id,
+            EVENT_ALARM_ACKNOWLEDGED,
             acknowledged_by=acked_by or "unknown",
             note=note,
         ),
-        _outbox_event(
-            alarm,
-            constants.EVENT_ALARM_STATE_CHANGED,
+        new_outbox_event(
+            alarm.id,
+            EVENT_ALARM_STATE_CHANGED,
             sequence=1,
             old_state=AlarmStatus.TRIGGERED.value,
             new_state=AlarmStatus.ACKNOWLEDGED.value,
@@ -258,9 +291,9 @@ async def transition_alarm(
         return False
 
     session.add(
-        _outbox_event(
-            alarm,
-            constants.EVENT_ALARM_STATE_CHANGED,
+        new_outbox_event(
+            alarm.id,
+            EVENT_ALARM_STATE_CHANGED,
             old_state=current.value,
             new_state=target_status.value,
         )
@@ -307,6 +340,63 @@ async def apply_alarm_state_change(
     return AlarmStateOutcome(changed=changed, published=published, pending=pending)
 
 
+async def apply_bulk_state_change(
+    session: AsyncSession,
+    redis: Any,
+    alarm_ids: list[uuid.UUID],
+    *,
+    target_status: AlarmStatus,
+    actor: str | None = None,
+    note: str | None = None,
+    logger: logging.Logger,
+) -> BulkStateOutcome:
+    """Apply one state command to each active alarm independently, in request order.
+
+    Each alarm commits on its own, so a concurrent state conflict counts as
+    unchanged instead of aborting the batch. Deleted or unknown IDs are missing.
+    """
+    alarms = (
+        await session.scalars(
+            select(Alarm).where(Alarm.id.in_(alarm_ids), Alarm.deleted_at.is_(None))
+        )
+    ).all()
+    by_id = {alarm.id: alarm for alarm in alarms}
+    changed = 0
+    unchanged = 0
+    missing: list[uuid.UUID] = []
+    for alarm_id in alarm_ids:
+        alarm = by_id.get(alarm_id)
+        if alarm is None:
+            missing.append(alarm_id)
+            continue
+        try:
+            outcome = await apply_alarm_state_change(
+                session,
+                redis,
+                alarm,
+                target_status=target_status,
+                actor=actor,
+                note=note,
+                logger=logger,
+            )
+        except ConflictError:
+            unchanged += 1
+            continue
+        if outcome.pending:
+            logger.warning(
+                "bulk_event_delivery_pending",
+                extra={
+                    "alarm_id": str(alarm.id),
+                    "published": outcome.published,
+                },
+            )
+        if outcome.changed:
+            changed += 1
+        else:
+            unchanged += 1
+    return BulkStateOutcome(changed=changed, unchanged=unchanged, missing=missing)
+
+
 async def apply_alarm_patch(
     session: AsyncSession,
     alarm: Alarm,
@@ -322,7 +412,7 @@ async def apply_alarm_patch(
     if command.tags is not None:
         meta_patch["tags"] = list(command.tags)
     if meta_patch:
-        values["meta"] = merge_json_object(
+        values["meta"] = _merge_json_object(
             Alarm.meta,
             meta_patch,
             dialect_name=session.get_bind().dialect.name,
@@ -387,6 +477,11 @@ async def soft_delete_alarm(
     )
     await session.commit()
     await session.refresh(alarm)
+
+
+async def load_alarm(session: AsyncSession, alarm_id: uuid.UUID) -> Alarm | None:
+    """Return the alarm row regardless of soft deletion, or None when it is absent."""
+    return cast(Alarm | None, await session.get(Alarm, alarm_id))
 
 
 async def get_alarm_or_404(session: AsyncSession, alarm_id: uuid.UUID | str) -> Alarm:

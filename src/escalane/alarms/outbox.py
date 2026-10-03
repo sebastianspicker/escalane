@@ -13,11 +13,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql import Select
 
-from escalane.config import constants
-from escalane.operations.metrics import observe_latency, record_event
 from escalane.persistence.models import AlarmEventOutbox
+from escalane.telemetry.metrics import observe_latency, record_event
 
 ARQ_JOB_NAME = "process_alarm_event"
+
+# Outbox event types; they are also the worker payload's `event_type` contract.
+EVENT_ALARM_CREATED = "alarm.created"
+EVENT_ALARM_ACKNOWLEDGED = "alarm.acknowledged"
+EVENT_ALARM_STATE_CHANGED = "alarm.state_changed"
+
+
+def new_outbox_event(
+    alarm_id: uuid.UUID, event_type: str, *, sequence: int = 0, **payload: object
+) -> AlarmEventOutbox:
+    """Build one unsaved lifecycle event row; ``sequence`` orders same-transaction events."""
+    return AlarmEventOutbox(
+        alarm_id=alarm_id,
+        event_type=event_type,
+        payload=dict(payload),
+        sequence=sequence,
+    )
 
 
 def _worker_payload(event: AlarmEventOutbox) -> tuple[dict[str, str | None], str]:
@@ -28,9 +44,9 @@ def _worker_payload(event: AlarmEventOutbox) -> tuple[dict[str, str | None], str
         "alarm_id": str(event.alarm_id),
         "timestamp": datetime.now(UTC).isoformat(),
     }
-    if event.event_type == constants.EVENT_ALARM_CREATED:
+    if event.event_type == EVENT_ALARM_CREATED:
         return common, "alarm_created_enqueued"
-    if event.event_type == constants.EVENT_ALARM_ACKNOWLEDGED:
+    if event.event_type == EVENT_ALARM_ACKNOWLEDGED:
         acknowledged_by = payload.get("acknowledged_by")
         note = payload.get("note")
         return (
@@ -41,7 +57,7 @@ def _worker_payload(event: AlarmEventOutbox) -> tuple[dict[str, str | None], str
             },
             "alarm_acked_enqueued",
         )
-    if event.event_type == constants.EVENT_ALARM_STATE_CHANGED:
+    if event.event_type == EVENT_ALARM_STATE_CHANGED:
         new_state = payload.get("new_state")
         if not new_state:
             raise ValueError("outbox state event has no new_state")
@@ -61,7 +77,7 @@ def _job_id_for_payload(payload: dict[str, str | None]) -> str:
     """Build the stable ARQ ID used to collapse duplicate outbox publishes."""
     event_type = payload["event_type"]
     alarm_id = payload["alarm_id"]
-    if event_type == constants.EVENT_ALARM_STATE_CHANGED:
+    if event_type == EVENT_ALARM_STATE_CHANGED:
         return f"{ARQ_JOB_NAME}:{event_type}:{alarm_id}:{payload['new_state'] or ''}"
     return f"{ARQ_JOB_NAME}:{event_type}:{alarm_id}"
 
@@ -83,12 +99,12 @@ async def _publish_outbox_event(
             observe_latency("redis_enqueue", time.monotonic() - started_at)
     except Exception as exc:
         log_message = {
-            constants.EVENT_ALARM_CREATED: "enqueue alarm_created failed",
-            constants.EVENT_ALARM_ACKNOWLEDGED: "enqueue alarm_acked failed",
-            constants.EVENT_ALARM_STATE_CHANGED: "enqueue alarm_state_changed failed",
+            EVENT_ALARM_CREATED: "enqueue alarm_created failed",
+            EVENT_ALARM_ACKNOWLEDGED: "enqueue alarm_acked failed",
+            EVENT_ALARM_STATE_CHANGED: "enqueue alarm_state_changed failed",
         }[event.event_type]
         extra: dict[str, object] = {"alarm_id": str(event.alarm_id)}
-        if event.event_type == constants.EVENT_ALARM_STATE_CHANGED:
+        if event.event_type == EVENT_ALARM_STATE_CHANGED:
             extra["state"] = payload["new_state"]
         logger.exception(log_message, extra=extra)
         return str(exc)

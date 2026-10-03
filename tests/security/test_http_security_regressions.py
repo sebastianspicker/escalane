@@ -11,8 +11,8 @@ from escalane.security.url_validation import (
     validate_url_not_internal,
     validate_webhook_host_allowed,
 )
-from tests.support.admin_test_helpers import csrf_token, login_admin
-from tests.support.api_test_helpers import app_client
+from tests.support.admin import csrf_token, login_admin
+from tests.support.clients import app_client
 from tests.support.constants import TEST_ADMIN_API_KEY
 
 pytestmark = pytest.mark.security

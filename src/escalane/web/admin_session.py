@@ -15,6 +15,7 @@ from typing import NoReturn
 from fastapi import HTTPException, status
 
 from escalane.config.settings import Settings
+from escalane.runtime.redis_atomic import redis_text
 
 SESSION_TTL_SECONDS = 3600
 SESSION_COOKIE = "admin_session"
@@ -32,18 +33,6 @@ class AdminSession:
 def _key(token: str, field: str) -> str:
     """Namespace each session field so Redis expiry and deletion stay granular."""
     return f"admin_session:{token}:{field}"
-
-
-def _redis_text(value: object) -> str | None:
-    """Return a Redis string reply without turning byte values into repr text."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bytes):
-        try:
-            return value.decode("utf-8")
-        except UnicodeDecodeError:
-            return None
-    return None
 
 
 def admin_key_marker(settings: Settings) -> str:
@@ -107,7 +96,7 @@ def _validated_session(
     values: tuple[object | None, object | None, object | None], settings: Settings, token: str
 ) -> AdminSession | None:
     """Return session data only when Redis values decode and match the current key marker."""
-    marker, operator, csrf_token = (_redis_text(value) for value in values)
+    marker, operator, csrf_token = (redis_text(value) for value in values)
     if marker is None or operator is None or csrf_token is None:
         return None
     if not secrets.compare_digest(marker, admin_key_marker(settings)):
@@ -164,7 +153,7 @@ async def set_flash(redis, session: AdminSession, category: str, message_key: st
 async def pop_flash(redis, session: AdminSession) -> tuple[str, str] | None:
     """Consume a one-time message so redirects do not replay stale operator feedback."""
     key = _key(session.token, "flash")
-    value = _redis_text(await redis.get(key))
+    value = redis_text(await redis.get(key))
     if value is None:
         await redis.delete(key)
         return None

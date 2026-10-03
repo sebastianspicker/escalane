@@ -4,72 +4,57 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
 from typing import Annotated, Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from escalane.alarms.history import InvalidHistoryCursor, history_page, parse_history_cursor
 from escalane.alarms.lifecycle import (
-    AlarmStateOutcome,
     apply_alarm_state_change,
+    apply_bulk_state_change,
     get_alarm_or_404,
     soft_delete_alarm,
 )
-from escalane.config.errors import ConflictError
+from escalane.alarms.notes import add_alarm_note
+from escalane.alarms.queries import (
+    CONSOLE_SEVERITY_FILTERS,
+    AlarmFilters,
+    alarm_display_labels,
+    list_alarms_for_export,
+)
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import (
-    Alarm,
-    AlarmNote,
-    AlarmNotification,
-    Person,
-    Room,
+from escalane.persistence.models import Alarm, AlarmStatus, Person, Room
+from escalane.web.admin_session import AdminSession, pop_flash, set_flash
+from escalane.web.console import (
+    action_session,
+    render_page,
+    requested_locale,
+    session_from_request,
 )
-from escalane.web.admin_session import AdminSession, set_flash
-from escalane.web.alarm_history import history_page, parse_history_cursor
 from escalane.web.deps import get_app_settings, get_redis, get_session
-from escalane.web.routes.admin_console import (
-    _action_session,
-    _html,
-    _requested_locale,
-    _session_from_request,
-)
+from escalane.web.exports import alarm_export_response
+from escalane.web.schemas import ExportFormat
 
 router = APIRouter()
 logger = logging.getLogger("escalane")
 AlarmCsrfToken = Annotated[str | None, Form()]
 OptionalAlarmNoteForm = Annotated[str | None, Form(max_length=2000)]
 AlarmSessionCookie = Annotated[str | None, Cookie()]
-
-
-@dataclass(frozen=True)
-class _BulkTransition:
-    """Keep the shared browser bulk-operation inputs explicit within this route module."""
-
-    target_status: AlarmStatus
-    actor: str
-    reason: str | None
-    redis: Any
+_CONSOLE_SEVERITY_PATTERN = f"^({'|'.join(CONSOLE_SEVERITY_FILTERS)})$"
 
 
 async def _detail_context(
     session: AsyncSession, alarm: Alarm, locale: str, before: str | None = None
 ) -> dict[str, Any]:
     """Project display labels and one bounded page of activity."""
-    cursor = parse_history_cursor(before)
-    labels = (
-        await session.execute(
-            select(Person.display_name, Room.label)
-            .select_from(Alarm)
-            .outerjoin(Person, Person.id == Alarm.person_id)
-            .outerjoin(Room, Room.id == Alarm.room_id)
-            .where(Alarm.id == alarm.id)
-        )
-    ).one_or_none()
+    try:
+        cursor = parse_history_cursor(before)
+    except InvalidHistoryCursor as exc:
+        raise HTTPException(status_code=422, detail="invalid_history_cursor") from exc
+    labels = await alarm_display_labels(session, alarm.id)
     view = _alarm_detail_view(alarm, None, None)
     if labels is not None:
         view["person"] = labels[0] if labels[0] is not None else view["person"]
@@ -88,43 +73,12 @@ async def _detail_context(
     }
 
 
-def _alarm_timeline(
-    alarm: Alarm,
-    locale: str,
-    notes: list[AlarmNote],
-    notifications: list[AlarmNotification],
-) -> list[dict[str, str]]:
-    """Merge creation, note, and delivery records into one timestamp-sorted operator timeline."""
-    events = [_created_event(alarm, locale)]
-    events.extend(_note_event(note) for note in notes)
-    events.extend(_notification_event(item) for item in notifications)
-    return sorted(events, key=lambda item: item["at_iso"])
-
-
 def _created_event(alarm: Alarm, locale: str) -> dict[str, str]:
     """Represent the immutable creation event in the selected console language."""
     return {
         "at": alarm.created_at.isoformat(timespec="minutes"),
         "at_iso": alarm.created_at.isoformat(),
         "description": "Alarm created" if locale == "en" else "Alarm erstellt",
-    }
-
-
-def _note_event(note: AlarmNote) -> dict[str, str]:
-    """Represent an operator or system note without changing its original content."""
-    return {
-        "at": note.created_at.isoformat(timespec="minutes"),
-        "at_iso": note.created_at.isoformat(),
-        "description": f"{note.created_by or 'System'}: {note.note}",
-    }
-
-
-def _notification_event(item: AlarmNotification) -> dict[str, str]:
-    """Represent delivery state as timeline evidence instead of inferring success from alarms."""
-    return {
-        "at": item.created_at.isoformat(timespec="minutes"),
-        "at_iso": item.created_at.isoformat(),
-        "description": f"{item.channel}: {item.result or 'pending'}",
     }
 
 
@@ -153,7 +107,7 @@ async def _alarm_action_context(
     session: AsyncSession,
 ) -> tuple[AdminSession, Alarm]:
     """Validate an alarm form action and load its target in a stable order."""
-    browser_session = await _action_session(request, settings, admin_session, csrf_token)
+    browser_session = await action_session(request, settings, admin_session, csrf_token)
     alarm = await get_alarm_or_404(session, alarm_id)
     return browser_session, alarm
 
@@ -169,11 +123,11 @@ async def admin_alarm_detail(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
-    locale = _requested_locale(request, lang)
-    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    locale = requested_locale(request, lang)
+    browser_session = await session_from_request(request, settings, admin_session, extend=True)
     alarm = await get_alarm_or_404(session, alarm_id)
     detail = await _detail_context(session, alarm, locale, before)
-    return _html(
+    return render_page(
         request,
         "admin_detail.html",
         locale,
@@ -184,6 +138,7 @@ async def admin_alarm_detail(
         delete_action=f"/admin/alarms/{alarm_id}/delete?lang={locale}",
         note_action=f"/admin/alarms/{alarm_id}/notes?lang={locale}",
         csrf_token=browser_session.csrf_token,
+        flash=await pop_flash(get_redis(request), browser_session),
         operator_name=browser_session.operator_name,
         logout_action="/admin/logout",
     )
@@ -200,11 +155,11 @@ async def admin_alarm_drawer(
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
     """Return current, authenticated alarm context for progressive drawer enhancement."""
-    locale = _requested_locale(request, lang)
-    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    locale = requested_locale(request, lang)
+    browser_session = await session_from_request(request, settings, admin_session, extend=True)
     alarm = await get_alarm_or_404(session, alarm_id)
     detail = await _detail_context(session, alarm, locale, before)
-    return _html(
+    return render_page(
         request,
         "admin_detail_drawer.html",
         locale,
@@ -228,11 +183,11 @@ async def admin_alarm_history(
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
     """Serve an authenticated history fragment for progressive enhancement."""
-    locale = _requested_locale(request, lang)
-    await _session_from_request(request, settings, admin_session, extend=True)
+    locale = requested_locale(request, lang)
+    await session_from_request(request, settings, admin_session, extend=True)
     alarm = await get_alarm_or_404(session, alarm_id)
     detail = await _detail_context(session, alarm, locale, before)
-    return _html(request, "admin_history.html", locale, **detail)
+    return render_page(request, "admin_history.html", locale, **detail)
 
 
 # Acknowledge one alarm and show whether downstream event delivery remains pending.
@@ -279,7 +234,7 @@ async def _transition_from_form(
     settings: Settings,
 ) -> RedirectResponse:
     """Apply a validated console transition and preserve its actor and reason for auditability."""
-    browser_session = await _action_session(request, settings, admin_session, csrf_token)
+    browser_session = await action_session(request, settings, admin_session, csrf_token)
     if target == AlarmStatus.CANCELLED and not (note or "").strip():
         raise HTTPException(status_code=422, detail="reason_required")
     alarm = await get_alarm_or_404(session, alarm_id)
@@ -352,15 +307,9 @@ async def admin_add_note(
     browser_session, alarm = await _alarm_action_context(
         alarm_id, request, settings, admin_session, csrf_token, session
     )
-    session.add(
-        AlarmNote(
-            alarm_id=alarm.id,
-            note=note.strip(),
-            created_by=browser_session.operator_name,
-            note_type="manual",
-        )
+    await add_alarm_note(
+        session, alarm, note=note.strip(), created_by=browser_session.operator_name
     )
-    await session.commit()
     await set_flash(get_redis(request), browser_session, "success", "note_added")
     return _detail_redirect(alarm_id, request)
 
@@ -386,7 +335,7 @@ async def admin_delete_alarm(
         note=reason.strip(),
     )
     await set_flash(get_redis(request), browser_session, "success", "alarm_deleted")
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin?lang={locale}", status_code=303)
 
 
@@ -401,30 +350,32 @@ async def admin_bulk_action(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> RedirectResponse:
-    browser_session = await _action_session(request, settings, admin_session, csrf_token)
+    browser_session = await action_session(request, settings, admin_session, csrf_token)
     raw_ids = (await request.form()).getlist("alarm_id")
     _validate_bulk_request(action, reason, raw_ids)
-    alarm_ids, missing = _parse_alarm_ids(raw_ids)
-    changed, unchanged, newly_missing = await _apply_bulk_actions(
+    alarm_ids, invalid = _parse_alarm_ids(raw_ids)
+    outcome = await apply_bulk_state_change(
         session,
+        get_redis(request),
         alarm_ids,
-        _bulk_transition(
-            action,
-            actor=browser_session.operator_name,
-            reason=reason,
-            redis=get_redis(request),
-        ),
+        target_status=_bulk_target_status(action),
+        actor=browser_session.operator_name,
+        note=reason,
+        logger=logger,
     )
-    missing += newly_missing
+    missing = invalid + len(outcome.missing)
     await set_flash(
-        get_redis(request), browser_session, "success", f"bulk_{changed}_{unchanged}_{missing}"
+        get_redis(request),
+        browser_session,
+        "success",
+        f"bulk_{outcome.changed}_{outcome.unchanged}_{missing}",
     )
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin?lang={locale}", status_code=303)
 
 
 def _detail_redirect(alarm_id: uuid.UUID, request: Request) -> RedirectResponse:
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin/alarms/{alarm_id}?lang={locale}", status_code=303)
 
 
@@ -448,95 +399,28 @@ def _parse_alarm_ids(raw_ids: list[Any]) -> tuple[list[uuid.UUID], int]:
     return alarm_ids, invalid
 
 
-def _bulk_transition(action: str, *, actor: str, reason: str | None, redis: Any) -> _BulkTransition:
-    """Translate the form action once before processing the ordered selection."""
-    target_status = AlarmStatus.RESOLVED if action == "resolve" else AlarmStatus.CANCELLED
+def _bulk_target_status(action: str) -> AlarmStatus:
+    """Translate the validated form action once before processing the ordered selection."""
     if action == "ack":
-        target_status = AlarmStatus.ACKNOWLEDGED
-    return _BulkTransition(target_status, actor, reason, redis)
+        return AlarmStatus.ACKNOWLEDGED
+    return AlarmStatus.RESOLVED if action == "resolve" else AlarmStatus.CANCELLED
 
 
-async def _apply_bulk_actions(
-    session: AsyncSession,
-    alarm_ids: list[uuid.UUID],
-    transition: _BulkTransition,
-) -> tuple[int, int, int]:
-    """Process each selected alarm independently so concurrent changes do not abort the batch."""
-    changed = unchanged = missing = 0
-    for alarm_id in alarm_ids:
-        alarm = await session.get(Alarm, alarm_id)
-        if alarm is None or alarm.deleted_at is not None:
-            missing += 1
-            continue
-        outcome = await _apply_bulk_transition(session, alarm, transition)
-        if outcome is None:
-            unchanged += 1
-            continue
-        if _bulk_action_changed(alarm, outcome):
-            changed += 1
-        else:
-            unchanged += 1
-    return changed, unchanged, missing
-
-
-async def _apply_bulk_transition(
-    session: AsyncSession,
-    alarm: Alarm,
-    transition: _BulkTransition,
-) -> AlarmStateOutcome | None:
-    """Apply one browser transition, normalizing only known concurrent-state conflicts."""
-    try:
-        return await apply_alarm_state_change(
-            session,
-            transition.redis,
-            alarm,
-            target_status=transition.target_status,
-            actor=transition.actor,
-            note=transition.reason,
-            logger=logger,
-        )
-    except HTTPException as exc:
-        if exc.status_code != 409:
-            raise
-    except ConflictError:
-        pass
-    return None
-
-
-def _bulk_action_changed(alarm: Alarm, outcome: AlarmStateOutcome) -> bool:
-    """Log deferred delivery while returning the state-change count contribution."""
-    if outcome.pending:
-        logger.warning(
-            "bulk_event_delivery_pending",
-            extra={
-                "alarm_id": str(alarm.id),
-                "published": outcome.published,
-            },
-        )
-    return outcome.changed
-
-
-# Reuse the canonical API serializer after authenticating the browser session.
+# Reuse the canonical export serializer after authenticating the browser session.
 @router.get("/admin/export")
 async def admin_export(
     request: Request,
     export_format: str = Query(default="csv", alias="format", pattern="^(csv|json)$"),
     status_filter: AlarmStatus | None = Query(default=None, alias="status"),
-    severity_filter: str | None = Query(default=None, alias="severity", pattern="^(P0|P1|P2)$"),
+    severity_filter: str | None = Query(
+        default=None, alias="severity", pattern=_CONSOLE_SEVERITY_PATTERN
+    ),
     admin_session: str | None = Cookie(default=None),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ):
-    await _session_from_request(request, settings, admin_session, extend=True)
-    from escalane.web.routes.alarms import AlarmExportQuery, export_alarms
-    from escalane.web.schemas import ExportFormat
-
-    return await export_alarms(
-        AlarmExportQuery(
-            status=status_filter,
-            severity=severity_filter,
-            format=ExportFormat(export_format),
-            limit=2000,
-        ),
-        session,
+    await session_from_request(request, settings, admin_session, extend=True)
+    alarms = await list_alarms_for_export(
+        session, AlarmFilters(status=status_filter, severity=severity_filter), limit=2000
     )
+    return alarm_export_response(alarms, ExportFormat(export_format))

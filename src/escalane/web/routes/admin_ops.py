@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane import __version__
 from escalane.config.settings import Settings
-from escalane.persistence.models import AdminAuditEvent
+from escalane.configuration.audit import list_recent_admin_events
+from escalane.operations.readiness import database_responds
 from escalane.providers.mock import get_mock_store
-from escalane.web.deps import get_app_settings, get_session
-from escalane.web.routes.admin_console import (
+from escalane.web.console import (
     UiPageContext,
-    _action_session,
-    _html,
-    _requested_locale,
-    _session_from_request,
+    action_session,
+    render_page,
+    requested_locale,
+    session_from_request,
 )
+from escalane.web.deps import get_app_settings, get_session
 
 router = APIRouter()
 
@@ -30,14 +30,8 @@ async def admin_activity(
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     locale, browser_session = page
-    events = list(
-        (
-            await session.scalars(
-                select(AdminAuditEvent).order_by(AdminAuditEvent.created_at.desc()).limit(100)
-            )
-        ).all()
-    )
-    return _html(
+    events = await list_recent_admin_events(session, limit=100)
+    return render_page(
         request,
         "admin_activity.html",
         locale,
@@ -57,7 +51,7 @@ async def admin_system(
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
     locale, browser_session = page
-    database_ok = (await session.scalar(select(1))) is not None
+    database_ok = await database_responds(session)
     states = [
         {"name": "Application", "status": "ok", "detail": __version__},
         {"name": "Database", "status": "ok" if database_ok else "error", "detail": "query"},
@@ -68,7 +62,7 @@ async def admin_system(
             "detail": "SIMULATION_ENABLED",
         },
     ]
-    return _html(
+    return render_page(
         request,
         "admin_system.html",
         locale,
@@ -88,10 +82,10 @@ async def admin_simulation(
 ) -> HTMLResponse:
     if not settings.simulation_enabled:
         raise HTTPException(status_code=404, detail="simulation_disabled")
-    locale = _requested_locale(request, lang)
-    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    locale = requested_locale(request, lang)
+    browser_session = await session_from_request(request, settings, admin_session, extend=True)
     notifications = get_mock_store().get_all()
-    return _html(
+    return render_page(
         request,
         "admin_simulation.html",
         locale,
@@ -112,6 +106,6 @@ async def admin_simulation_clear(
 ) -> RedirectResponse:
     if not settings.simulation_enabled:
         raise HTTPException(status_code=404, detail="simulation_disabled")
-    await _action_session(request, settings, admin_session, csrf_token)
+    await action_session(request, settings, admin_session, csrf_token)
     get_mock_store().clear()
     return RedirectResponse("/admin/simulation", status_code=303)

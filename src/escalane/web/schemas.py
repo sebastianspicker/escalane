@@ -9,9 +9,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from escalane.config.constants import PRIORITY_ALL
+from escalane.alarms.severity import PRIORITY_ALL
 from escalane.configuration.policy import EscalationPolicyCommand, StepCommand, TargetCommand
-from escalane.contracts.alarms import AlarmStatus
+from escalane.persistence.models import AlarmStatus
 
 
 class TriggerResponse(BaseModel):

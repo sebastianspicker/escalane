@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.config.settings import Settings
+from escalane.configuration.devices import (
+    DeviceUpsertCommand,
+    DeviceUpsertConflictError,
+    upsert_device,
+)
 from escalane.configuration.importer import (
-    _MAX_SEED_BYTES,
+    MAX_SEED_BYTES,
     apply_seed_payload,
     parse_seed_payload,
 )
-from escalane.configuration.master_data import lock_active_referenced_parents
 from escalane.configuration.policy import apply_escalation_policy
-from escalane.persistence.models import Device
 from escalane.web.deps import get_app_settings, get_session, require_admin
 from escalane.web.schemas import (
     DeviceUpsertIn,
@@ -35,16 +34,15 @@ def _declared_seed_content_length(content_length: str | None) -> int | None:
     if not content_length.isascii() or not content_length.isdigit():
         raise HTTPException(status_code=400, detail="Invalid Content-Length header")
     normalized_length = content_length.lstrip("0") or "0"
-    if len(normalized_length) > len(str(_MAX_SEED_BYTES)):
-        declared_length = _MAX_SEED_BYTES + 1
+    if len(normalized_length) > len(str(MAX_SEED_BYTES)):
+        declared_length = MAX_SEED_BYTES + 1
     else:
         declared_length = int(normalized_length)
-    if declared_length > _MAX_SEED_BYTES:
+    if declared_length > MAX_SEED_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=(
-                f"Seed payload too large ({declared_length} bytes). "
-                f"Maximum: {_MAX_SEED_BYTES} bytes"
+                f"Seed payload too large ({declared_length} bytes). Maximum: {MAX_SEED_BYTES} bytes"
             ),
         )
     return declared_length
@@ -56,39 +54,21 @@ async def admin_create_device(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
     """Create or update a device. POST is used as it performs upsert."""
-    values = {
-        "vendor": body.vendor,
-        "model_family": body.model_family,
-        "mac": body.mac,
-        "account_ext": body.account_ext,
-        "person_id": body.person_id,
-        "room_id": body.room_id,
-    }
-    await lock_active_referenced_parents(
-        session,
-        resource_name="devices",
-        values={**values, "active": True},
-    )
-    device_id = await session.scalar(
-        update(Device)
-        .where(Device.device_token == body.device_token)
-        .values(**values, version=Device.version + 1)
-        .returning(Device.id)
-    )
-    if device_id is None:
-        device_id = body.id or f"device:{uuid.uuid4()}"
-        session.add(
-            Device(
-                id=device_id,
-                device_token=body.device_token,
-                last_seen_at=None,
-                **values,
-            )
-        )
     try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
+        device_id = await upsert_device(
+            session,
+            DeviceUpsertCommand(
+                id=body.id,
+                device_token=body.device_token,
+                vendor=body.vendor,
+                model_family=body.model_family,
+                mac=body.mac,
+                account_ext=body.account_ext,
+                person_id=body.person_id,
+                room_id=body.room_id,
+            ),
+        )
+    except DeviceUpsertConflictError as exc:
         raise HTTPException(status_code=409, detail="device_upsert_conflict") from exc
     return {"ok": "true", "device_id": device_id}
 
@@ -112,10 +92,10 @@ async def admin_seed(
     """Seed the database with devices, persons, rooms, and sites."""
     _declared_seed_content_length(request.headers.get("content-length"))
     raw = await request.body()
-    if len(raw) > _MAX_SEED_BYTES:
+    if len(raw) > MAX_SEED_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=f"Seed payload too large ({len(raw)} bytes). Maximum: {_MAX_SEED_BYTES} bytes",
+            detail=f"Seed payload too large ({len(raw)} bytes). Maximum: {MAX_SEED_BYTES} bytes",
         )
     content_type = request.headers.get("content-type", "application/json").split(";")[0].strip()
 

@@ -7,9 +7,9 @@ import pytest
 from escalane.config.errors import ValidationError
 from escalane.config.settings import Settings
 from escalane.configuration.importer import (
-    _MAX_SEED_BYTES,
     _MAX_SEED_DEPTH,
     _MAX_SEED_NODES,
+    MAX_SEED_BYTES,
     parse_seed_payload,
 )
 from escalane.configuration.seed import _expand_env
@@ -34,7 +34,7 @@ def test_parse_empty_json_returns_empty_dict():
 
 
 def test_payload_too_large_raises_validation_error():
-    oversized = b"x" * (_MAX_SEED_BYTES + 1)
+    oversized = b"x" * (MAX_SEED_BYTES + 1)
     with pytest.raises(ValidationError, match="too large"):
         parse_seed_payload("application/json", oversized)
 

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from escalane.operations.dashboard import dashboard_revision
+from escalane.alarms.dashboard import dashboard_revision
 from escalane.persistence.models import Alarm
 
 pytestmark = pytest.mark.skipif(

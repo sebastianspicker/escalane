@@ -10,7 +10,7 @@ import httpx
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.contracts.notifications import NotificationPayload
+from escalane.notifications.payloads import NotificationPayload
 from escalane.persistence.models import AlarmNotification
 
 logger = logging.getLogger("escalane")

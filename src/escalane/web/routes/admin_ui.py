@@ -17,6 +17,11 @@ from escalane.web.admin_session import (
     destroy_admin_session,
     validate_admin_csrf,
 )
+from escalane.web.console import (
+    render_page,
+    requested_locale,
+    session_from_request,
+)
 from escalane.web.deps import (
     get_app_settings,
     get_client_ip,
@@ -24,11 +29,6 @@ from escalane.web.deps import (
     is_secure_request,
 )
 from escalane.web.i18n import SUPPORTED_LOCALES
-from escalane.web.routes.admin_console import (
-    _html,
-    _requested_locale,
-    _session_from_request,
-)
 
 router = APIRouter()
 _FAILED_LOGIN_LIMIT = 5
@@ -61,7 +61,7 @@ def _login_error(locale: str, kind: str) -> str:
 def _login_error_response(
     request: Request, locale: str, kind: str, status_code: int
 ) -> HTMLResponse:
-    return _html(
+    return render_page(
         request,
         "admin_login.html",
         locale,
@@ -109,8 +109,8 @@ def _login_success_response(
 async def admin_login_page(
     request: Request, lang: str | None = Query(default=None)
 ) -> HTMLResponse:
-    locale = _requested_locale(request, lang)
-    return _html(
+    locale = requested_locale(request, lang)
+    return render_page(
         request,
         "admin_login.html",
         locale,
@@ -129,7 +129,7 @@ async def admin_login_submit(
     lang: str | None = Query(default=None),
     settings: Settings = Depends(get_app_settings),
 ) -> Response:
-    locale = _requested_locale(request, lang)
+    locale = requested_locale(request, lang)
     if not settings.admin_api_key:
         return _login_error_response(request, locale, "config", 500)
 
@@ -157,7 +157,7 @@ async def admin_logout(
     admin_session: str | None = Cookie(default=None),
     settings: Settings = Depends(get_app_settings),
 ) -> Response:
-    browser_session = await _session_from_request(request, settings, admin_session, extend=False)
+    browser_session = await session_from_request(request, settings, admin_session, extend=False)
     validate_admin_csrf(browser_session, csrf_token)
     await destroy_admin_session(get_redis(request), admin_session)
     response = RedirectResponse("/admin/login", status_code=status.HTTP_303_SEE_OTHER)
@@ -173,7 +173,7 @@ async def admin_extend_session(
     admin_session: str | None = Cookie(default=None),
     settings: Settings = Depends(get_app_settings),
 ) -> RedirectResponse:
-    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    browser_session = await session_from_request(request, settings, admin_session, extend=True)
     validate_admin_csrf(browser_session, csrf_token)
     response = RedirectResponse("/admin", status_code=status.HTTP_303_SEE_OTHER)
     response.set_cookie(

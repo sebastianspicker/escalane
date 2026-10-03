@@ -2,20 +2,34 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
-from escalane.config import constants
-from escalane.contracts.notifications import EnrichedAlarmContext, NotificationPayload
+from escalane.alarms.enrichment import EnrichedAlarmContext
+from escalane.alarms.severity import PRIORITY_CRITICAL, PRIORITY_HIGH, PRIORITY_LOW, PRIORITY_MEDIUM
 from escalane.providers.base import ZammadTicketConfig
+
+TAG_EMERGENCY = "notfall"
+TAG_SILENT = "silent"
+
+
+class NotificationPayload(TypedDict):
+    """Payload built by NotificationService._build_notification_payload()."""
+
+    title: str
+    body: str
+    tags: list[str]
+    priority: int
+    step_no: int
+    alarm_id: str
 
 
 def priority_for_severity(severity: str) -> int:
     """Map an alarm severity to an external-system priority ID."""
     priority_map = {
-        constants.PRIORITY_CRITICAL: 3,
-        constants.PRIORITY_HIGH: 2,
-        constants.PRIORITY_MEDIUM: 2,
-        constants.PRIORITY_LOW: 1,
+        PRIORITY_CRITICAL: 3,
+        PRIORITY_HIGH: 2,
+        PRIORITY_MEDIUM: 2,
+        PRIORITY_LOW: 1,
     }
     return priority_map.get(severity, 3)
 
@@ -34,9 +48,9 @@ def build_tags(step_no: int, severity: str) -> list[str]:
     """Build notification tags from the escalation step and severity."""
     tags = []
     if step_no == 0:
-        tags.append(constants.TAG_EMERGENCY)
-    if severity == constants.PRIORITY_CRITICAL:
-        tags.append(constants.TAG_SILENT)
+        tags.append(TAG_EMERGENCY)
+    if severity == PRIORITY_CRITICAL:
+        tags.append(TAG_SILENT)
     return tags
 
 

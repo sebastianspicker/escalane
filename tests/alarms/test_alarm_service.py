@@ -17,11 +17,10 @@ from escalane.alarms.lifecycle import (
     transition_alarm,
 )
 from escalane.config.errors import ConflictError, NotFoundError
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm, AlarmEventOutbox
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmStatus
 from tests.support.assertions import expect
 from tests.support.constants import ACK_FOUND_TOKEN, ACK_SOFT_DELETED_TOKEN
-from tests.support.worker_task_helpers import load_alarm_notes, persist_alarm
+from tests.support.worker import load_alarm_notes, persist_alarm
 
 pytestmark = [pytest.mark.unit]
 

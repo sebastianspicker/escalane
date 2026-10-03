@@ -8,20 +8,17 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
-from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from escalane import __version__
 from escalane.config.settings import Settings
-from escalane.operations.metrics import render_prometheus_metrics
+from escalane.operations.queries import historical_metrics, outbox_gauges
+from escalane.operations.readiness import DatabaseProbe, ping_redis, probe_database
+from escalane.operations.worker_snapshot import pool_gauges, read_worker_snapshot
+from escalane.telemetry.metrics import render_prometheus_metrics
 from escalane.web.deps import get_app_settings, get_redis, get_sessionmaker, require_admin
 
 router = APIRouter()
-
-# Keep this value synchronized with the single Alembic head packaged in
-# migrations/versions. The regression test verifies it.
-EXPECTED_ALEMBIC_HEAD = "0008"
 
 _start_time = time.time()
 
@@ -51,26 +48,17 @@ async def readyz(
     Returns 200 if all dependencies are available.
     Returns 503 if any dependency is unavailable.
     """
-    db_ok = False
     redis_ok = False
     details: dict[str, Any] = {"db": "down", "redis": "down", "schema": "down"}
 
-    try:
-        async with sessionmaker() as session:
-            await session.execute(text("SELECT 1"))
-            schema_status = await _check_schema_version(session)
-        db_ok = True
+    database = await probe_database(sessionmaker)
+    db_ok = database.reachable
+    if database.schema is not None:
         details["db"] = "ok"
-        details["schema"] = schema_status["status"]
-    except Exception:
-        db_ok = False
+        details["schema"] = database.schema["status"]
 
     try:
-        redis = get_redis(request)
-        if hasattr(redis, "ping"):
-            await redis.ping()
-        elif hasattr(redis, "get"):
-            await redis.get("__readyz__")
+        await ping_redis(get_redis(request), "__readyz__")
         redis_ok = True
         details["redis"] = "ok"
     except Exception:
@@ -103,7 +91,7 @@ async def healthz_details(
         "connectors": {},
     }
 
-    db_status = await _check_database(sessionmaker)
+    db_status = _database_status(await probe_database(sessionmaker))
     details["dependencies"]["database"] = db_status
 
     redis_status = await _check_redis(request)
@@ -134,9 +122,6 @@ async def metrics(
     request: Request,
     sessionmaker: async_sessionmaker[AsyncSession] = Depends(get_sessionmaker),
 ) -> PlainTextResponse:
-    from escalane.operations.queries import historical_metrics, outbox_gauges
-    from escalane.operations.worker_snapshot import pool_gauges, read_worker_snapshot
-
     async with sessionmaker() as session:
         alarm_counts, notification_counts = await historical_metrics(session, get_redis(request))
         gauges = await outbox_gauges(session)
@@ -153,75 +138,19 @@ async def metrics(
     return PlainTextResponse(content=content, media_type="text/plain")
 
 
-async def _check_database(sessionmaker: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
-    """Check database connectivity and get info.
-
-    Args:
-        sessionmaker: Database session factory
-
-    Returns:
-        Dictionary with database status information
-    """
-    try:
-        async with sessionmaker() as session:
-            await session.execute(text("SELECT 1"))
-
-            schema_status = await _check_schema_version(session)
-
-            return {
-                "status": "ok" if schema_status["status"] == "ok" else "error",
-                "schema": schema_status,
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-        }
-
-
-async def _check_schema_version(session: AsyncSession) -> dict[str, Any]:
-    """Return a fail-closed status for the database's Alembic revision."""
-    try:
-        result = await session.execute(text("SELECT version_num FROM alembic_version"))
-    except SQLAlchemyError:
-        return {"status": "missing", "expected": EXPECTED_ALEMBIC_HEAD}
-
-    versions = [str(version) for version in result.scalars().all()]
-    if not versions:
-        return {"status": "empty", "expected": EXPECTED_ALEMBIC_HEAD}
-    if len(versions) != 1:
-        return {
-            "status": "multiple",
-            "expected": EXPECTED_ALEMBIC_HEAD,
-            "actual": versions,
-        }
-    if versions[0] != EXPECTED_ALEMBIC_HEAD:
-        return {
-            "status": "stale",
-            "expected": EXPECTED_ALEMBIC_HEAD,
-            "actual": versions[0],
-        }
-    return {"status": "ok", "expected": EXPECTED_ALEMBIC_HEAD, "actual": versions[0]}
+def _database_status(database: DatabaseProbe) -> dict[str, Any]:
+    """Shape a database probe for the authenticated health details response."""
+    if database.schema is None:
+        return {"status": "error", "error": database.error}
+    return {"status": "ok" if database.healthy else "error", "schema": database.schema}
 
 
 async def _check_redis(request: Request) -> dict[str, Any]:
-    """Check Redis connectivity.
-
-    Args:
-        request: FastAPI request to get Redis connection
-
-    Returns:
-        Dictionary with Redis status information
-    """
+    """Probe Redis and report its round-trip latency for health details."""
     try:
         redis = get_redis(request)
         start = time.time()
-
-        if hasattr(redis, "ping"):
-            await redis.ping()
-        elif hasattr(redis, "get"):
-            await redis.get("__healthz__")
-
+        await ping_redis(redis, "__healthz__")
         latency_ms = round((time.time() - start) * 1000, 2)
 
         return {

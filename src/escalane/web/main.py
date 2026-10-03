@@ -7,36 +7,21 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from arq.connections import RedisSettings, create_pool
-from fastapi import FastAPI, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.ext.asyncio import AsyncEngine
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import ExceptionHandler
 
 from escalane import __version__
-from escalane.config.errors import (
-    AuthenticationError,
-    AuthorizationError,
-    ConfigurationError,
-    ConflictError,
-    ConnectorError,
-    EscalaneError,
-    NotFoundError,
-    RateLimitError,
-    ValidationError,
-)
 from escalane.config.settings import Settings, get_settings
-from escalane.operations.metrics import record_http_request
 from escalane.persistence.engine import create_async_engine_from_settings
 from escalane.persistence.session import create_sessionmaker
+from escalane.telemetry.metrics import record_http_request
 from escalane.web.deps import is_secure_request
-from escalane.web.i18n import normalise_locale, translation_context
+from escalane.web.errors import install_exception_handlers
 from escalane.web.routes import ALL_ROUTERS
-from escalane.web.templating import render_template
 
 logger = logging.getLogger("escalane")
 
@@ -230,145 +215,6 @@ def _install_security_headers_middleware(app: FastAPI) -> None:
         return response
 
 
-async def browser_http_error_handler(request: Request, exc: StarletteHTTPException):
-    """Render localized HTML failures for browser routes while keeping API errors JSON."""
-    if not (request.url.path.startswith("/admin") or request.url.path.startswith("/a/")):
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    locale = request.query_params.get("lang") or request.cookies.get("ui_locale")
-    if not locale:
-        locale = request.headers.get("accept-language")
-    locale = normalise_locale(locale)
-    known_messages = {
-        "csrf_invalid": {
-            "en": "Security validation failed. Reload the page and try again.",
-            "de": "Die Sicherheitsprüfung ist fehlgeschlagen. Laden Sie die Seite neu.",
-        },
-        "session_expired": {
-            "en": "Your session has expired. Sign in again.",
-            "de": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an.",
-        },
-        "login_required": {
-            "en": "Sign in to use the operator console.",
-            "de": "Melden Sie sich an, um die Alarmübersicht zu verwenden.",
-        },
-    }
-    message = known_messages.get(str(exc.detail), {}).get(locale)
-    if message is None:
-        message = str(exc.detail) if isinstance(exc.detail, str) else "Request failed"
-    context = {
-        **translation_context(locale),
-        "asset_url": "/admin/assets/ui.css",
-        "script_url": "/admin/assets/ui.js",
-        "worklist_url": "/admin",
-        "error": {
-            "message": message,
-            "reference": getattr(request.state, "request_id", None),
-            "return_url": "/admin/login" if exc.status_code == 401 else request.url.path,
-        },
-    }
-    return HTMLResponse(render_template("error.html", **context), status_code=exc.status_code)
-
-
-async def validation_error_handler(request: Request, exc: ValidationError):
-    """Expose domain validation failures as structured 400 responses with diagnostic logs."""
-    logger.warning(
-        "validation_error",
-        extra={"error": exc.message, "field": exc.field, "details": exc.details},
-    )
-    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=exc.to_dict())
-
-
-async def not_found_error_handler(request: Request, exc: NotFoundError):
-    """Convert missing domain resources to an auditable 404 response."""
-    logger.info(
-        "resource_not_found",
-        extra={"resource_type": exc.resource_type, "resource_id": exc.resource_id},
-    )
-    return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=exc.to_dict())
-
-
-async def conflict_error_handler(request: Request, exc: ConflictError):
-    """Convert optimistic-concurrency or state conflicts to an explicit 409 response."""
-    logger.warning("conflict_error", extra={"error": exc.message, "details": exc.details})
-    return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=exc.to_dict())
-
-
-async def authentication_error_handler(request: Request, exc: AuthenticationError):
-    """Return domain authentication failures without exposing credential details."""
-    logger.warning("authentication_error", extra={"error": exc.message})
-    return JSONResponse(status_code=status.HTTP_401_UNAUTHORIZED, content=exc.to_dict())
-
-
-async def authorization_error_handler(request: Request, exc: AuthorizationError):
-    """Return domain authorization failures while preserving the stable API error shape."""
-    logger.warning("authorization_error", extra={"error": exc.message})
-    return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=exc.to_dict())
-
-
-async def rate_limit_error_handler(request: Request, exc: RateLimitError):
-    """Return rate-limit metadata so clients can back off predictably."""
-    logger.warning(
-        "rate_limit_exceeded",
-        extra={"limit": exc.limit, "window_seconds": exc.window_seconds},
-    )
-    return JSONResponse(status_code=status.HTTP_429_TOO_MANY_REQUESTS, content=exc.to_dict())
-
-
-async def configuration_error_handler(request: Request, exc: ConfigurationError):
-    """Log misconfiguration internally and avoid leaking deployment details to callers."""
-    logger.error("configuration_error", extra={"error": exc.message, "details": exc.details})
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "Internal configuration error"},
-    )
-
-
-async def connector_error_handler(request: Request, exc: ConnectorError):
-    """Map upstream connector failures to a retryable gateway error without secret details."""
-    logger.error(
-        "connector_error",
-        extra={
-            "connector": exc.connector,
-            "operation": exc.operation,
-            "error": str(exc.original_error) if exc.original_error else None,
-        },
-    )
-    return JSONResponse(
-        status_code=status.HTTP_502_BAD_GATEWAY,
-        content={"error": "External service error"},
-    )
-
-
-async def generic_error_handler(request: Request, exc: EscalaneError):
-    """Provide a safe fallback for domain errors not covered by a specific handler."""
-    logger.error(
-        "unhandled_escalane_error",
-        extra={"error": exc.message, "details": exc.details},
-    )
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "Internal server error"},
-    )
-
-
-def _install_exception_handlers(app: FastAPI) -> None:
-    """Install standardized error handlers without nesting their implementations."""
-    handlers = {
-        StarletteHTTPException: browser_http_error_handler,
-        ValidationError: validation_error_handler,
-        NotFoundError: not_found_error_handler,
-        ConflictError: conflict_error_handler,
-        AuthenticationError: authentication_error_handler,
-        AuthorizationError: authorization_error_handler,
-        RateLimitError: rate_limit_error_handler,
-        ConfigurationError: configuration_error_handler,
-        ConnectorError: connector_error_handler,
-        EscalaneError: generic_error_handler,
-    }
-    for exception_type, handler in handlers.items():
-        app.add_exception_handler(exception_type, cast(ExceptionHandler, handler))
-
-
 def create_app(
     *,
     settings: Settings | None = None,
@@ -393,7 +239,7 @@ def create_app(
 
     _install_security_headers_middleware(app)
     _install_observability_middleware(app)
-    _install_exception_handlers(app)
+    install_exception_handlers(app)
 
     assets_dir = Path(__file__).with_name("assets")
     app.mount(

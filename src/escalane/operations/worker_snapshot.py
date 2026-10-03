@@ -7,8 +7,7 @@ import logging
 import time
 from typing import Any
 
-from escalane.operations.metrics import latency_snapshot
-from escalane.persistence.telemetry import BUCKETS
+from escalane.telemetry.metrics import BUCKETS, latency_snapshot
 
 logger = logging.getLogger("escalane")
 WORKER_SNAPSHOT_KEY = "escalane:metrics:worker"

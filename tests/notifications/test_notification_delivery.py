@@ -21,7 +21,7 @@ from escalane.notifications.delivery import (
     successful_notification,
     zammad_ack_note,
 )
-from tests.support.notification_dispatch_helpers import _ALARM_ID, _noop_session
+from tests.support.notifications import ALARM_ID, noop_session
 
 pytestmark = pytest.mark.unit
 
@@ -50,7 +50,7 @@ def test_retry_classification_exception_and_status_matrix(error: Exception, expe
 
 
 async def test_log_notification_adds_deterministic_delivery_payload_and_commits() -> None:
-    session = await _noop_session()
+    session = await noop_session()
     payload = {"action": "ack", "ticket_id": "42", "body": "Alarm"}
     original_payload = dict(payload)
     events: list[str] = []
@@ -63,7 +63,7 @@ async def test_log_notification_adds_deterministic_delivery_payload_and_commits(
 
     await log_notification(
         session,
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         channel="signal",
         target_id="group-1",
         payload=payload,
@@ -71,7 +71,7 @@ async def test_log_notification_adds_deterministic_delivery_payload_and_commits(
     )
 
     record = session.add.call_args.args[0]
-    expected_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{_ALARM_ID}:signal:group-1:ack:42"))
+    expected_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{ALARM_ID}:signal:group-1:ack:42"))
     assert payload == original_payload
     assert record.payload == {**original_payload, "delivery_id": expected_id}
     assert record.logical_delivery_key is None
@@ -95,7 +95,7 @@ def test_logical_delivery_keys_are_stable_and_ignore_ticket_creation_result(
 
 
 async def test_log_notification_rolls_back_and_raises_auditable_error() -> None:
-    session = await _noop_session()
+    session = await noop_session()
     events: list[str] = []
     session.add.side_effect = lambda record: events.append("add")
 
@@ -112,7 +112,7 @@ async def test_log_notification_rolls_back_and_raises_auditable_error() -> None:
     with pytest.raises(NotificationAuditError, match="Notification audit persistence failed"):
         await log_notification(
             session,
-            alarm_id=_ALARM_ID,
+            alarm_id=ALARM_ID,
             channel="sms",
             target_id="target-1",
             payload={"step_no": 1},
@@ -125,7 +125,7 @@ async def test_log_notification_rolls_back_and_raises_auditable_error() -> None:
 
 
 async def test_audit_rollback_failure_is_logged_without_masking_audit_error() -> None:
-    session = await _noop_session()
+    session = await noop_session()
     session.commit.side_effect = RuntimeError("commit failed")
     session.rollback.side_effect = RuntimeError("rollback failed")
 
@@ -133,7 +133,7 @@ async def test_audit_rollback_failure_is_logged_without_masking_audit_error() ->
         with pytest.raises(NotificationAuditError, match="Notification audit persistence failed"):
             await log_notification(
                 session,
-                alarm_id=_ALARM_ID,
+                alarm_id=ALARM_ID,
                 channel="sms",
                 target_id="target-1",
                 payload={"step_no": 1},
@@ -148,45 +148,45 @@ async def test_audit_rollback_failure_is_logged_without_masking_audit_error() ->
 def test_delivery_id_is_uuid5_stable_and_changes_with_delivery_identity_inputs() -> None:
     baseline = {"action": "notify", "ticket_id": "9"}
     stable = notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload=baseline
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload=baseline
     )
     assert stable == notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload=baseline
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload=baseline
     )
     assert uuid.UUID(stable).version == 5
     assert stable != notification_delivery_id(
         alarm_id=uuid.uuid4(), channel="sms", target_id="target-1", payload=baseline
     )
     assert stable != notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="signal", target_id="target-1", payload=baseline
+        alarm_id=ALARM_ID, channel="signal", target_id="target-1", payload=baseline
     )
     assert stable != notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-2", payload=baseline
+        alarm_id=ALARM_ID, channel="sms", target_id="target-2", payload=baseline
     )
     assert stable != notification_delivery_id(
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         channel="sms",
         target_id="target-1",
         payload={"action": "ack", "ticket_id": "9"},
     )
     assert stable != notification_delivery_id(
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         channel="sms",
         target_id="target-1",
         payload={"action": "notify", "ticket_id": "10"},
     )
     assert notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id=None, payload=baseline
-    ) == str(uuid.uuid5(uuid.NAMESPACE_URL, f"{_ALARM_ID}:sms::notify:9"))
+        alarm_id=ALARM_ID, channel="sms", target_id=None, payload=baseline
+    ) == str(uuid.uuid5(uuid.NAMESPACE_URL, f"{ALARM_ID}:sms::notify:9"))
     assert notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload={"state": "open"}
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload={"state": "open"}
     ) != notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload={"state": "closed"}
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload={"state": "closed"}
     )
     assert notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload={"step_no": 1}
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload={"step_no": 1}
     ) != notification_delivery_id(
-        alarm_id=_ALARM_ID, channel="sms", target_id="target-1", payload={"step_no": 2}
+        alarm_id=ALARM_ID, channel="sms", target_id="target-1", payload={"step_no": 2}
     )
 
 
@@ -208,13 +208,13 @@ def test_safe_delivery_error_is_bounded_and_never_uses_provider_query_text() -> 
 
 async def test_successful_and_completed_lookup_use_their_public_result_sets() -> None:
     matching = object()
-    session = await _noop_session()
+    session = await noop_session()
     session.scalar = AsyncMock(return_value=matching)
 
     assert (
         await successful_notification(
             session,
-            alarm_id=_ALARM_ID,
+            alarm_id=ALARM_ID,
             channel="sms",
             target_id="target-1",
             payload_matches={"delivery_id": "same"},
@@ -229,7 +229,7 @@ async def test_successful_and_completed_lookup_use_their_public_result_sets() ->
     assert (
         await completed_notification(
             session,
-            alarm_id=_ALARM_ID,
+            alarm_id=ALARM_ID,
             channel="sms",
             target_id="target-1",
             payload_matches={"delivery_id": "same"},
@@ -241,14 +241,14 @@ async def test_successful_and_completed_lookup_use_their_public_result_sets() ->
 
 
 async def test_lookup_failure_rolls_back_and_raises_notification_audit_error() -> None:
-    session = await _noop_session()
+    session = await noop_session()
     session.scalar.side_effect = RuntimeError("database unavailable")
     session.rollback = AsyncMock()
 
     with pytest.raises(NotificationAuditError, match="Notification audit lookup failed"):
         await completed_notification(
             session,
-            alarm_id=_ALARM_ID,
+            alarm_id=ALARM_ID,
             channel="sms",
             target_id=None,
             payload_matches={"delivery_id": "same"},

@@ -10,10 +10,9 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from escalane.contracts.alarms import AlarmStatus
 from escalane.notifications.delivery import is_retryable_delivery_error
 from escalane.notifications.dispatch import NotificationService
-from escalane.persistence.models import Alarm, AlarmNotification
+from escalane.persistence.models import Alarm, AlarmNotification, AlarmStatus
 from escalane.providers.base import BaseConnector, BaseConnectorConfig
 from tests.support.assertions import expect
 from tests.support.constants import value_for_test

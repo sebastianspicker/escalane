@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,14 +14,14 @@ from escalane.providers import webhook as webhook_delivery
 from escalane.security.url_validation import RetryableSSRFError
 from tests.support.assertions import expect
 from tests.support.constants import value_for_test
-from tests.support.notification_dispatch_helpers import (
-    _delivery_context,
-    _make_alarm,
-    _make_enriched,
-    _make_settings,
-    _make_svc,
-    _make_target,
-    _noop_session,
+from tests.support.notifications import (
+    delivery_context,
+    make_alarm_double,
+    make_enriched,
+    make_service,
+    make_settings,
+    make_target,
+    noop_session,
 )
 
 pytestmark = [pytest.mark.unit]
@@ -28,7 +29,7 @@ pytestmark = [pytest.mark.unit]
 
 async def test_webhook_transport_shares_one_client_and_timeout_across_failover() -> None:
     """Validated-address failover stays inside one client and timeout budget."""
-    _svc, _session, _target, payload = await _delivery_context("webhook")
+    _svc, _session, _target, payload = await delivery_context("webhook")
     attempts: list[str] = []
 
     class OverallTimeout:
@@ -57,13 +58,16 @@ async def test_webhook_transport_shares_one_client_and_timeout_across_failover()
         patch("escalane.providers.webhook.asyncio.timeout", timeout_factory),
         patch("escalane.providers.webhook.httpx.AsyncClient", client_factory),
     ):
-        await webhook_delivery.post_webhook_to_validated_addresses(
+        await webhook_delivery.post_webhook_bytes_to_validated_addresses(
             "https://hooks.example.test/hook",
-            payload,
+            json.dumps(payload).encode(),
+            {"Content-Type": "application/json"},
             ("1.1.1.1", "8.8.8.8"),
-            "target-id",
-            "delivery-id",
-            30.0,
+            delivery_id="delivery-id",
+            timeout=30.0,
+            address_failed_event="webhook_notification_address_failed",
+            log_extra={"target_id": "target-id"},
+            log_permanent_failures=True,
         )
 
     timeout_factory.assert_called_once_with(30.0)
@@ -73,7 +77,7 @@ async def test_webhook_transport_shares_one_client_and_timeout_across_failover()
 
 async def test_webhook_transport_preserves_final_retryable_error_and_safe_logs(caplog) -> None:
     """Every failed pinned address logs redacted diagnostics before final propagation."""
-    _svc, _session, _target, payload = await _delivery_context("webhook")
+    _svc, _session, _target, payload = await delivery_context("webhook")
     secret = value_for_test("transport-log-secret")
     username = "webhook-user"
     failures: list[httpx.ConnectError] = []
@@ -93,13 +97,16 @@ async def test_webhook_transport_preserves_final_retryable_error_and_safe_logs(c
     caplog.set_level(logging.WARNING, logger="escalane")
     with patch("escalane.providers.webhook.httpx.AsyncClient", return_value=FailingClient()):
         with pytest.raises(httpx.ConnectError) as raised:
-            await webhook_delivery.post_webhook_to_validated_addresses(
+            await webhook_delivery.post_webhook_bytes_to_validated_addresses(
                 f"https://{username}:{secret}@hooks.example.test/private/{secret}?token={secret}",
-                payload,
+                json.dumps(payload).encode(),
+                {"Content-Type": "application/json"},
                 ("1.1.1.1", "8.8.8.8"),
-                "target-id",
-                "delivery-id",
-                30.0,
+                delivery_id="delivery-id",
+                timeout=30.0,
+                address_failed_event="webhook_notification_address_failed",
+                log_extra={"target_id": "target-id"},
+                log_permanent_failures=True,
             )
 
     expect(raised.value is failures[-1])
@@ -125,30 +132,30 @@ async def test_webhook_transport_preserves_final_retryable_error_and_safe_logs(c
 
 
 async def test_send_webhook_no_url_logs_error():
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
-    await svc._send_webhook_notifications(session, target, payload, _make_settings())
+    await svc._send_webhook_notifications(session, target, payload, make_settings())
 
     session.commit.assert_called()
 
 
 async def test_send_webhook_ssrf_blocked():
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="http://169.254.169.254/metadata")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="http://169.254.169.254/metadata")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     from escalane.security.url_validation import SSRFError
 
     with patch(
-        "escalane.notifications.dispatch.validate_url_not_internal",
+        "escalane.notifications.webhooks.validate_url_not_internal",
         new_callable=AsyncMock,
         side_effect=SSRFError("SSRF blocked"),
     ):
@@ -156,7 +163,7 @@ async def test_send_webhook_ssrf_blocked():
             session,
             target,
             payload,
-            _make_settings(webhook_allowed_hosts="169.254.169.254"),
+            make_settings(webhook_allowed_hosts="169.254.169.254"),
         )
 
     session.commit.assert_called()
@@ -164,11 +171,11 @@ async def test_send_webhook_ssrf_blocked():
 
 async def test_send_webhook_dns_failure_is_retryable_then_recovers():
     """A resolver outage is not recorded as a permanent SSRF-policy skip."""
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="https://hooks.example.test/hook")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="https://hooks.example.test/hook")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     resolver = AsyncMock(
@@ -176,11 +183,11 @@ async def test_send_webhook_dns_failure_is_retryable_then_recovers():
     )
     with (
         patch(
-            "escalane.notifications.dispatch.validate_url_not_internal",
+            "escalane.notifications.webhooks.validate_url_not_internal",
             resolver,
         ),
         patch(
-            "escalane.notifications.dispatch.post_webhook_to_validated_addresses",
+            "escalane.notifications.dispatch.post_webhook_bytes_to_validated_addresses",
             new_callable=AsyncMock,
         ) as post,
         patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as log_result,
@@ -189,13 +196,13 @@ async def test_send_webhook_dns_failure_is_retryable_then_recovers():
             session,
             target,
             payload,
-            _make_settings(webhook_allowed_hosts="hooks.example.test"),
+            make_settings(webhook_allowed_hosts="hooks.example.test"),
         )
         second_result = await svc._send_webhook_notifications(
             session,
             target,
             payload,
-            _make_settings(webhook_allowed_hosts="hooks.example.test"),
+            make_settings(webhook_allowed_hosts="hooks.example.test"),
         )
 
     expect(first_result is False)
@@ -206,32 +213,32 @@ async def test_send_webhook_dns_failure_is_retryable_then_recovers():
 
 
 async def test_send_webhook_empty_allowlist_rejects_without_network():
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="https://hooks.example.test/hook")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="https://hooks.example.test/hook")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch(
         "escalane.providers.webhook.httpx.AsyncClient",
         side_effect=AssertionError("network egress must not happen"),
     ):
-        await svc._send_webhook_notifications(session, target, payload, _make_settings())
+        await svc._send_webhook_notifications(session, target, payload, make_settings())
 
     session.commit.assert_called()
 
 
 async def test_send_webhook_http_error():
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="http://valid-external.example.com/hook")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="http://valid-external.example.com/hook")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch(
-        "escalane.notifications.dispatch.validate_url_not_internal",
+        "escalane.notifications.webhooks.validate_url_not_internal",
         new_callable=AsyncMock,
         return_value=("1.1.1.1",),
     ):
@@ -243,7 +250,7 @@ async def test_send_webhook_http_error():
                 session,
                 target,
                 payload,
-                _make_settings(webhook_allowed_hosts="valid-external.example.com"),
+                make_settings(webhook_allowed_hosts="valid-external.example.com"),
             )
 
     session.commit.assert_called()
@@ -256,11 +263,11 @@ async def test_send_webhook_success_logs_ok():
     """When the HTTP POST succeeds, _log_notification_result is called with 'ok'."""
     import httpx
 
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="http://valid-external.example.com/hook")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="http://valid-external.example.com/hook")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     mock_response = MagicMock(spec=httpx.Response)
@@ -272,7 +279,7 @@ async def test_send_webhook_success_logs_ok():
     mock_client.post = AsyncMock(return_value=mock_response)
 
     with patch(
-        "escalane.notifications.dispatch.validate_url_not_internal",
+        "escalane.notifications.webhooks.validate_url_not_internal",
         new_callable=AsyncMock,
         return_value=("1.1.1.1",),
     ):
@@ -285,7 +292,7 @@ async def test_send_webhook_success_logs_ok():
                     session,
                     target,
                     payload,
-                    _make_settings(webhook_allowed_hosts="valid-external.example.com"),
+                    make_settings(webhook_allowed_hosts="valid-external.example.com"),
                 )
 
     mock_log.assert_called_once_with(session, target, payload, "ok")
@@ -295,7 +302,7 @@ async def test_send_webhook_success_logs_ok():
 async def test_send_webhook_fails_over_to_second_validated_address():
     import httpx
 
-    svc, session, target, payload = await _delivery_context(
+    svc, session, target, payload = await delivery_context(
         "webhook", address="https://hooks.example.test/hook"
     )
     attempts: list[tuple[str, dict[str, str], dict[str, Any]]] = []
@@ -314,7 +321,7 @@ async def test_send_webhook_fails_over_to_second_validated_address():
             return MagicMock(raise_for_status=MagicMock())
 
     with patch(
-        "escalane.notifications.dispatch.validate_url_not_internal",
+        "escalane.notifications.webhooks.validate_url_not_internal",
         new_callable=AsyncMock,
         return_value=("1.1.1.1", "8.8.8.8"),
     ):
@@ -327,7 +334,7 @@ async def test_send_webhook_fails_over_to_second_validated_address():
                     session,
                     target,
                     payload,
-                    _make_settings(webhook_allowed_hosts="hooks.example.test"),
+                    make_settings(webhook_allowed_hosts="hooks.example.test"),
                 )
 
     expect([attempt[0] for attempt in attempts] == ["https://1.1.1.1/hook", "https://8.8.8.8/hook"])
@@ -339,7 +346,7 @@ async def test_send_webhook_fails_over_to_second_validated_address():
 async def test_send_webhook_stops_on_permanent_response() -> None:
     import httpx
 
-    svc, session, target, payload = await _delivery_context(
+    svc, session, target, payload = await delivery_context(
         "webhook", address="https://hooks.example.test/hook"
     )
     attempts: list[str] = []
@@ -362,7 +369,7 @@ async def test_send_webhook_stops_on_permanent_response() -> None:
 
     with (
         patch(
-            "escalane.notifications.dispatch.validate_url_not_internal",
+            "escalane.notifications.webhooks.validate_url_not_internal",
             new_callable=AsyncMock,
             return_value=("1.1.1.1", "8.8.8.8"),
         ),
@@ -376,7 +383,7 @@ async def test_send_webhook_stops_on_permanent_response() -> None:
             session,
             target,
             payload,
-            _make_settings(webhook_allowed_hosts="hooks.example.test"),
+            make_settings(webhook_allowed_hosts="hooks.example.test"),
         )
 
     expect(delivered is True)
@@ -387,13 +394,13 @@ async def test_send_webhook_stops_on_permanent_response() -> None:
 async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fail():
     import httpx
 
-    svc, session = _make_svc(), await _noop_session()
+    svc, session = make_service(), await noop_session()
     secret = value_for_test("target-webhook-query")
-    target = _make_target(
+    target = make_target(
         channel="webhook", address=f"https://hooks.example.test/hook?token={secret}"
     )
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
     attempts: list[str] = []
 
@@ -409,7 +416,7 @@ async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fai
             raise httpx.ConnectError(f"delivery failed for {url}")
 
     with patch(
-        "escalane.notifications.dispatch.validate_url_not_internal",
+        "escalane.notifications.webhooks.validate_url_not_internal",
         new_callable=AsyncMock,
         return_value=("1.1.1.1", "8.8.8.8"),
     ):
@@ -422,7 +429,7 @@ async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fai
                     session,
                     target,
                     payload,
-                    _make_settings(webhook_allowed_hosts="hooks.example.test"),
+                    make_settings(webhook_allowed_hosts="hooks.example.test"),
                 )
 
     expect(

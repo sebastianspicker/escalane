@@ -69,10 +69,19 @@
   function initializeNavigation() {
     const navigation = document.querySelector(".admin-nav");
     if (!(navigation instanceof HTMLDetailsElement)) return;
-    const mobile = window.matchMedia("(max-width: 48rem)");
+    const mobile = window.matchMedia("(max-width: 60rem)");
     const sync = () => mobile.matches ? navigation.removeAttribute("open") : navigation.setAttribute("open", "");
     sync();
     mobile.addEventListener?.("change", sync);
+    // On narrow screens the menu is a sheet: Escape or a click outside closes it.
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !mobile.matches || !navigation.open) return;
+      navigation.removeAttribute("open");
+      navigation.querySelector("summary")?.focus();
+    });
+    document.addEventListener("click", (event) => {
+      if (mobile.matches && navigation.open && !navigation.contains(event.target)) navigation.removeAttribute("open");
+    });
   }
 
   function initializeLanguageSelection() {

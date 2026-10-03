@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros.html" import status_badge %}
+{% from "macros.html" import status_badge, flash_notice %}
 {% block title %}{{ t('worklist') }} · {{ t('product_name') }}{% endblock %}
 {% block body_class %}page-worklist{% endblock %}
 {% block content %}
@@ -13,13 +13,6 @@
       <span class="live-dot" aria-hidden="true"></span>
       <span>{{ t('live') }} · </span><time data-freshness data-freshness-template="{{ t('seconds_ago') }}">{{ t('just_now') }}</time>
     </p>
-    <button class="theme-toggle worklist-theme-toggle" type="button" data-theme-toggle
-      data-theme-light-label="{{ t('switch_to_light_theme') }}"
-      data-theme-dark-label="{{ t('switch_to_dark_theme') }}"
-      aria-label="{{ t('switch_to_dark_theme') }}" title="{{ t('switch_to_dark_theme') }}">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
-      <span class="visually-hidden">{{ t('theme') }}</span>
-    </button>
     <div class="export-controls" aria-label="{{ t('export') }}">
       <a class="button button-quiet button-small" href="{{ export_csv_url }}">{{ t('export_csv') }}</a>
       <a class="button button-quiet button-small" href="{{ export_json_url }}">{{ t('export_json') }}</a>
@@ -27,14 +20,14 @@
   </div>
 </header>
 
-{% if flash %}<p class="notice notice-{{ flash[0] }}" role="status">{{ t(flash[1]) }}</p>{% endif %}
+{{ flash_notice(flash, t) }}
 
 {% if counts %}
 <dl class="status-summary" aria-label="{{ t('alarm_counts') }}">
   {% for status, count in counts.items() %}
-  <div class="summary-{{ status }}{% if filters.status == status %} is-active{% endif %}">
-    <dt><a href="{{ status_urls[status] }}" {% if filters.status == status %}aria-current="page"{% endif %}><span class="status-swatch" aria-hidden="true"></span>{{ t(status) }}</a></dt>
-    <dd>{{ count }}</dd>
+  <div class="summary-{{ status }}{% if count %} is-lit{% endif %}{% if filters.status == status %} is-active{% endif %}">
+    <dt><a href="{{ status_urls[status] }}" {% if filters.status == status %}aria-current="page"{% endif %}>{{ t(status) }}</a></dt>
+    <dd><span class="summary-count">{{ count }}</span><span class="summary-note">{{ t('summary_' ~ status) }}</span></dd>
   </div>
   {% endfor %}
 </dl>
@@ -50,10 +43,12 @@
       <kbd aria-hidden="true">⌘K</kbd>
     </div>
   </div>
-  <div class="severity-filter" role="group" aria-label="{{ t('severity_filter') }}">
-    <span class="visually-hidden">{{ t('severity_filter') }}</span>
+  <div class="filter-field">
+  <span class="filter-label" id="severity-filter-label">{{ t('severity') }}</span>
+  <div class="severity-filter" role="group" aria-labelledby="severity-filter-label">
     <a href="{{ all_severities_url }}" {% if not filters.severity %}aria-current="page"{% endif %}>{{ t('all') }}</a>
     {% for severity in ('P0', 'P1', 'P2') %}<a href="{{ severity_urls[severity] }}" {% if filters.severity == severity %}aria-current="page"{% endif %}>{{ severity }}</a>{% endfor %}
+  </div>
   </div>
   <div class="filter-field">
     <label for="sort-by">{{ t('sort_by') }}</label>
@@ -81,39 +76,39 @@
 <form method="post" action="/admin/alarms/bulk?lang={{ locale }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="table-scroll" tabindex="0" aria-label="{{ t('worklist') }}">
-    <table class="worklist-table">
+    <table class="worklist-table" role="table">
       <caption class="visually-hidden">{{ t('worklist') }}</caption>
-      <thead>
-        <tr>
-          <th scope="col"><span class="visually-hidden">{{ t('select') }}</span></th>
-          <th scope="col">{{ t('status') }}</th>
-          <th scope="col">{{ t('age') }}</th>
-          <th scope="col">{{ t('person') }}</th>
-          <th scope="col">ID</th>
-          <th scope="col">{{ t('source') }}</th>
-          <th scope="col">{{ t('severity') }}</th>
-          <th scope="col">{{ t('owner') }}</th>
-          <th scope="col">{{ t('action') }}</th>
+      <thead role="rowgroup">
+        <tr role="row">
+          <th scope="col" role="columnheader"><span class="visually-hidden">{{ t('select') }}</span></th>
+          <th scope="col" role="columnheader">{{ t('status') }}</th>
+          <th scope="col" role="columnheader">{{ t('age') }}</th>
+          <th scope="col" role="columnheader">{{ t('person') }}</th>
+          <th scope="col" role="columnheader">ID</th>
+          <th scope="col" role="columnheader">{{ t('source') }}</th>
+          <th scope="col" role="columnheader">{{ t('severity') }}</th>
+          <th scope="col" role="columnheader">{{ t('owner') }}</th>
+          <th scope="col" role="columnheader"><span class="visually-hidden">{{ t('open') }}</span></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody role="rowgroup">
         {% for alarm in alarms|default([]) %}
-        <tr class="alarm-row alarm-row-{{ alarm.status }} severity-row-{{ alarm.severity|lower }}" tabindex="0" data-drawer-url="/admin/alarms/{{ alarm.id }}/drawer?lang={{ locale }}">
-          <td>
+        <tr role="row" class="alarm-row alarm-row-{{ alarm.status }} severity-row-{{ alarm.severity|lower }}" tabindex="0" data-drawer-url="/admin/alarms/{{ alarm.id }}/drawer?lang={{ locale }}">
+          <td role="cell" class="cell-select">
             <input aria-label="{{ t('select_alarm', id=alarm.short_id) }}" type="checkbox" name="alarm_id" value="{{ alarm.id }}">
           </td>
-          <td>{{ status_badge(alarm.status, t) }}</td>
-          <td><time datetime="{{ alarm.created_at_iso }}" data-relative>{{ alarm.created_at }}</time></td>
-          <td class="who-cell"><strong>{{ alarm.person }}</strong><span>{{ alarm.room }}</span></td>
-          <td><a class="alarm-id" href="{{ alarm.detail_url }}">{{ alarm.short_id }}</a></td>
-          <td>{{ alarm.source }}</td>
-          <td><span class="severity severity-{{ alarm.severity|lower }}">{{ alarm.severity }}</span></td>
-          <td>{{ alarm.owner or t('unassigned') }}</td>
-          <td class="chevron-cell"><a class="row-link" href="{{ alarm.detail_url }}" aria-label="{{ t('open_alarm', id=alarm.short_id) }}">›</a></td>
+          <td role="cell" class="cell-status">{{ status_badge(alarm.status, t) }}</td>
+          <td role="cell" class="cell-age"><time datetime="{{ alarm.created_at_iso }}" data-relative>{{ alarm.created_at }}</time></td>
+          <td role="cell" class="who-cell"><strong>{{ alarm.person }}</strong><span>{{ alarm.room }}</span></td>
+          <td role="cell" class="cell-id"><a class="alarm-id" href="{{ alarm.detail_url }}">{{ alarm.short_id }}</a></td>
+          <td role="cell" class="cell-source">{{ alarm.source }}</td>
+          <td role="cell" class="cell-severity"><span class="severity severity-{{ alarm.severity|lower }}">{{ alarm.severity }}</span></td>
+          <td role="cell" class="cell-owner{% if not alarm.owner %} is-unassigned{% endif %}">{{ alarm.owner or t('unassigned') }}</td>
+          <td role="cell" class="chevron-cell"><a class="row-link" href="{{ alarm.detail_url }}" aria-label="{{ t('open_alarm', id=alarm.short_id) }}">›</a></td>
         </tr>
         {% else %}
-        <tr>
-          <td class="empty-cell" colspan="9">
+        <tr role="row">
+          <td role="cell" class="empty-cell" colspan="9">
             <strong>{{ t('no_alarms') }}</strong>
             <span>{{ t('no_alarms_help') }}</span>
           </td>
@@ -122,6 +117,7 @@
       </tbody>
     </table>
   </div>
+  {% if alarms %}
   <fieldset class="bulk-actions" data-selection-bar>
     <legend><span data-selection-count aria-live="polite">0</span> {{ t('selected_alarms') }}</legend>
     <div class="bulk-grid">
@@ -135,6 +131,7 @@
       <button class="button button-quiet" type="button" data-clear-selection>{{ t('clear_selection') }}</button>
     </div>
   </fieldset>
+  {% endif %}
 </form>
 {% if next_page_url %}<nav class="pagination" aria-label="{{ t('pagination') }}"><a class="button" href="{{ next_page_url }}">{{ t('next_page') }} <span aria-hidden="true">→</span></a></nav>{% endif %}
 <dialog id="alarm-drawer" class="alarm-drawer" aria-label="{{ t('alarm_details') }}"><div class="drawer-content" data-drawer-content></div></dialog>

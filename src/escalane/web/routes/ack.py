@@ -18,11 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from escalane.alarms.enrichment import enrich_alarm_context
 from escalane.alarms.lifecycle import apply_alarm_state_change, get_alarm_by_ack_token
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm
+from escalane.persistence.models import Alarm, AlarmStatus
 from escalane.runtime.rate_limit import minute_bucket, rate_limit_key
 from escalane.runtime.redis_atomic import increment_with_expiry
 from escalane.web.ack_presentation import render_ack_page
+from escalane.web.console import requested_locale
 from escalane.web.deps import (
     get_app_settings,
     get_client_ip,
@@ -30,7 +30,7 @@ from escalane.web.deps import (
     get_session,
     is_secure_request,
 )
-from escalane.web.i18n import SUPPORTED_LOCALES, normalise_locale
+from escalane.web.i18n import SUPPORTED_LOCALES
 from escalane.web.schemas import AckIn
 
 router = APIRouter()
@@ -40,16 +40,6 @@ _CSRF_COOKIE_NAME = "csrf_token"
 
 _ACK_RATE_MAX = 10
 _ACK_RATE_WINDOW = 60  # seconds
-
-
-def _locale(request: Request, explicit: str | None) -> str:
-    """Resolve ACK-page language from an explicit choice, cookie, then browser header."""
-    if explicit in SUPPORTED_LOCALES:
-        return explicit
-    persisted = request.cookies.get("ui_locale")
-    if persisted in SUPPORTED_LOCALES:
-        return persisted
-    return normalise_locale(request.headers.get("accept-language"))
 
 
 def _ack_rate_limit_key(client_ip: str | None) -> str:
@@ -176,7 +166,7 @@ async def ack_page(
 
     enriched = await enrich_alarm_context(session, alarm)
     csrf_token = secrets.token_hex(32)
-    selected_locale = _locale(request, lang)
+    selected_locale = requested_locale(request, lang)
     html = render_ack_page(
         alarm,
         enriched,
@@ -219,7 +209,7 @@ async def ack_submit(
 
     form = await request.form()
     _validate_csrf(csrf_token, str(form.get("csrf_token", "")))
-    selected_locale = _locale(request, lang)
+    selected_locale = requested_locale(request, lang)
     try:
         payload = _parse_ack_payload(form)
     except HTTPException as exc:

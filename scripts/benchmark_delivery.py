@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from escalane.config.settings import Settings
 from escalane.notifications import dispatch
 from escalane.persistence.base import Base
 from escalane.persistence.models import (
@@ -72,6 +73,7 @@ async def measure(target_count: int, delay: float, directory: str) -> dict[str, 
         await session.commit()
     provider = DelayedSms(delay)
     service = dispatch.NotificationService(zammad=None, sendxms=provider, signal=None)  # type: ignore[arg-type]
+    settings = Settings()
     query_count = 0
 
     def count_query(*args):
@@ -103,6 +105,7 @@ async def measure(target_count: int, delay: float, directory: str) -> dict[str, 
                 },
                 step_no=0,
                 ack_url=None,
+                settings=settings,
             )
             elapsed = (time.perf_counter() - start) * 1000
             count = query_count
@@ -127,6 +130,7 @@ async def measure(target_count: int, delay: float, directory: str) -> dict[str, 
                 },
                 step_no=0,
                 ack_url=None,
+                settings=settings,
             )
             if provider.deliveries != delivered:
                 raise RuntimeError("Retry duplicated a completed delivery")

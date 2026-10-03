@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 from typing import Any
 
 import yaml
@@ -11,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.config.errors import ConflictError, ValidationError
 from escalane.config.settings import Settings
+from escalane.configuration.audit import add_admin_audit_event
 from escalane.configuration.seed import apply_seed
 
 _YAML_TYPES = {
@@ -22,7 +25,7 @@ _YAML_TYPES = {
 }
 
 
-_MAX_SEED_BYTES = 1_048_576  # 1 MB
+MAX_SEED_BYTES = 1_048_576  # 1 MB
 _MAX_SEED_DEPTH = 64
 _MAX_SEED_NODES = 10_000
 
@@ -73,9 +76,9 @@ def _validate_payload_complexity(data: Any) -> None:
 
 def parse_seed_payload(content_type: str, raw: bytes) -> dict[str, Any]:
     """Parse a JSON or YAML seed payload after enforcing the size limit."""
-    if len(raw) > _MAX_SEED_BYTES:
+    if len(raw) > MAX_SEED_BYTES:
         raise ValidationError(
-            f"Seed payload too large ({len(raw)} bytes). Maximum allowed: {_MAX_SEED_BYTES} bytes"
+            f"Seed payload too large ({len(raw)} bytes). Maximum allowed: {MAX_SEED_BYTES} bytes"
         )
     if content_type in _YAML_TYPES:
         try:
@@ -97,6 +100,21 @@ def parse_seed_payload(content_type: str, raw: bytes) -> dict[str, Any]:
     return data
 
 
+def seed_digest(raw: bytes) -> str:
+    """Return the content hash that ties an import preview to its apply request."""
+    return hashlib.sha256(raw).hexdigest()
+
+
+def seed_sections(data: dict[str, Any]) -> list[str]:
+    """Return the sorted top-level sections present in parsed seed data."""
+    return sorted(data)
+
+
+def seed_digest_matches(content_hash: str | None, digest: str) -> bool:
+    """Compare a previewed content hash with the current digest in constant time."""
+    return content_hash is not None and secrets.compare_digest(content_hash, digest)
+
+
 async def apply_seed_payload(
     session: AsyncSession,
     *,
@@ -112,3 +130,25 @@ async def apply_seed_payload(
     except (KeyError, TypeError, ValueError) as exc:
         await session.rollback()
         raise ValidationError("Invalid seed structure or values") from exc
+
+
+async def apply_seed_import(
+    session: AsyncSession,
+    *,
+    data: dict[str, Any],
+    digest: str,
+    settings: Settings,
+    operator_name: str,
+    request_id: str | None,
+) -> None:
+    """Audit and apply an operator seed import in one transaction."""
+    add_admin_audit_event(
+        session,
+        operator_name=operator_name,
+        action="import",
+        resource_type="configuration",
+        resource_id=digest,
+        changed_fields={"content_hash": digest, "sections": seed_sections(data)},
+        request_id=request_id,
+    )
+    await apply_seed_payload(session, data=data, settings=settings)

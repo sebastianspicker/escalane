@@ -8,14 +8,14 @@ import pytest
 
 from escalane.notifications.delivery import NotificationDeliveryError, log_notification
 from tests.support.assertions import expect
-from tests.support.notification_dispatch_helpers import (
-    _ALARM_ID,
-    _NOW,
-    _make_alarm,
-    _make_enriched,
-    _make_svc,
-    _make_target,
-    _noop_session,
+from tests.support.notifications import (
+    ALARM_ID,
+    NOW,
+    make_alarm_double,
+    make_enriched,
+    make_service,
+    make_target,
+    noop_session,
 )
 
 pytestmark = [pytest.mark.unit]
@@ -31,10 +31,10 @@ async def test_provider_failure_retry_classification(
 ) -> None:
     import httpx
 
-    svc, session = _make_svc(), await _noop_session()
-    target = _make_target(channel="signal", address="group-id")
+    svc, session = make_service(), await noop_session()
+    target = make_target(channel="signal", address="group-id")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
     request = httpx.Request("POST", "https://signal.example.test/send")
     svc._signal.send_group_message = AsyncMock(
@@ -56,14 +56,14 @@ async def test_provider_failure_retry_classification(
 
 
 async def test_handle_zammad_ticket_disabled_returns_none():
-    svc = _make_svc(zammad_enabled=False)
-    session = await _noop_session()
+    svc = make_service(zammad_enabled=False)
+    session = await noop_session()
     session.scalar.return_value = None
 
     result = await svc.handle_zammad_ticket(
         session,
-        alarm=_make_alarm(),
-        enriched=_make_enriched(),
+        alarm=make_alarm_double(),
+        enriched=make_enriched(),
         ack_url=None,
     )
 
@@ -73,21 +73,21 @@ async def test_handle_zammad_ticket_disabled_returns_none():
 async def test_handle_zammad_ticket_create_exception_requests_worker_retry():
     import httpx
 
-    svc = _make_svc(zammad_enabled=True)
+    svc = make_service(zammad_enabled=True)
     request = httpx.Request("POST", "https://zammad.example.test/api/v1/tickets")
     svc._zammad.create_ticket = AsyncMock(
         side_effect=httpx.HTTPStatusError(
             "unavailable", request=request, response=httpx.Response(503, request=request)
         )
     )
-    session = await _noop_session()
+    session = await noop_session()
     session.scalar.return_value = None
 
     with pytest.raises(NotificationDeliveryError, match="ticket creation"):
         await svc.handle_zammad_ticket(
             session,
-            alarm=_make_alarm(),
-            enriched=_make_enriched(),
+            alarm=make_alarm_double(),
+            enriched=make_enriched(),
             ack_url=None,
         )
 
@@ -95,19 +95,19 @@ async def test_handle_zammad_ticket_create_exception_requests_worker_retry():
 async def test_handle_zammad_ticket_permanent_failure_is_audited_without_retry():
     import httpx
 
-    svc = _make_svc(zammad_enabled=True)
+    svc = make_service(zammad_enabled=True)
     request = httpx.Request("POST", "https://zammad.example.test/api/v1/tickets")
     svc._zammad.create_ticket = AsyncMock(
         side_effect=httpx.HTTPStatusError(
             "invalid request", request=request, response=httpx.Response(400, request=request)
         )
     )
-    session = await _noop_session()
+    session = await noop_session()
 
     result = await svc.handle_zammad_ticket(
         session,
-        alarm=_make_alarm(),
-        enriched=_make_enriched(),
+        alarm=make_alarm_double(),
+        enriched=make_enriched(),
         ack_url=None,
     )
 
@@ -116,14 +116,14 @@ async def test_handle_zammad_ticket_permanent_failure_is_audited_without_retry()
 
 
 async def test_handle_zammad_ticket_success_returns_ticket_id():
-    svc = _make_svc(zammad_enabled=True)
+    svc = make_service(zammad_enabled=True)
     svc._zammad.create_ticket = AsyncMock(return_value=42)
-    session = await _noop_session()
+    session = await noop_session()
 
     result = await svc.handle_zammad_ticket(
         session,
-        alarm=_make_alarm(),
-        enriched=_make_enriched(),
+        alarm=make_alarm_double(),
+        enriched=make_enriched(),
         ack_url="http://x/a/tok",
     )
 
@@ -132,13 +132,13 @@ async def test_handle_zammad_ticket_success_returns_ticket_id():
 
 async def test_successful_connector_audit_failure_propagates_for_worker_retry():
     """A failed success audit must not be mistaken for a provider failure or swallowed."""
-    svc = _make_svc()
-    session = await _noop_session()
+    svc = make_service()
+    session = await noop_session()
     session.commit.side_effect = RuntimeError("database unavailable")
     session.rollback = AsyncMock()
-    target = _make_target(channel="signal", address="group-1")
+    target = make_target(channel="signal", address="group-1")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with pytest.raises(NotificationDeliveryError, match="audit persistence"):
@@ -152,15 +152,15 @@ async def test_successful_connector_audit_failure_propagates_for_worker_retry():
 
 
 async def test_add_zammad_ack_note_disabled_returns_false():
-    svc = _make_svc(zammad_enabled=False)
-    session = await _noop_session()
+    svc = make_service(zammad_enabled=False)
+    session = await noop_session()
 
     result = await svc.add_zammad_ack_note(
         session,
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         ticket_id=10,
         acked_by="user",
-        acked_at=_NOW,
+        acked_at=NOW,
         note=None,
     )
 
@@ -168,17 +168,17 @@ async def test_add_zammad_ack_note_disabled_returns_false():
 
 
 async def test_add_zammad_ack_note_permanent_exception_is_complete_without_retry():
-    svc = _make_svc(zammad_enabled=True)
+    svc = make_service(zammad_enabled=True)
     svc._zammad.add_internal_note = AsyncMock(side_effect=RuntimeError("zammad error"))
-    session = await _noop_session()
+    session = await noop_session()
     session.scalar.return_value = None
 
     result = await svc.add_zammad_ack_note(
         session,
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         ticket_id=10,
         acked_by="user",
-        acked_at=_NOW,
+        acked_at=NOW,
         note="note text",
     )
 
@@ -189,22 +189,22 @@ async def test_add_zammad_ack_note_permanent_exception_is_complete_without_retry
 async def test_add_zammad_ack_note_transient_exception_requests_retry():
     import httpx
 
-    svc = _make_svc(zammad_enabled=True)
+    svc = make_service(zammad_enabled=True)
     request = httpx.Request("PUT", "https://zammad.example.test/api/v1/tickets/10")
     svc._zammad.add_internal_note = AsyncMock(
         side_effect=httpx.HTTPStatusError(
             "unavailable", request=request, response=httpx.Response(503, request=request)
         )
     )
-    session = await _noop_session()
+    session = await noop_session()
     session.scalar.return_value = None
 
     result = await svc.add_zammad_ack_note(
         session,
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         ticket_id=10,
         acked_by="user",
-        acked_at=_NOW,
+        acked_at=NOW,
         note="note text",
     )
 
@@ -216,11 +216,11 @@ async def test_add_zammad_ack_note_transient_exception_requests_retry():
 
 
 async def test_log_notification_module_fn():
-    session = await _noop_session()
+    session = await noop_session()
 
     await log_notification(
         session,
-        alarm_id=_ALARM_ID,
+        alarm_id=ALARM_ID,
         channel="sms",
         target_id="t1",
         payload={"msg": "test"},

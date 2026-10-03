@@ -1,1 +1,1 @@
-"""Runtime configuration and application-wide constants and errors."""
+"""Runtime configuration and errors."""

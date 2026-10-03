@@ -8,11 +8,16 @@
     </div>
     <button class="button button-quiet button-small" type="button" data-drawer-close>{{ t('close') }}</button>
   </header>
-  <section aria-labelledby="drawer-context"><h3 id="drawer-context">{{ t('alarm_context') }}</h3><dl class="definition-list"><div><dt>{{ t('created') }}</dt><dd>{{ alarm.created_at }}</dd></div><div><dt>{{ t('person') }}</dt><dd>{{ alarm.person }}</dd></div><div><dt>{{ t('room') }}</dt><dd>{{ alarm.room }}</dd></div><div><dt>{{ t('source') }}</dt><dd>{{ alarm.source }}</dd></div><div><dt>{{ t('severity') }}</dt><dd>{{ alarm.severity }}</dd></div></dl></section>
-  <section aria-labelledby="drawer-activity"><h3 id="drawer-activity">{{ t('activity') }}</h3>{% include "admin_history.html" %}</section>
+  {% if alarm.can_ack or alarm.can_close %}
   <section class="drawer-actions" aria-labelledby="drawer-actions"><h3 id="drawer-actions">{{ t('available_actions') }}</h3>
     {% if alarm.can_ack %}<form method="post" action="{{ ack_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-primary" type="submit">{{ t('acknowledge_alarm') }}</button></form>{% endif %}
     {% if alarm.can_close %}<form method="post" action="{{ resolve_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="drawer-resolve-note">{{ t('note') }} <span class="field-hint">{{ t('optional') }}</span></label><textarea id="drawer-resolve-note" name="note" maxlength="2000"></textarea><button class="button" type="submit">{{ t('resolve_alarm') }}</button></form><form method="post" action="{{ cancel_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="drawer-cancel-reason">{{ t('reason') }} <span class="field-required">{{ t('required') }}</span></label><textarea id="drawer-cancel-reason" name="reason" maxlength="2000" required></textarea><button class="button button-danger" type="submit">{{ t('cancel_alarm') }}</button></form>{% endif %}
-    <form method="post" action="{{ note_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="drawer-note">{{ t('add_note') }}</label><textarea id="drawer-note" name="note" maxlength="5000" required></textarea><button class="button" type="submit">{{ t('add_note') }}</button></form>
   </section>
+  {% endif %}
+  <section aria-labelledby="drawer-context"><h3 id="drawer-context">{{ t('alarm_context') }}</h3><dl class="definition-list"><div><dt>{{ t('created') }}</dt><dd><time datetime="{{ alarm.created_at }}">{{ alarm.created_at }}</time></dd></div><div><dt>{{ t('person') }}</dt><dd>{{ alarm.person }}</dd></div><div><dt>{{ t('room') }}</dt><dd>{{ alarm.room }}</dd></div><div><dt>{{ t('source') }}</dt><dd>{{ alarm.source }}</dd></div><div><dt>{{ t('severity') }}</dt><dd>{{ alarm.severity }}</dd></div></dl></section>
+  <section aria-labelledby="drawer-activity"><h3 id="drawer-activity">{{ t('activity') }}</h3>{% include "admin_history.html" %}</section>
+  <section class="drawer-actions" aria-labelledby="drawer-note-title"><h3 id="drawer-note-title">{{ t('add_note') }}</h3>
+    <form method="post" action="{{ note_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label for="drawer-note">{{ t('note') }}</label><textarea id="drawer-note" name="note" maxlength="5000" required></textarea><button class="button" type="submit">{{ t('add_note') }}</button></form>
+  </section>
+  <p class="drawer-full-link"><a href="/admin/alarms/{{ alarm.id }}?lang={{ locale }}">{{ t('open_full_detail') }}</a></p>
 </article>

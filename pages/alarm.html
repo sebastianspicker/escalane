@@ -4,9 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#0b1f28">
+  <meta name="theme-color" content="#e9ebe8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121413" media="(prefers-color-scheme: dark)">
   <title>Alarm FX-4820 · Escalane static demo</title>
   <link rel="icon" href="assets/escalane-mark.svg" type="image/svg+xml">
+  <link rel="preload" href="assets/atkinson-hyperlegible-next.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="assets/ui.css">
   <link rel="stylesheet" href="assets/demo.css">
   <script src="assets/ui.js" defer></script>
@@ -15,18 +17,18 @@
 <body class="has-session">
   <a class="skip-link" href="#content">Skip to content</a>
   <header class="site-header demo-rail">
-    <div class="utility-bar">
-      <div class="brand-cluster"><a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span class="brand-copy"><strong>Escalane</strong><small>Operator console</small></span></a><span class="environment-label">Static demo</span></div>
-
-    </div>
-    <details class="admin-nav" open><summary>Menu</summary><nav aria-label="Primary navigation"><p class="nav-section-label">Operate</p><a href="./"><span aria-hidden="true">⌁</span> Alarms</a><a href="alarm.html" aria-current="page"><span aria-hidden="true">◫</span> Alarm detail</a><p class="nav-section-label">Manage</p><a href="simulation.html"><span aria-hidden="true">◌</span> Simulation</a><a href="acknowledge.html"><span aria-hidden="true">✓</span> Responder view</a><p class="nav-section-label">Explore</p><a href="tour.html"><span aria-hidden="true">▧</span> Screenshot tour</a></nav></details>
-    <div class="demo-operator"><span class="demo-avatar" aria-hidden="true">DO</span><span><strong>Demo Operator</strong><small>Fictional campus</small></span></div>
+    <div class="utility-bar"><div class="brand-cluster"><a class="brand" href="./"><img src="assets/escalane-mark.svg" alt="" width="48" height="48"><span class="brand-copy"><strong>Escalane</strong><small>Operator console</small></span></a><span class="environment-label">Static demo</span></div></div>
+    <details class="admin-nav" open><summary><span>Menu</span></summary><div class="admin-nav-body">
+      <nav aria-label="Primary navigation"><p class="nav-section-label">Operate</p><a href="./"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0v4l2 3H4l2-3V9M9.5 20h5"></path></svg><span>Alarms</span></a><a href="alarm.html" aria-current="page"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h14M5 9h14M5 14h9M5 19h6"></path></svg><span>Alarm detail</span></a><p class="nav-section-label">Respond</p><a href="acknowledge.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18"></rect><path d="M11 18h2"></path></svg><span>Responder view</span></a><p class="nav-section-label">Manage</p><a href="simulation.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg><span>Simulation</span></a><p class="nav-section-label">Explore</p><a href="tour.html"><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14"></rect><path d="m3 15 5-5 4 4 3-3 6 6"></path></svg><span>Screenshot tour</span></a></nav>
+      <div class="session-tools"><p class="operator-name"><span>Signed in as</span><strong>Demo Operator</strong></p><div class="session-controls"><button class="theme-toggle demo-theme-toggle" type="button" data-theme-toggle data-simulated-action data-theme-light-label="Switch to light theme" data-theme-dark-label="Switch to dark theme" aria-label="Switch to dark theme" title="Switch to dark theme"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"></circle><path d="M12 4a8 8 0 0 1 0 16z"></path></svg><span class="simulated-label">Simulated</span></button></div></div>
+    </div></details>
   </header>
   <main id="content" tabindex="-1">
     <aside class="demo-notice" aria-label="Static demo notice"><span><strong>Static product demo.</strong> This alarm is sanitized fixture data. Buttons marked <span class="simulated-label">Simulated</span> only update the current browser.</span><a href="https://github.com/sebastianspicker/escalane">View source</a></aside>
     <nav class="back-link" aria-label="Back"><a href="./">← Back to worklist</a></nav>
     <header class="detail-heading alarm-state-triggered" data-demo-detail>
-      <div><div class="detail-status-row"><span class="status status-triggered" data-detail-status><span></span><span data-status-text>Triggered</span></span><span class="severity severity-p0">P0</span></div><h1>Harper Bell · Room 118 · East wing</h1></div><p class="machine-value">FX-4820</p>
+      <div class="detail-status-row"><span class="status status-triggered" data-detail-status><span aria-hidden="true"></span><span data-status-text>Triggered</span></span><span class="severity severity-p0">P0</span><span class="machine-value">FX-4820</span></div>
+      <h1>Harper Bell<span class="detail-place"><span class="detail-separator"> · </span>Room 118 · East wing</span></h1>
     </header>
     <div class="detail-layout">
       <div class="detail-primary">
@@ -34,14 +36,13 @@
         <section class="activity-section" aria-labelledby="activity-title"><h2 id="activity-title" class="section-title">Activity</h2><ol class="timeline" data-demo-timeline><li><time>10:07:06 AM</time><span>Alarm created</span></li><li><time>10:07:07 AM</time><span>zammad: ok (simulated fixture delivery)</span></li><li><time>10:07:07 AM</time><span>signal: ok (simulated fixture delivery)</span></li><li><time>10:07:07 AM</time><span>sms: ok (simulated fixture delivery)</span></li></ol></section>
       </div>
       <aside class="action-panel" aria-labelledby="actions-title"><h2 id="actions-title" class="section-title">Available actions</h2>
-        <div class="alarm-actions action-stack"><button class="button button-primary" type="button" data-simulated-action data-detail-transition="acknowledged">Acknowledge alarm <span class="simulated-label">Simulated</span></button><button class="button" type="button" data-simulated-action data-detail-transition="resolved">Resolve alarm <span class="simulated-label">Simulated</span></button><button class="button button-danger" type="button" data-simulated-action data-detail-transition="cancelled">Cancel alarm <span class="simulated-label">Simulated</span></button></div>
+        <div class="alarm-actions action-stack"><button class="button button-primary button-large" type="button" data-simulated-action data-detail-transition="acknowledged">Acknowledge alarm <span class="simulated-label">Simulated</span></button><p class="action-hint">Takes ownership and stops further escalation.</p><button class="button" type="button" data-simulated-action data-detail-transition="resolved">Resolve alarm <span class="simulated-label">Simulated</span></button><button class="button button-danger" type="button" data-simulated-action data-detail-transition="cancelled">Cancel alarm <span class="simulated-label">Simulated</span></button></div>
         <a class="demo-responder-link" href="acknowledge.html">Open responder acknowledgement view</a>
         <section class="note-panel" aria-labelledby="note-title"><h2 id="note-title" class="section-title">Add note</h2><form data-demo-note><label for="note">Note</label><textarea id="note" name="note" maxlength="5000" required></textarea><button class="button" type="submit" data-simulated-action>Add note <span class="simulated-label">Simulated</span></button></form></section>
         <p class="demo-command-note">These controls never contact an API. Refreshing restores the original fixture.</p>
       </aside>
     </div>
   </main>
-  <footer class="site-footer"><strong>Escalane</strong><span>Alarm intake, acknowledgement, and escalation.</span></footer>
-  <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
+    <p class="notice notice-info demo-feedback" data-demo-feedback role="status" hidden></p>
 </body>
 </html>

@@ -13,13 +13,13 @@ from sqlalchemy import select
 
 from escalane.alarms.lifecycle import acknowledge_alarm
 from escalane.alarms.outbox import (
+    EVENT_ALARM_ACKNOWLEDGED,
+    EVENT_ALARM_CREATED,
     dispatch_pending_alarm_events,
     has_pending_alarm_events,
 )
-from escalane.config import constants
-from escalane.contracts.alarms import AlarmStatus
 from escalane.notifications.recovery import rearm_stale_acknowledgement_events
-from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNotification
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNotification, AlarmStatus
 from tests.support.constants import value_for_test
 
 pytestmark = pytest.mark.integration
@@ -132,7 +132,7 @@ async def test_stale_ack_recovery_respects_audited_delivery_outcome(
     alarm.zammad_ticket_id = 42
     event = AlarmEventOutbox(
         alarm_id=alarm.id,
-        event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+        event_type=EVENT_ALARM_ACKNOWLEDGED,
         payload={"acknowledged_by": "Ops"},
         published_at=datetime.now(UTC) - timedelta(minutes=11),
     )
@@ -205,7 +205,7 @@ async def test_ack_recovery_filters_completed_rows_before_applying_limit(
     completed_events = [
         AlarmEventOutbox(
             alarm_id=completed_alarm.id,
-            event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+            event_type=EVENT_ALARM_ACKNOWLEDGED,
             payload={},
             published_at=cutoff - timedelta(seconds=index),
         )
@@ -219,7 +219,7 @@ async def test_ack_recovery_filters_completed_rows_before_applying_limit(
                 *completed_events,
                 AlarmEventOutbox(
                     alarm_id=pending_alarm.id,
-                    event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+                    event_type=EVENT_ALARM_ACKNOWLEDGED,
                     payload={},
                     published_at=cutoff,
                 ),
@@ -256,7 +256,7 @@ async def test_outbox_commits_short_batches(sessionmaker, seeded_db, fake_redis)
                     alarm,
                     AlarmEventOutbox(
                         alarm_id=alarm.id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         payload={},
                     ),
                 )
@@ -295,7 +295,7 @@ async def test_outbox_stops_before_a_second_batch_when_commit_fails(
                     alarm,
                     AlarmEventOutbox(
                         alarm_id=alarm.id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         payload={},
                     ),
                 )
@@ -325,7 +325,7 @@ async def test_outbox_checks_soft_budget_only_after_committed_batch(
                     alarm,
                     AlarmEventOutbox(
                         alarm_id=alarm.id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         payload={},
                     ),
                 )

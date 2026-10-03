@@ -8,7 +8,7 @@ from sqlalchemy import String, and_, cast, exists, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from escalane.config import constants
+from escalane.alarms.outbox import EVENT_ALARM_ACKNOWLEDGED
 from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmNotification
 
 ACK_EVENT_REPLAY_STALE_SECONDS = 600
@@ -44,7 +44,7 @@ async def rearm_stale_acknowledgement_events(
             select(AlarmEventOutbox)
             .join(Alarm, Alarm.id == AlarmEventOutbox.alarm_id)
             .where(
-                AlarmEventOutbox.event_type == constants.EVENT_ALARM_ACKNOWLEDGED,
+                AlarmEventOutbox.event_type == EVENT_ALARM_ACKNOWLEDGED,
                 AlarmEventOutbox.published_at <= cutoff,
                 Alarm.zammad_ticket_id.is_not(None),
                 Alarm.deleted_at.is_(None),

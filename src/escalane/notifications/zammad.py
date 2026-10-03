@@ -10,9 +10,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.notifications import delivery as notification_delivery
-from escalane.operations.metrics import observe_latency
 from escalane.persistence.models import Alarm
 from escalane.providers.base import ZammadTicketProvider
+from escalane.telemetry.metrics import observe_latency
 
 logger = logging.getLogger("escalane")
 

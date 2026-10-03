@@ -36,16 +36,18 @@ worker starts.
 
 | Component | Responsibility |
 |---|---|
-| `config/`, `contracts/` | Load environment settings and define shared exceptions and stable data contracts |
-| `persistence/` | Defines SQLAlchemy models, engines, sessions, and JSON merge behavior |
-| `security/`, `runtime/` | Validate source IPs and outbound URLs, enforce rate limits, and coordinate atomic Redis operations |
-| `providers/` | Connect to Zammad, SendXMS, Signal, webhooks, and the simulation mocks |
-| `alarms/` | Handles trigger idempotency, alarm creation, lifecycle changes, enrichment, and the ordered outbox |
-| `configuration/` | Imports seeds, manages master data and policies, and writes redacted administrative audit records |
-| `notifications/` | Chooses targets, builds payloads, calls providers, recovers work, and records delivery results |
-| `operations/` | Supplies metrics and operational queries |
-| `web/` | Assembles the application and handles authentication, routes, Jinja rendering, translations, and assets |
-| `worker/` | Runs ARQ jobs, dispatches events, schedules escalations, retries failures, and recovers outbox work |
+| `config/` | Loads environment settings (`settings.py`) and defines the application exceptions that web handlers map to HTTP responses (`errors.py`) |
+| `telemetry/` | Holds the process-local metrics registry and Prometheus rendering, and instruments database connection pools |
+| `persistence/` | Defines the SQLAlchemy schema (including the persisted `AlarmStatus`), engines, and sessions |
+| `security/` | Validates device source IPs, outbound URLs, and webhook host allowlists |
+| `runtime/` | Provides atomic Redis primitives and rate-limit keys |
+| `providers/` | Transports requests to Zammad, SendXMS, Signal, and pinned webhook addresses, plus the simulation mocks |
+| `alarms/` | Owns triggers and idempotency, lifecycle transitions, notes, bulk changes, the ordered outbox and its event types, alarm queries and exports, worklist counts, and history |
+| `configuration/` | Owns master data, device upserts, escalation policy, seed import, and redacted administrative audit records |
+| `notifications/` | Owns escalation targets, payloads, delivery workflows, the shared webhook address resolution, audit records, retry classification, and recovery |
+| `operations/` | Provides readiness probes, metrics aggregates, and worker heartbeat snapshots |
+| `web/` | Inbound HTTP adapter: application assembly, error mapping, authentication, routes, console helpers, Jinja rendering, translations, and assets |
+| `worker/` | Inbound ARQ adapter: task registration, retry translation, escalation scheduling, and recovery jobs |
 | `migrations/` | Stores Alembic schema history; current code expects the packaged migration head |
 | `pages/` | Contains the source for the separate, disconnected GitHub Pages demo |
 
@@ -59,20 +61,34 @@ unknown namespaces, and dependency cycles.
 
 | Package | May import from |
 |---|---|
-| `config`, `contracts`, `runtime`, `security` | No other Escalane package |
-| `persistence` | `config`, `contracts` |
+| `config`, `runtime`, `security`, `telemetry` | No other Escalane package |
+| `persistence` | `config`, `telemetry` |
 | `providers` | `security` |
 | `configuration` | `config`, `persistence` |
-| `operations` | `contracts`, `persistence` |
-| `alarms` | `config`, `contracts`, `operations`, `persistence`, `runtime` |
-| `notifications` | `config`, `contracts`, `operations`, `persistence`, `providers`, `security` |
-| `web` | `alarms`, `config`, `configuration`, `contracts`, `operations`, `persistence`, `providers`, `runtime`, `security` |
-| `worker` | `alarms`, `config`, `contracts`, `notifications`, `operations`, `persistence`, `providers`, `security` |
+| `operations` | `persistence`, `telemetry` |
+| `alarms` | `config`, `persistence`, `runtime`, `telemetry` |
+| `notifications` | `alarms`, `config`, `persistence`, `providers`, `security`, `telemetry` |
+| `web` | `alarms`, `config`, `configuration`, `operations`, `persistence`, `providers`, `runtime`, `security`, `telemetry` |
+| `worker` | `alarms`, `config`, `notifications`, `operations`, `persistence`, `providers`, `security`, `telemetry` |
 
 The checker does not restrict imports within the same package. `web` and
 `worker` are the two inbound adapters, so feature packages must not import
-either one. Keep HTTP parsing, cookies, rendering, and response formatting in
-`web`. Keep ARQ task signatures and scheduling in `worker`, and keep calls to
+either one. The checker also enforces three adapter rules:
+
+- Only `web` may import FastAPI or Starlette.
+- `web` and `worker` modules may hold an `AsyncSession` (a parameter annotated
+  `AsyncSession` or named `session`), but they may not import SQLAlchemy beyond
+  `sqlalchemy.ext.asyncio` (the worker also imports `sqlalchemy.exc` to classify
+  retryable errors) or call session data methods such as `execute`, `add`, or
+  `commit`. Queries and transactions belong to feature functions.
+- No module may import another module's underscore-prefixed names.
+
+`notifications` deliberately writes the delivery state it owns on shared rows,
+such as restoring `alarms.zammad_ticket_id` and re-arming outbox ACK events
+during recovery; this is notification delivery state, not alarm lifecycle.
+
+Keep HTTP parsing, cookies, rendering, and response formatting in `web`. Keep
+ARQ task signatures, retries, and scheduling in `worker`, and keep calls to
 external systems in `providers`.
 
 ## Alarm and delivery flow
@@ -121,7 +137,11 @@ can still receive the same request more than once.
 
 If Redis restarts or ARQ retries a job, PostgreSQL remains the source of truth.
 Simulation records exist only for the demonstration flow and cannot establish
-that a provider received a delivery.
+that a provider received a delivery. Because the worker records simulated
+deliveries in its own memory, `/v1/simulation/notifications` and the console's
+simulation page show them only when the API and worker run in the same
+process. With the separate API and worker containers of the reference Compose
+deployment, the list stays empty.
 
 ## HTTP and trust boundaries
 
@@ -161,15 +181,24 @@ static site never connects to a running Escalane service.
 
 ## Extending the application
 
+- Put a new query or state change in the feature that owns the data (`alarms/`,
+  `configuration/`, or `notifications/`). Feature functions raise
+  `config.errors` exceptions or their own exception types, never HTTP
+  exceptions.
+- Add HTTP routes under `web/routes/` and register them explicitly in
+  `ALL_ROUTERS`. Registration order matters where a literal path shares a
+  prefix with a parameterized one, and `tests/web/test_public_route_table.py`
+  pins it. Shared console rendering and session helpers live in `web/console.py`.
 - Put new provider transports behind the narrow protocols in `providers/`, and
   leave notification policy in `notifications/`.
-- Add HTTP routes under `web/routes/` and register them explicitly in
-  `ALL_ROUTERS`. Route handlers should translate HTTP requests rather than own
-  domain policy.
 - Register new worker behavior as ARQ functions without changing existing
-  payload formats or job IDs.
-- Represent each schema change with a new Alembic revision, and apply it before
-  starting API or worker code that depends on it.
+  payload formats or job IDs. `tests/worker/test_worker_registration.py` pins
+  the registered functions and cron jobs.
+- Represent each schema change with a new Alembic revision, update
+  `EXPECTED_ALEMBIC_HEAD` in `operations/readiness.py`, and apply the revision
+  before starting API or worker code that depends on it.
+- Put tests in the `tests/` directory that mirrors the source package, and put
+  shared fixtures and fakes in `tests/support/`.
 - Preserve existing HTTP routes, worker payloads, database schema, provider
   behavior, packaged templates and assets, and operator workflows unless a
   change explicitly updates them.

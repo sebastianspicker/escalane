@@ -5,43 +5,39 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
 from functools import wraps
-from typing import Any, NoReturn, Protocol, TypedDict, cast
+from typing import Any, NoReturn, Protocol, TypedDict
 
 import httpx
 from arq import Retry
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from escalane.alarms.enrichment import enrich_alarm_context
+from escalane.alarms.lifecycle import load_alarm
 from escalane.alarms.outbox import (
+    EVENT_ALARM_ACKNOWLEDGED,
+    EVENT_ALARM_CREATED,
+    EVENT_ALARM_STATE_CHANGED,
     dispatch_pending_alarm_events,
     record_published_alarm_event_failure,
 )
-from escalane.config import constants
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
 from escalane.notifications import targets as notification_targets
-from escalane.notifications.delivery import (
-    NotificationDeliveryError,
-    log_notification,
-)
+from escalane.notifications.delivery import NotificationDeliveryError
 from escalane.notifications.dispatch import NotificationService
 from escalane.notifications.recovery import rearm_stale_acknowledgement_events
 from escalane.notifications.workflows import (
-    ack_note_delivery_error,
-    ack_url_for_alarm,
-    deliver_initial_notifications,
+    deliver_acknowledgement_note,
+    deliver_escalation_step,
+    deliver_new_alarm,
     deliver_state_webhook,
-    restore_zammad_ticket_id,
 )
-from escalane.operations.metrics import record_event
 from escalane.operations.worker_snapshot import publish_worker_snapshot
 from escalane.persistence.models import Alarm
 from escalane.providers.base import SignalGroupProvider, SmsProvider, ZammadTicketProvider
 from escalane.providers.webhook import WebhookClientPool
 from escalane.security.url_validation import RetryableSSRFError
+from escalane.telemetry.metrics import record_event
 
 logger = logging.getLogger("escalane")
 MAX_DELIVERY_ATTEMPTS = 5
@@ -78,7 +74,7 @@ async def _load_active_alarm(
     session: AsyncSession, alarm_id: uuid.UUID, *, log_extra: dict[str, Any]
 ) -> Alarm | None:
     """Load an alarm unless it was removed, logging a worker-side no-op condition."""
-    alarm = cast(Alarm | None, await session.get(Alarm, alarm_id))
+    alarm = await load_alarm(session, alarm_id)
     if not alarm:
         logger.warning("alarm_not_found", extra=log_extra)
         return None
@@ -179,7 +175,7 @@ async def _record_terminal_acknowledgement_failure(
             recorded = await record_published_alarm_event_failure(
                 session,
                 alarm_id=uuid.UUID(alarm_id),
-                event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+                event_type=EVENT_ALARM_ACKNOWLEDGED,
                 error=str(error),
             )
     except SQLAlchemyError:
@@ -227,11 +223,11 @@ async def process_alarm_event(ctx: WorkerContext, payload: dict[str, Any]) -> No
         logger.warning("process_alarm_event_invalid_payload", extra={"payload": payload})
         return
 
-    if event_type == constants.EVENT_ALARM_CREATED:
+    if event_type == EVENT_ALARM_CREATED:
         await alarm_created(ctx, str(alarm_id))
-    elif event_type == constants.EVENT_ALARM_ACKNOWLEDGED:
+    elif event_type == EVENT_ALARM_ACKNOWLEDGED:
         await _process_acknowledged_event(ctx, str(alarm_id), payload)
-    elif event_type == constants.EVENT_ALARM_STATE_CHANGED:
+    elif event_type == EVENT_ALARM_STATE_CHANGED:
         state = payload.get("new_state", "")
         await alarm_state_changed(ctx, str(alarm_id), str(state))
     else:
@@ -270,17 +266,12 @@ async def alarm_created(ctx: WorkerContext, alarm_id: str) -> None:
             return
         schedule = await notification_targets.get_escalation_schedule(session, "default")
         await _enqueue_escalations(ctx["redis"], schedule, alarm_id=alarm_id)
-        enriched = await enrich_alarm_context(session, alarm)
-        settings = ctx["settings"]
-        ack_url = ack_url_for_alarm(alarm, settings, alarm_id=alarm_id)
-        await restore_zammad_ticket_id(session, alarm)
-        error = await deliver_initial_notifications(
+        error = await deliver_new_alarm(
             session,
             alarm,
             notification=notification,
-            enriched=enriched,
-            ack_url=ack_url,
-            settings=settings,
+            settings=ctx["settings"],
+            alarm_id=alarm_id,
         )
         if error:
             _raise_delivery_retry(ctx, operation="alarm_created", alarm_id=alarm_id, cause=error)
@@ -305,30 +296,14 @@ async def escalate(ctx: WorkerContext, alarm_id: str, step_no: int) -> None:
         alarm = await _load_active_alarm(session, uuid.UUID(alarm_id), log_extra=extra)
         if alarm is None:
             return
-
-        if alarm.status != AlarmStatus.TRIGGERED:
-            logger.info(
-                "escalation_skipped",
-                extra={
-                    "alarm_id": alarm_id,
-                    "step_no": step_no,
-                    "status": alarm.status.value,
-                },
-            )
-            return
-
-        enriched = await enrich_alarm_context(session, alarm)
-
-        ack_url = ack_url_for_alarm(alarm, settings, alarm_id=alarm_id)
-
         try:
-            await notification.send(
-                session=session,
-                alarm=alarm,
-                enriched=enriched,
+            await deliver_escalation_step(
+                session,
+                alarm,
+                notification=notification,
                 step_no=step_no,
-                ack_url=ack_url,
                 settings=settings,
+                alarm_id=alarm_id,
             )
         except NotificationDeliveryError as exc:
             _raise_delivery_retry(
@@ -338,57 +313,26 @@ async def escalate(ctx: WorkerContext, alarm_id: str, step_no: int) -> None:
                 cause=exc,
             )
 
-        logger.info(
-            "escalation_completed",
-            extra={"alarm_id": alarm_id, "step_no": step_no},
-        )
-
 
 @_retry_delivery_errors("alarm_acked")
 async def alarm_acked(
     ctx: WorkerContext, alarm_id: str, acked_by: str | None = None, note: str | None = None
 ) -> None:
     """Deliver an alarm acknowledgment note to its Zammad ticket."""
-    zammad = ctx["zammad"]
+    notification = _get_notification_service(ctx)
     async with ctx["sessionmaker"]() as session:
         alarm = await _load_active_alarm(
             session, uuid.UUID(alarm_id), log_extra={"alarm_id": alarm_id}
         )
         if alarm is None:
             return
-
-        if not zammad.enabled():
-            logger.debug("zammad_disabled", extra={"alarm_id": alarm_id})
-            return
-
-        if not alarm.zammad_ticket_id:
-            logger.warning(
-                "ack_no_zammad_ticket",
-                extra={
-                    "alarm_id": alarm_id,
-                    "detail": "Zammad ticket ID is None; ACK note will not be sent. "
-                    "This may indicate a prior Zammad ticket creation failure.",
-                },
-            )
-            _raise_delivery_retry(
-                ctx,
-                operation="alarm_acked",
-                alarm_id=alarm_id,
-                cause=NotificationDeliveryError("Zammad ticket creation is incomplete"),
-            )
-
-        notification = _get_notification_service(ctx)
-        success = await notification.add_zammad_ack_note(
+        delivery_error = await deliver_acknowledgement_note(
             session,
-            alarm_id=alarm.id,
-            ticket_id=alarm.zammad_ticket_id,
+            alarm,
+            notification=notification,
             acked_by=acked_by,
-            acked_at=alarm.acked_at or datetime.now(UTC),
             note=note,
-        )
-
-        delivery_error = ack_note_delivery_error(
-            success, alarm_id=alarm_id, ticket_id=alarm.zammad_ticket_id
+            alarm_id=alarm_id,
         )
         if delivery_error is not None:
             _raise_delivery_retry(
@@ -424,7 +368,6 @@ async def alarm_state_changed(ctx: WorkerContext, alarm_id: str, state: str) -> 
                 state=state,
                 settings=settings,
                 http=ctx["http"],
-                log_notification=log_notification,
                 webhook_client_pool=ctx.get("webhook_pool"),
             )
         except RetryableSSRFError as exc:

@@ -7,23 +7,29 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import delete, func, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.config.errors import ConflictError
 from escalane.config.settings import Settings
-from escalane.configuration.audit import add_admin_audit_event
-from escalane.configuration.master_data import lock_active_referenced_parents
-from escalane.persistence.models import Alarm, Device, Person, Room, Site
-from escalane.web.admin_session import AdminSession, pop_flash, set_flash
-from escalane.web.deps import get_app_settings, get_redis, get_session
-from escalane.web.routes.admin_console import (
-    UiPageContext,
-    _action_session,
-    _html,
-    _requested_locale,
+from escalane.configuration.master_data import (
+    REQUIRED_FIELDS,
+    RESOURCE_FIELDS,
+    ResourceNotFoundError,
+    ResourceStateConflict,
+    UnknownResourceError,
+    deactivate_resource,
+    delete_resource,
+    is_resource_name,
+    list_resources,
+    save_resource,
 )
+from escalane.web.admin_session import AdminSession, pop_flash, set_flash
+from escalane.web.console import (
+    UiPageContext,
+    action_session,
+    render_page,
+    requested_locale,
+)
+from escalane.web.deps import get_app_settings, get_redis, get_session
 
 router = APIRouter()
 ConfigurationSessionCookie = Annotated[str | None, Cookie()]
@@ -31,56 +37,30 @@ ConfigurationCsrfToken = Annotated[str | None, Form()]
 ConfigurationVersion = Annotated[int, Form()]
 ConfigurationOptionalVersion = Annotated[int | None, Form()]
 
-_RESOURCE_MODELS: dict[str, Any] = {
-    "sites": Site,
-    "rooms": Room,
-    "people": Person,
-    "devices": Device,
-}
-_RESOURCE_FIELDS = {
-    "sites": ("name",),
-    "rooms": ("site_id", "label", "floor", "notes"),
-    "people": ("display_name", "role", "phone_mobile", "phone_ext"),
-    "devices": (
-        "vendor",
-        "model_family",
-        "mac",
-        "account_ext",
-        "device_token",
-        "person_id",
-        "room_id",
-    ),
-}
-_REQUIRED_FIELDS = frozenset({"name", "site_id", "label", "display_name", "vendor", "model_family"})
 _RETAIN_EXISTING = object()
 
 
-def _mutation_applied(result: Any) -> bool:
-    """Normalize SQLAlchemy row counts for optimistic-concurrency checks."""
-    return bool(result.rowcount)
+def _page_not_found() -> HTTPException:
+    """Report an unknown configuration resource type."""
+    return HTTPException(status_code=404, detail="configuration_page_not_found")
 
 
-def _raise_version_conflict(resource_id: str) -> None:
-    """Report stale form submissions rather than overwrite another operator's edit."""
-    raise ConflictError(
-        "Resource has changed since it was loaded",
-        details={"resource_id": resource_id},
-    )
-
-
-def _resource_model(resource_name: str) -> Any:
-    """Resolve an allowlisted master-data type and reject unknown configuration pages."""
-    model = _RESOURCE_MODELS.get(resource_name)
-    if model is None:
-        raise HTTPException(status_code=404, detail="configuration_page_not_found")
-    return model
+def _mutation_http_error(
+    exc: UnknownResourceError | ResourceNotFoundError | ResourceStateConflict,
+) -> HTTPException:
+    """Map feature-level mutation failures to the console's HTTP details."""
+    if isinstance(exc, UnknownResourceError):
+        return _page_not_found()
+    if isinstance(exc, ResourceNotFoundError):
+        return HTTPException(status_code=404, detail="resource_not_found")
+    return HTTPException(status_code=409, detail=exc.public_detail)
 
 
 def _resource_row(resource_name: str, item: Any) -> dict[str, Any]:
     """Build editable display data while keeping device tokens out of rendered forms."""
     values: dict[str, Any] = {}
     masked: dict[str, str] = {}
-    for field in _RESOURCE_FIELDS[resource_name]:
+    for field in RESOURCE_FIELDS[resource_name]:
         raw = getattr(item, field)
         if field == "device_token":
             values[field] = ""
@@ -107,24 +87,26 @@ async def admin_configuration_list(
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     locale, browser_session = page
-    model = _resource_model(resource_name)
-    query = select(model).order_by(model.id).limit(limit + 1)
-    if after is not None:
-        query = query.where(model.id > after)
-    items = list((await session.scalars(query)).all())
-    has_next = len(items) > limit
-    items = items[:limit]
+    try:
+        resource_page = await list_resources(session, resource_name, after=after, limit=limit)
+    except UnknownResourceError as exc:
+        raise _page_not_found() from exc
+    items = resource_page.items
     page_url = f"/admin/configuration/{resource_name}"
     params = {"lang": locale, "limit": str(limit)}
-    next_url = f"{page_url}?{urlencode({**params, 'after': items[-1].id})}" if has_next else None
-    return _html(
+    next_url = (
+        f"{page_url}?{urlencode({**params, 'after': items[-1].id})}"
+        if resource_page.has_next
+        else None
+    )
+    return render_page(
         request,
         "admin_resources.html",
         locale,
         resource_name=resource_name,
         next_page_url=next_url,
         first_page_url=f"{page_url}?{urlencode(params)}" if after is not None else None,
-        fields=_RESOURCE_FIELDS[resource_name],
+        fields=RESOURCE_FIELDS[resource_name],
         resources=[_resource_row(resource_name, item) for item in items],
         save_action=f"/admin/configuration/{resource_name}/save?lang={locale}",
         csrf_token=browser_session.csrf_token,
@@ -137,7 +119,7 @@ async def admin_configuration_list(
 def _resource_form_values(resource_name: str, form: Any, *, creating: bool) -> dict[str, Any]:
     """Extract configured fields while distinguishing omitted values from retained secrets."""
     changed: dict[str, Any] = {}
-    for field in _RESOURCE_FIELDS[resource_name]:
+    for field in RESOURCE_FIELDS[resource_name]:
         submitted = str(form.get(field, "")).strip()
         value = _resource_field_value(field, submitted, creating=creating)
         if value is _RETAIN_EXISTING:
@@ -147,68 +129,12 @@ def _resource_form_values(resource_name: str, form: Any, *, creating: bool) -> d
     return changed
 
 
-async def _create_resource(
-    session: AsyncSession, model: Any, resource_id: str, values: dict[str, Any]
-) -> None:
-    """Insert a new master-data row after the route validates referenced parents."""
-    session.add(model(id=resource_id, **values))
-    try:
-        await session.flush()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise ConflictError(
-            "Resource has changed since it was loaded",
-            details={"resource_id": resource_id},
-        ) from exc
-
-
-async def _update_resource_if_current(
-    session: AsyncSession,
-    model: Any,
-    resource_id: str,
-    version: int,
-    values: dict[str, Any],
-) -> None:
-    """Update only the expected version to prevent lost operator edits."""
-    result = await session.execute(
-        update(model)
-        .where(model.id == resource_id, model.version == version)
-        .values(**values, version=model.version + 1)
-    )
-    if not _mutation_applied(result):
-        _raise_version_conflict(resource_id)
-
-
-async def _deactivate_resource_if_current(
-    session: AsyncSession, model: Any, resource_id: str, version: int
-) -> None:
-    """Deactivate only the expected version to make stale forms fail predictably."""
-    result = await session.execute(
-        update(model)
-        .where(model.id == resource_id, model.version == version)
-        .values(active=False, version=model.version + 1)
-    )
-    if not _mutation_applied(result):
-        _raise_version_conflict(resource_id)
-
-
-async def _delete_resource_if_current(
-    session: AsyncSession, model: Any, resource_id: str, version: int
-) -> None:
-    """Delete only the expected version after dependency checks permit removal."""
-    result = await session.execute(
-        delete(model).where(model.id == resource_id, model.version == version)
-    )
-    if not _mutation_applied(result):
-        _raise_version_conflict(resource_id)
-
-
 def _resource_field_value(field: str, submitted: str, *, creating: bool) -> str | None | object:
     """Normalize optional values and enforce fields required for a resource type."""
     if field == "device_token":
         return _device_token_value(submitted, creating=creating)
     value = submitted or None
-    if field in _REQUIRED_FIELDS and value is None:
+    if field in REQUIRED_FIELDS and value is None:
         raise HTTPException(status_code=422, detail=f"{field}_required")
     return value
 
@@ -233,35 +159,22 @@ async def admin_configuration_save(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> RedirectResponse:
-    browser_session = await _action_session(request, settings, admin_session, csrf_token)
-    model = _resource_model(resource_name)
+    browser_session = await action_session(request, settings, admin_session, csrf_token)
+    if not is_resource_name(resource_name):
+        raise _page_not_found()
     form = await request.form()
-    if version is None:
-        creating = True
-        changed_fields = _resource_form_values(resource_name, form, creating=True)
-        await lock_active_referenced_parents(
-            session, resource_name=resource_name, values=changed_fields
-        )
-        await _create_resource(session, model, resource_id, changed_fields)
-    else:
-        creating = False
-        changed_fields = _resource_form_values(resource_name, form, creating=False)
-        await lock_active_referenced_parents(
-            session, resource_name=resource_name, values=changed_fields
-        )
-        await _update_resource_if_current(session, model, resource_id, version, changed_fields)
-    add_admin_audit_event(
+    changed_fields = _resource_form_values(resource_name, form, creating=version is None)
+    await save_resource(
         session,
-        operator_name=browser_session.operator_name,
-        action="create" if creating else "update",
-        resource_type=resource_name,
+        resource_name=resource_name,
         resource_id=resource_id,
-        changed_fields=changed_fields,
+        version=version,
+        values=changed_fields,
+        operator_name=browser_session.operator_name,
         request_id=getattr(request.state, "request_id", None),
     )
-    await session.commit()
     await set_saved_flash(request, browser_session)
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
 
 
@@ -270,70 +183,21 @@ async def set_saved_flash(request: Request, browser_session: Any) -> None:
     await set_flash(get_redis(request), browser_session, "success", "saved")
 
 
-async def _active_dependency_counts(
-    session: AsyncSession, resource_name: str, resource_id: str
-) -> dict[str, int]:
-    """Count active child records that would become unusable after deactivation."""
-    filters: dict[str, tuple[Any, Any]] = {
-        "sites": (Room.id, (Room.site_id == resource_id) & Room.active.is_(True)),
-        "rooms": (Device.id, (Device.room_id == resource_id) & Device.active.is_(True)),
-        "people": (Device.id, (Device.person_id == resource_id) & Device.active.is_(True)),
-    }
-    selected = filters.get(resource_name)
-    if selected is None:
-        return {}
-    column, condition = selected
-    count = int(await session.scalar(select(func.count(column)).where(condition)) or 0)
-    return {"active_dependencies": count}
-
-
-async def _lock_resource_for_mutation(
-    session: AsyncSession, model: Any, resource_id: str
-) -> Any | None:
-    """Lock a parent row before checking/deleting dependent rows.
-
-    PostgreSQL's ``FOR UPDATE`` also blocks concurrent child inserts which
-    need a key-share lock for their foreign key. SQLite accepts this as a
-    no-op, so its tests cover response semantics rather than lock behavior.
-    """
-    return await session.scalar(select(model).where(model.id == resource_id).with_for_update())
-
-
-async def _commit_resource_mutation(session: AsyncSession, resource_id: str) -> None:
-    """Commit a dependency-checked mutation and normalize concurrent reference failures."""
-    try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
-        raise ConflictError(
-            "Resource is referenced by a concurrent change",
-            details={"resource_id": resource_id},
-        ) from exc
-
-
 async def _configuration_mutation_context(
     request: Request,
-    resource_name: str,
-    resource_id: str,
     version: ConfigurationVersion,
     csrf_token: ConfigurationCsrfToken = None,
     admin_session: ConfigurationSessionCookie = None,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
-) -> tuple[AdminSession, Any, Any, AsyncSession, int]:
-    """Authenticate and lock a versioned resource before a destructive mutation."""
-    browser_session = await _action_session(request, settings, admin_session, csrf_token)
-    model = _resource_model(resource_name)
-    item = await _lock_resource_for_mutation(session, model, resource_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="resource_not_found")
-    if item.version != version:
-        _raise_version_conflict(resource_id)
-    return browser_session, model, item, session, version
+) -> tuple[AdminSession, AsyncSession, int]:
+    """Authenticate the operator before a versioned destructive mutation."""
+    browser_session = await action_session(request, settings, admin_session, csrf_token)
+    return browser_session, session, version
 
 
 ConfigurationMutationContext = Annotated[
-    tuple[AdminSession, Any, Any, AsyncSession, int],
+    tuple[AdminSession, AsyncSession, int],
     Depends(_configuration_mutation_context),
 ]
 
@@ -345,46 +209,20 @@ async def admin_configuration_deactivate(
     request: Request,
     mutation: ConfigurationMutationContext,
 ) -> RedirectResponse:
-    browser_session, model, item, session, version = mutation
-    blockers = await _active_dependency_counts(session, resource_name, resource_id)
-    if any(blockers.values()):
-        raise HTTPException(status_code=409, detail=blockers)
-    await _deactivate_resource_if_current(session, model, resource_id, version)
-    add_admin_audit_event(
-        session,
-        operator_name=browser_session.operator_name,
-        action="deactivate",
-        resource_type=resource_name,
-        resource_id=resource_id,
-        changed_fields={"active": False},
-        request_id=getattr(request.state, "request_id", None),
-    )
-    await _commit_resource_mutation(session, resource_id)
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    browser_session, session, version = mutation
+    try:
+        await deactivate_resource(
+            session,
+            resource_name=resource_name,
+            resource_id=resource_id,
+            version=version,
+            operator_name=browser_session.operator_name,
+            request_id=getattr(request.state, "request_id", None),
+        )
+    except (UnknownResourceError, ResourceNotFoundError, ResourceStateConflict) as exc:
+        raise _mutation_http_error(exc) from exc
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
-
-
-async def _historical_dependency_count(
-    session: AsyncSession, resource_name: str, resource_id: str
-) -> int:
-    """Count historical references that require the resource to remain audit-visible."""
-    conditions: dict[str, list[tuple[Any, Any]]] = {
-        "sites": [(Room.id, Room.site_id == resource_id), (Alarm.id, Alarm.site_id == resource_id)],
-        "rooms": [
-            (Device.id, Device.room_id == resource_id),
-            (Alarm.id, Alarm.room_id == resource_id),
-        ],
-        "people": [
-            (Device.id, Device.person_id == resource_id),
-            (Alarm.id, Alarm.person_id == resource_id),
-        ],
-        "devices": [(Alarm.id, Alarm.device_id == resource_id)],
-    }
-    counts = [
-        int(await session.scalar(select(func.count(column)).where(condition)) or 0)
-        for column, condition in conditions[resource_name]
-    ]
-    return sum(counts)
 
 
 @router.post("/admin/configuration/{resource_name}/{resource_id}/delete")
@@ -394,20 +232,17 @@ async def admin_configuration_delete(
     request: Request,
     mutation: ConfigurationMutationContext,
 ) -> RedirectResponse:
-    browser_session, model, item, session, version = mutation
-    if await _historical_dependency_count(session, resource_name, resource_id):
-        raise HTTPException(status_code=409, detail="resource_is_referenced_deactivate_instead")
-    if item.active:
-        raise HTTPException(status_code=409, detail="deactivate_before_delete")
-    await _delete_resource_if_current(session, model, resource_id, version)
-    add_admin_audit_event(
-        session,
-        operator_name=browser_session.operator_name,
-        action="delete",
-        resource_type=resource_name,
-        resource_id=resource_id,
-        request_id=getattr(request.state, "request_id", None),
-    )
-    await _commit_resource_mutation(session, resource_id)
-    locale = _requested_locale(request, request.query_params.get("lang"))
+    browser_session, session, version = mutation
+    try:
+        await delete_resource(
+            session,
+            resource_name=resource_name,
+            resource_id=resource_id,
+            version=version,
+            operator_name=browser_session.operator_name,
+            request_id=getattr(request.state, "request_id", None),
+        )
+    except (UnknownResourceError, ResourceNotFoundError, ResourceStateConflict) as exc:
+        raise _mutation_http_error(exc) from exc
+    locale = requested_locale(request, request.query_params.get("lang"))
     return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)

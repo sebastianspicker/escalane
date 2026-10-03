@@ -9,10 +9,13 @@ from typing import Any
 
 import pytest
 
-from escalane.alarms.outbox import dispatch_pending_alarm_events
-from escalane.config import constants
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm, AlarmEventOutbox
+from escalane.alarms.outbox import (
+    EVENT_ALARM_ACKNOWLEDGED,
+    EVENT_ALARM_CREATED,
+    EVENT_ALARM_STATE_CHANGED,
+    dispatch_pending_alarm_events,
+)
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmStatus
 from tests.support.constants import value_for_test
 
 pytestmark = pytest.mark.integration
@@ -56,19 +59,19 @@ async def test_outbox_publishes_the_stable_worker_contract(sessionmaker, seeded_
                 alarm,
                 AlarmEventOutbox(
                     alarm_id=alarm.id,
-                    event_type=constants.EVENT_ALARM_CREATED,
+                    event_type=EVENT_ALARM_CREATED,
                     payload={},
                     sequence=0,
                 ),
                 AlarmEventOutbox(
                     alarm_id=alarm.id,
-                    event_type=constants.EVENT_ALARM_ACKNOWLEDGED,
+                    event_type=EVENT_ALARM_ACKNOWLEDGED,
                     payload={"acknowledged_by": "Ops", "note": "On it"},
                     sequence=1,
                 ),
                 AlarmEventOutbox(
                     alarm_id=alarm.id,
-                    event_type=constants.EVENT_ALARM_STATE_CHANGED,
+                    event_type=EVENT_ALARM_STATE_CHANGED,
                     payload={"old_state": "triggered", "new_state": "acknowledged"},
                     sequence=2,
                 ),
@@ -83,17 +86,17 @@ async def test_outbox_publishes_the_stable_worker_contract(sessionmaker, seeded_
 
     expected_payloads = [
         {
-            "event_type": constants.EVENT_ALARM_CREATED,
+            "event_type": EVENT_ALARM_CREATED,
             "alarm_id": str(alarm.id),
         },
         {
-            "event_type": constants.EVENT_ALARM_ACKNOWLEDGED,
+            "event_type": EVENT_ALARM_ACKNOWLEDGED,
             "alarm_id": str(alarm.id),
             "acknowledged_by": "Ops",
             "note": "On it",
         },
         {
-            "event_type": constants.EVENT_ALARM_STATE_CHANGED,
+            "event_type": EVENT_ALARM_STATE_CHANGED,
             "alarm_id": str(alarm.id),
             "old_state": "triggered",
             "new_state": "acknowledged",

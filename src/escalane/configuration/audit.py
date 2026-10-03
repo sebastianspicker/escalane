@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.persistence.models import AdminAuditEvent
@@ -69,3 +70,13 @@ def add_admin_audit_event(
     )
     session.add(event)
     return event
+
+
+async def list_recent_admin_events(
+    session: AsyncSession, *, limit: int = 100
+) -> list[AdminAuditEvent]:
+    """Return the newest admin audit events first."""
+    result = await session.scalars(
+        select(AdminAuditEvent).order_by(AdminAuditEvent.created_at.desc()).limit(limit)
+    )
+    return list(result.all())

@@ -7,33 +7,36 @@ import hmac
 import json
 import logging
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.config import constants
+from escalane.alarms.enrichment import EnrichedAlarmContext, enrich_alarm_context
+from escalane.alarms.outbox import EVENT_ALARM_STATE_CHANGED
 from escalane.config.settings import Settings
 from escalane.notifications.delivery import (
     NotificationAuditError,
     NotificationDeliveryError,
     completed_notification,
     is_retryable_delivery_error,
+    log_notification,
     notification_delivery_id,
     safe_delivery_error,
     successful_notification,
 )
-from escalane.operations.metrics import observe_latency, record_event
-from escalane.persistence.models import Alarm
-from escalane.providers.webhook import WebhookClientPool, post_webhook_bytes_to_validated_addresses
-from escalane.security.url_validation import (
-    RetryableSSRFError,
-    SSRFError,
-    redact_url_for_logging,
-    validate_url_not_internal,
-    validate_webhook_host_allowed,
+from escalane.notifications.dispatch import NotificationService
+from escalane.notifications.webhooks import (
+    WebhookDnsFailure,
+    WebhookRejected,
+    resolve_webhook_addresses,
 )
+from escalane.persistence.models import Alarm, AlarmStatus
+from escalane.providers.webhook import WebhookClientPool, post_webhook_bytes_to_validated_addresses
+from escalane.security.url_validation import redact_url_for_logging
+from escalane.telemetry.metrics import observe_latency, record_event
 
 logger = logging.getLogger("escalane")
 
@@ -79,8 +82,8 @@ async def deliver_initial_notifications(
     session: AsyncSession,
     alarm: Alarm,
     *,
-    notification: Any,
-    enriched: Any,
+    notification: NotificationService,
+    enriched: EnrichedAlarmContext,
     ack_url: str | None,
     settings: Settings,
 ) -> NotificationDeliveryError | None:
@@ -111,6 +114,109 @@ async def deliver_initial_notifications(
     return errors[0] if errors else None
 
 
+async def deliver_new_alarm(
+    session: AsyncSession,
+    alarm: Alarm,
+    *,
+    notification: NotificationService,
+    settings: Settings,
+    alarm_id: str,
+) -> NotificationDeliveryError | None:
+    """Enrich a new alarm and attempt its initial delivery.
+
+    Returns:
+        The first delivery failure to retry, or None when delivery completed.
+    """
+    enriched = await enrich_alarm_context(session, alarm)
+    ack_url = ack_url_for_alarm(alarm, settings, alarm_id=alarm_id)
+    await restore_zammad_ticket_id(session, alarm)
+    return await deliver_initial_notifications(
+        session,
+        alarm,
+        notification=notification,
+        enriched=enriched,
+        ack_url=ack_url,
+        settings=settings,
+    )
+
+
+async def deliver_escalation_step(
+    session: AsyncSession,
+    alarm: Alarm,
+    *,
+    notification: NotificationService,
+    step_no: int,
+    settings: Settings,
+    alarm_id: str,
+) -> None:
+    """Notify one escalation step while the alarm is still unacknowledged.
+
+    Raises:
+        NotificationDeliveryError: A target delivery must be retried.
+    """
+    if alarm.status != AlarmStatus.TRIGGERED:
+        logger.info(
+            "escalation_skipped",
+            extra={
+                "alarm_id": alarm_id,
+                "step_no": step_no,
+                "status": alarm.status.value,
+            },
+        )
+        return
+
+    enriched = await enrich_alarm_context(session, alarm)
+    ack_url = ack_url_for_alarm(alarm, settings, alarm_id=alarm_id)
+    await notification.send(
+        session=session,
+        alarm=alarm,
+        enriched=enriched,
+        step_no=step_no,
+        ack_url=ack_url,
+        settings=settings,
+    )
+    logger.info(
+        "escalation_completed",
+        extra={"alarm_id": alarm_id, "step_no": step_no},
+    )
+
+
+async def deliver_acknowledgement_note(
+    session: AsyncSession,
+    alarm: Alarm,
+    *,
+    notification: NotificationService,
+    acked_by: str | None,
+    note: str | None,
+    alarm_id: str,
+) -> NotificationDeliveryError | None:
+    """Add the ACK note to the alarm's Zammad ticket, returning a retryable failure."""
+    if not notification.zammad_enabled():
+        logger.debug("zammad_disabled", extra={"alarm_id": alarm_id})
+        return None
+
+    if not alarm.zammad_ticket_id:
+        logger.warning(
+            "ack_no_zammad_ticket",
+            extra={
+                "alarm_id": alarm_id,
+                "detail": "Zammad ticket ID is None; ACK note will not be sent. "
+                "This may indicate a prior Zammad ticket creation failure.",
+            },
+        )
+        return NotificationDeliveryError("Zammad ticket creation is incomplete")
+
+    success = await notification.add_zammad_ack_note(
+        session,
+        alarm_id=alarm.id,
+        ticket_id=alarm.zammad_ticket_id,
+        acked_by=acked_by,
+        acked_at=alarm.acked_at or datetime.now(UTC),
+        note=note,
+    )
+    return ack_note_delivery_error(success, alarm_id=alarm_id, ticket_id=alarm.zammad_ticket_id)
+
+
 async def _log_rejected_webhook(
     session: AsyncSession,
     *,
@@ -118,7 +224,6 @@ async def _log_rejected_webhook(
     state: str,
     webhook_url: str,
     error: str,
-    log_notification: Callable[..., Awaitable[None]],
 ) -> None:
     """Audit a permanent SSRF rejection without scheduling an unsafe retry."""
     logger.warning(
@@ -147,14 +252,14 @@ async def _validated_state_webhook_addresses(
     alarm: Alarm,
     state: str,
     settings: Settings,
-    log_notification: Callable[..., Awaitable[None]],
-    validate_url: Callable[..., Awaitable[Sequence[str] | None]] = validate_url_not_internal,
 ) -> tuple[str, ...] | None:
-    """Return pinned addresses or durably record a permanent URL rejection."""
-    try:
-        validate_webhook_host_allowed(settings.webhook_url, settings.webhook_allowed_hosts)
-        addresses = await validate_url(settings.webhook_url, allow_http=settings.simulation_enabled)
-    except RetryableSSRFError as exc:
+    """Return pinned addresses or durably record a permanent URL rejection.
+
+    Raises:
+        RetryableSSRFError: DNS resolution failed transiently; the attempt was audited.
+    """
+    resolution = await resolve_webhook_addresses(settings.webhook_url, settings)
+    if isinstance(resolution, WebhookDnsFailure):
         await log_notification(
             session,
             alarm_id=alarm.id,
@@ -162,27 +267,26 @@ async def _validated_state_webhook_addresses(
             target_id=None,
             payload={"state": state},
             result="error",
-            error=str(exc),
+            error=str(resolution.error),
         )
         record_event("webhook_delivery_error")
-        raise
-    except SSRFError as exc:
+        raise resolution.error
+    if isinstance(resolution, WebhookRejected):
         await _log_rejected_webhook(
             session,
             alarm=alarm,
             state=state,
             webhook_url=settings.webhook_url,
-            error=str(exc),
-            log_notification=log_notification,
+            error=str(resolution.error),
         )
         return None
-    return tuple(addresses or ())
+    return resolution.addresses
 
 
 def _state_webhook_payload(alarm: Alarm, state: str) -> dict[str, Any]:
     """Build a timestamped state-change webhook payload."""
     return {
-        "event": constants.EVENT_ALARM_STATE_CHANGED,
+        "event": EVENT_ALARM_STATE_CHANGED,
         "alarm_id": str(alarm.id),
         "state": state,
         "timestamp": datetime.now(UTC).isoformat(),
@@ -209,7 +313,7 @@ def _state_webhook_headers(settings: Settings, payload_bytes: bytes) -> dict[str
 
 
 async def _send_state_webhook(
-    http: Any,
+    http: httpx.AsyncClient | None,
     *,
     session: AsyncSession,
     alarm: Alarm,
@@ -218,7 +322,6 @@ async def _send_state_webhook(
     payload_bytes: bytes,
     delivery_id: str,
     resolved_addresses: Sequence[str],
-    log_notification: Callable[..., Awaitable[None]],
     webhook_client_pool: WebhookClientPool | None = None,
 ) -> None:
     """Send and audit a state callback, surfacing only retryable failures."""
@@ -226,14 +329,15 @@ async def _send_state_webhook(
         started_at = time.monotonic()
         try:
             await post_webhook_bytes_to_validated_addresses(
-                http,
                 settings.webhook_url,
                 payload_bytes,
                 _state_webhook_headers(settings, payload_bytes),
-                settings.webhook_timeout_seconds,
-                delivery_id,
                 resolved_addresses,
+                delivery_id=delivery_id,
+                timeout=settings.webhook_timeout_seconds,
+                address_failed_event="webhook_delivery_address_failed",
                 log_extra={"alarm_id": str(alarm.id), "state": state},
+                client=http,
                 client_pool=webhook_client_pool,
             )
         finally:
@@ -274,11 +378,15 @@ async def deliver_state_webhook(
     *,
     state: str,
     settings: Settings,
-    http: Any,
-    log_notification: Callable[..., Awaitable[None]],
+    http: httpx.AsyncClient | None,
     webhook_client_pool: WebhookClientPool | None = None,
 ) -> None:
-    """Send one durable state transition callback unless it already succeeded."""
+    """Send one durable state transition callback unless it already succeeded.
+
+    Raises:
+        RetryableSSRFError: DNS resolution failed transiently.
+        NotificationDeliveryError: Delivery failed in a way that must be retried.
+    """
     if await completed_notification(
         session,
         alarm_id=alarm.id,
@@ -296,7 +404,6 @@ async def deliver_state_webhook(
         alarm=alarm,
         state=state,
         settings=settings,
-        log_notification=log_notification,
     )
     if resolved_addresses is None:
         return
@@ -316,6 +423,5 @@ async def deliver_state_webhook(
         payload_bytes=payload_bytes,
         delivery_id=delivery_id,
         resolved_addresses=resolved_addresses,
-        log_notification=log_notification,
         webhook_client_pool=webhook_client_pool,
     )

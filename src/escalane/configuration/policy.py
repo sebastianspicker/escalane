@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.config.errors import ConflictError, ValidationError
+from escalane.configuration.audit import add_admin_audit_event
 from escalane.persistence.models import EscalationPolicy, EscalationStep, EscalationTarget
 
 
@@ -170,6 +173,79 @@ async def _replace_policy_steps(
             )
 
 
+class MissingTargetAddressError(ValidationError):
+    """Raised when a blank address is submitted for a target that does not exist yet."""
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyConsoleTarget:
+    """Describe a target for the editor; its stored address is intentionally omitted."""
+
+    id: str
+    label: str
+    channel: str
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyConsoleView:
+    """Read model of the default policy for the administrative editor."""
+
+    name: str
+    version: int
+    targets: tuple[PolicyConsoleTarget, ...]
+    steps: tuple[StepCommand, ...]
+
+
+async def load_policy_console(session: AsyncSession) -> PolicyConsoleView:
+    """Load the default policy, its targets, and its steps without target addresses."""
+    policy = await session.get(EscalationPolicy, "default")
+    targets = list((await session.scalars(select(EscalationTarget))).all())
+    steps = list(
+        (
+            await session.scalars(
+                select(EscalationStep)
+                .where(EscalationStep.policy_id == "default")
+                .order_by(EscalationStep.step_no)
+            )
+        ).all()
+    )
+    return PolicyConsoleView(
+        name=policy.name if policy else "Default",
+        version=policy.version if policy else 0,
+        targets=tuple(
+            PolicyConsoleTarget(
+                id=item.id, label=item.label, channel=item.channel, enabled=item.enabled
+            )
+            for item in targets
+        ),
+        steps=tuple(
+            StepCommand(
+                step_no=step.step_no,
+                after_seconds=step.after_seconds,
+                target_ids=(step.target_id,),
+            )
+            for step in steps
+        ),
+    )
+
+
+async def retain_masked_target_addresses(
+    session: AsyncSession, command: EscalationPolicyCommand
+) -> EscalationPolicyCommand:
+    """Keep stored addresses when the browser resubmits intentionally blank masked fields."""
+    targets: list[TargetCommand] = []
+    for target in command.targets:
+        if target.address:
+            targets.append(target)
+            continue
+        existing_target = await session.get(EscalationTarget, target.id)
+        if existing_target is None:
+            raise MissingTargetAddressError("New escalation targets require an address")
+        targets.append(replace(target, address=existing_target.address))
+    return replace(command, targets=tuple(targets))
+
+
 async def apply_escalation_policy(
     session: AsyncSession,
     command: EscalationPolicyCommand,
@@ -192,3 +268,30 @@ async def apply_escalation_policy(
         await session.rollback()
         raise ConflictError("Policy references changed while it was being updated") from exc
     return command.policy_id
+
+
+async def save_policy_from_console(
+    session: AsyncSession,
+    command: EscalationPolicyCommand,
+    *,
+    expected_version: int,
+    operator_name: str,
+    request_id: str | None,
+    audited_policy: Mapping[str, Any],
+) -> str:
+    """Apply an operator's policy edit and audit it in the same transaction.
+
+    Raises:
+        MissingTargetAddressError: A new target was submitted without an address.
+    """
+    command = await retain_masked_target_addresses(session, command)
+    add_admin_audit_event(
+        session,
+        operator_name=operator_name,
+        action="update",
+        resource_type="escalation_policy",
+        resource_id=command.policy_id,
+        changed_fields={"policy": dict(audited_policy)},
+        request_id=request_id,
+    )
+    return await apply_escalation_policy(session, command, expected_version=expected_version)

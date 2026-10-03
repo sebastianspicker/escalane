@@ -1,288 +1,301 @@
-/* Alarm detail: heading, two-column layout, timeline, dialogs. */
+/* Alarm detail and drawer: state rule, readouts, lane timeline, action column. */
 
 .detail-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  padding: 0 0 0.9rem;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  box-shadow: none;
+  margin-bottom: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: var(--rule) solid var(--line);
 }
 
-.detail-heading::before {
-  display: none;
+/* The heading rule lights with the alarm, and goes dark when it closes. */
+.detail-heading.alarm-state-triggered {
+  border-top-color: var(--warning-fill);
 }
 
-.detail-heading h1 {
-  margin-bottom: 0;
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.detail-heading .status {
-  flex: none;
-}
-
-/* State colour on heading chip only — no left rail bar. */
-.alarm-state-triggered .status,
-.detail-heading.alarm-state-triggered .status {
-  color: var(--triggered);
-  background: var(--triggered-soft);
-}
-
-.alarm-state-acknowledged .status,
-.detail-heading.alarm-state-acknowledged .status {
-  color: var(--acknowledged);
-  background: var(--acked-soft);
-}
-
-.alarm-state-resolved .status,
-.detail-heading.alarm-state-resolved .status {
-  color: var(--resolved);
-  background: var(--resolved-soft);
-}
-
-.detail-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(17rem, 20rem);
-  gap: 1rem;
-  align-items: start;
-}
-
-.detail-primary,
-.action-panel,
-.activity-panel {
-  min-width: 0;
-}
-
-.detail-primary > section,
-.activity-panel,
-.form-panel,
-.records-panel,
-.editor-panel {
-  margin-bottom: 1rem;
-  padding: 0.9rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
-}
-
-.detail-primary > section:last-child {
-  margin-bottom: 0;
-}
-
-/* Sticky actions column */
-.action-panel {
-  position: sticky;
-  top: 1rem;
-  margin-bottom: 0;
-  padding: 0.9rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  box-shadow: var(--shadow-panel);
-}
-
-.action-panel .section-title {
-  margin-bottom: 0.35rem;
-}
-
-.action-panel .note-panel {
-  margin: 0.85rem 0 0;
-  padding: 0.85rem 0 0;
-  border: 0;
-  border-top: 1px solid var(--line-soft);
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-}
-
-.action-stack,
-.alarm-actions.action-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.action-stack .button,
-.action-stack form,
-.alarm-actions.action-stack .button,
-.alarm-actions.action-stack form {
-  width: 100%;
-  margin: 0;
-}
-
-.action-stack .button {
-  justify-content: center;
+.detail-heading.alarm-state-acknowledged {
+  border-top-color: var(--caution-line);
 }
 
 .detail-status-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.45rem;
+  gap: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
 }
 
-.alarm-actions .action-row {
-  flex-direction: column;
-  align-items: stretch;
+.detail-status-row .machine-value {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
 
-.alarm-actions .action-row .button,
-.alarm-actions .action-row form {
+.detail-heading h1 {
+  margin: 0;
+  font-size: var(--text-3xl);
+  letter-spacing: -0.025em;
+}
+
+.detail-place {
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 21rem);
+  align-items: start;
+  gap: var(--space-8);
+}
+
+.detail-primary {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-8);
+}
+
+.detail-primary .definition-list {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+}
+
+/* ——— Action column ——— */
+.action-panel {
+  position: sticky;
+  top: var(--space-6);
+  min-width: 0;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-2);
+}
+
+.action-stack {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.action-stack form {
+  margin: 0;
+}
+
+.action-stack .button {
   width: 100%;
 }
 
-.definition-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.button-large {
+  min-height: 3rem;
+  font-size: var(--text-md);
+}
+
+.action-hint {
+  margin: 0 0 var(--space-3);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.action-closed {
   margin: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  overflow: hidden;
-  background: var(--surface);
+  color: var(--ink-3);
+  font-size: var(--text-sm);
 }
 
-.definition-list div {
-  min-width: 0;
-  padding: 0.75rem 0.9rem;
-  border-right: 1px solid var(--line-soft);
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.definition-list div:nth-child(2n) {
-  border-right: 0;
-}
-
-.definition-list div:nth-last-child(-n + 2) {
-  border-bottom: 0;
-}
-
-/* Five-cell context row on detail: fall back to 2-col grid above */
-.detail-primary .definition-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-dt {
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 700;
-  margin: 0 0 0.2rem;
-}
-
-dd {
-  margin: 0;
-  font-weight: 650;
-  font-size: 0.9rem;
-  overflow-wrap: anywhere;
-  color: var(--ink);
-}
-
-.action-row,
-.dialog-actions,
-.record-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.action-row form {
-  margin: 0;
+.note-panel {
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .note-panel textarea {
-  min-height: 4.5rem;
-  margin-bottom: 0.65rem;
+  min-height: 5rem;
+  margin-bottom: var(--space-3);
 }
 
-/* Timeline */
-.timeline,
-.audit-list {
-  margin: 0;
+/* ——— Drawer: the same context, docked to the worklist ——— */
+.alarm-drawer {
+  width: min(36rem, 100vw);
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0 0 0 auto;
   padding: 0;
-  list-style: none;
-}
-
-.timeline {
   border: 0;
-  background: transparent;
+  border-left: var(--hairline) solid var(--line-strong);
+  border-radius: 0;
 }
 
-.timeline li {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
-  gap: 0.55rem 0.75rem;
-  padding: 0.7rem 0;
-  border-left: 0;
-  border-bottom: 1px solid var(--line-soft);
+.alarm-drawer::backdrop {
+  background: rgb(10 12 11 / 45%);
 }
 
-.timeline li:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+@media (prefers-reduced-motion: no-preference) {
+  .alarm-drawer[open] {
+    animation: drawer-in var(--duration-move) var(--ease-out);
+  }
 }
 
-.timeline li::before {
-  display: none;
+@keyframes drawer-in {
+  from { transform: translateX(2rem); opacity: 0; }
 }
 
-.timeline time {
-  color: var(--muted);
+.alarm-drawer[aria-busy="true"] .drawer-content::before {
+  display: block;
+  padding: var(--space-6);
+  color: var(--ink-3);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
-  padding-top: 0.1rem;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  content: "···";
 }
 
-.timeline li > span {
-  font-size: 0.8125rem;
-  font-weight: 550;
+.drawer-content {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-/* Dialogs */
-dialog {
-  width: min(34rem, calc(100% - 2rem));
-  padding: 1.25rem;
-  color: var(--ink);
+.drawer-detail {
+  display: grid;
+  gap: var(--space-6);
+  padding: 0 var(--space-6) var(--space-8);
+}
+
+.drawer-heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin: 0 calc(-1 * var(--space-6));
+  padding: var(--space-5) var(--space-6) var(--space-4);
   background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-panel);
-  box-shadow: 0 1rem 2.5rem rgb(12 27 34 / 22%);
+  border-top: var(--rule) solid var(--line);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
-dialog::backdrop {
-  background: rgb(8 18 22 / 55%);
+.drawer-heading:has(.status-triggered) {
+  border-top-color: var(--warning-fill);
 }
 
-dialog p {
-  color: var(--ink-muted);
-  font-size: 0.875rem;
+.drawer-heading:has(.status-acknowledged) {
+  border-top-color: var(--caution-line);
 }
 
-dialog h2 {
-  font-size: 1.1rem;
+.drawer-heading .detail-status-row {
+  margin-bottom: var(--space-2);
 }
 
-.dialog-actions {
-  margin-top: 1rem;
+.drawer-heading h2 {
+  margin: 0;
+  font-size: var(--text-xl);
 }
 
-/* The worklist enhancement presents the same server-side detail context in a drawer. */
-.alarm-drawer { width: min(38rem, 100vw); max-width: none; height: 100dvh; max-height: none; margin: 0 0 0 auto; padding: 0; border: 0; border-radius: 0; box-shadow: -12px 0 32px rgb(12 27 34 / 20%); }
-.alarm-drawer::backdrop { background: rgb(8 18 22 / 45%); }.drawer-content { height: 100%; overflow-y: auto; }.drawer-detail { padding: 1.25rem; }.drawer-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--line); }.drawer-heading h2 { margin: 0.35rem 0 0; }.drawer-heading .machine-value { margin: 0.3rem 0 0; color: var(--ink-muted); font-size: 0.75rem; }.drawer-detail > section { margin-top: 1rem; }.drawer-detail .definition-list { grid-template-columns: 1fr; }.drawer-detail .definition-list div { border-right: 0; }.drawer-detail .definition-list div:last-child { border-bottom: 0; }.drawer-actions { display: grid; gap: 0.75rem; }.drawer-actions h3 { margin: 0; }.drawer-actions form { margin: 0; padding-top: 0.75rem; border-top: 1px solid var(--line-soft); }.drawer-actions label { margin-top: 0.5rem; }.drawer-actions textarea { min-height: 4rem; margin-bottom: 0.5rem; }
-.drawer-heading h2:focus { outline: 0; }
+.drawer-heading h2:focus {
+  outline: 0;
+  box-shadow: none;
+}
 
-.history-navigation { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-block: 0.75rem; }
-.history-navigation:empty, .history-status:empty { display: none; }
-.history-status { color: var(--ink-muted); font-size: 0.8125rem; }
-[data-history-event]:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
-[data-history-event] > span { overflow-wrap: anywhere; }
-[data-older-activity][aria-disabled="true"] { opacity: 0.65; cursor: wait; }
+.drawer-heading .machine-value {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.drawer-detail h3 {
+  margin-bottom: var(--space-3);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.drawer-detail .definition-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.drawer-actions {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.drawer-actions form {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-top: var(--space-4);
+  border-top: var(--hairline) solid var(--line-soft);
+}
+
+.drawer-actions form:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.drawer-actions label {
+  margin: 0;
+}
+
+.drawer-actions textarea {
+  min-height: 4rem;
+}
+
+.drawer-actions .button {
+  justify-self: start;
+}
+
+.drawer-actions .button-primary {
+  width: 100%;
+  min-height: 3rem;
+  font-size: var(--text-md);
+}
+
+.drawer-full-link {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+@media (width <= 64rem) {
+  .detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .action-panel {
+    position: static;
+    order: -1;
+  }
+}
+
+@media (width <= 40rem) {
+  .detail-heading h1 {
+    font-size: var(--text-2xl);
+  }
+
+  .detail-place {
+    display: block;
+  }
+
+  .detail-separator {
+    display: none;
+  }
+
+  .timeline li {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .drawer-detail {
+    padding-inline: var(--space-4);
+  }
+
+  .drawer-heading {
+    margin-inline: calc(-1 * var(--space-4));
+    padding-inline: var(--space-4);
+  }
+
+  .drawer-detail .definition-list {
+    grid-template-columns: 1fr;
+  }
+}

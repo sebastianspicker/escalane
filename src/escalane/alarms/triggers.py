@@ -14,17 +14,19 @@ from arq.connections import ArqRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.alarms.contracts import TriggerResult
 from escalane.alarms.outbox import (
+    EVENT_ALARM_CREATED,
+    EVENT_ALARM_STATE_CHANGED,
     dispatch_pending_alarm_events,
     has_pending_alarm_events,
+    new_outbox_event,
 )
-from escalane.config import constants
+from escalane.alarms.severity import DEFAULT_SEVERITY, PRIORITY_ALL
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
 from escalane.persistence.models import (
     Alarm,
     AlarmEventOutbox,
+    AlarmStatus,
     Device,
     Person,
     Room,
@@ -36,6 +38,40 @@ from escalane.runtime.redis_atomic import compare_and_delete, increment_with_exp
 logger = logging.getLogger("escalane")
 
 
+class TriggerResult:
+    """Outcome of a trigger operation."""
+
+    def __init__(
+        self,
+        *,
+        success: bool = True,
+        alarm_id: uuid.UUID | None = None,
+        status: AlarmStatus | None = None,
+        is_duplicate: bool = False,
+        error_code: int | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Store either a successful alarm outcome or a stable failure contract."""
+        self.success = success
+        self.alarm_id = alarm_id
+        self.status = status
+        self.is_duplicate = is_duplicate
+        self.error_code = error_code
+        self.error_message = error_message
+
+    @classmethod
+    def ok(
+        cls, alarm_id: uuid.UUID, status: AlarmStatus, is_duplicate: bool = False
+    ) -> TriggerResult:
+        """Create a successful result, including duplicate-trigger state."""
+        return cls(success=True, alarm_id=alarm_id, status=status, is_duplicate=is_duplicate)
+
+    @classmethod
+    def error(cls, code: int, message: str) -> TriggerResult:
+        """Create a failed result without raising across the ingress boundary."""
+        return cls(success=False, error_code=code, error_message=message)
+
+
 def _hash_token_for_logging(token: str) -> str:
     """Create a safe hash of the token for logging purposes."""
     return hashlib.sha256(token.encode()).hexdigest()[:16]
@@ -44,20 +80,13 @@ def _hash_token_for_logging(token: str) -> str:
 def _initial_alarm_outbox_events(alarm: Alarm) -> list[AlarmEventOutbox]:
     """Build the ordered lifecycle events persisted with a new alarm."""
     return [
-        AlarmEventOutbox(
-            alarm_id=alarm.id,
-            event_type=constants.EVENT_ALARM_CREATED,
-            payload={},
-            sequence=0,
-        ),
-        AlarmEventOutbox(
-            alarm_id=alarm.id,
-            event_type=constants.EVENT_ALARM_STATE_CHANGED,
-            payload={
-                "old_state": "none",
-                "new_state": AlarmStatus.TRIGGERED.value,
-            },
+        new_outbox_event(alarm.id, EVENT_ALARM_CREATED),
+        new_outbox_event(
+            alarm.id,
+            EVENT_ALARM_STATE_CHANGED,
             sequence=1,
+            old_state="none",
+            new_state=AlarmStatus.TRIGGERED.value,
         ),
     ]
 
@@ -282,7 +311,7 @@ class TriggerService:
             room_id=device.room_id,
             site_id=site_id,
             device_id=device.id,
-            severity=constants.DEFAULT_SEVERITY,
+            severity=DEFAULT_SEVERITY,
             silent=True,
             ack_token=ack_token,
             meta={
@@ -336,7 +365,7 @@ class TriggerService:
         """
         if not token or not token.strip():
             return False, "Token is required"
-        if severity is not None and severity not in constants.PRIORITY_ALL:
+        if severity is not None and severity not in PRIORITY_ALL:
             return False, f"Invalid severity: {severity}"
         return True, None
 

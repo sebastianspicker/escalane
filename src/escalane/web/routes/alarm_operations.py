@@ -4,25 +4,20 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable, Coroutine
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.alarms.lifecycle import (
     AlarmPatchCommand,
-    AlarmStateOutcome,
     apply_alarm_patch,
     apply_alarm_state_change,
+    apply_bulk_state_change,
     get_alarm_or_404,
     soft_delete_alarm,
 )
-from escalane.config.errors import ConflictError
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm
-from escalane.web.deps import get_redis, get_session, require_admin
+from escalane.persistence.models import AlarmStatus
+from escalane.web.deps import get_app_settings, get_redis, get_session, require_admin
 from escalane.web.schemas import (
     AckIn,
     AlarmOut,
@@ -37,73 +32,6 @@ router = APIRouter(prefix="/v1/alarms", dependencies=[Depends(require_admin)])
 logger = logging.getLogger("escalane")
 
 
-async def _process_bulk_alarm(
-    alarm: Alarm,
-    process_alarm: Callable[[Alarm], Coroutine[Any, Any, AlarmStateOutcome]],
-) -> AlarmStateOutcome | None:
-    try:
-        return await process_alarm(alarm)
-    except HTTPException as exc:
-        if exc.status_code == status.HTTP_409_CONFLICT:
-            return None
-        raise
-    except ConflictError:
-        return None
-
-
-async def _execute_bulk_operation(
-    session: AsyncSession,
-    alarm_ids: list[uuid.UUID],
-    process_alarm: Callable[[Alarm], Coroutine[Any, Any, AlarmStateOutcome]],
-) -> BulkOperationOut:
-    """Execute a bulk operation on alarms with common pattern.
-
-    Each individual operation commits independently (acknowledge_alarm and
-    transition_alarm already call session.commit()), so no outer
-    session.begin() wrapper is used to avoid double-commit errors.
-    """
-    alarms = (
-        await session.scalars(
-            select(Alarm).where(Alarm.id.in_(alarm_ids), Alarm.deleted_at.is_(None))
-        )
-    ).all()
-    by_id = {alarm.id: alarm for alarm in alarms}
-
-    changed = 0
-    unchanged = 0
-    missing: list[uuid.UUID] = []
-
-    for alarm_id in alarm_ids:
-        alarm = by_id.get(alarm_id)
-        if alarm is None:
-            missing.append(alarm_id)
-            continue
-
-        outcome = await _process_bulk_alarm(alarm, process_alarm)
-        if outcome is None:
-            unchanged += 1
-            continue
-        if outcome.pending:
-            logger.warning(
-                "bulk_event_delivery_pending",
-                extra={
-                    "alarm_id": str(alarm.id),
-                    "published": outcome.published,
-                },
-            )
-        if outcome.changed:
-            changed += 1
-        else:
-            unchanged += 1
-
-    return BulkOperationOut(
-        requested=len(alarm_ids),
-        changed=changed,
-        unchanged=unchanged,
-        missing=missing,
-    )
-
-
 async def _execute_bulk_state_transition(
     alarm_ids: list[uuid.UUID],
     target_status: AlarmStatus,
@@ -113,24 +41,20 @@ async def _execute_bulk_state_transition(
     note: str | None,
 ) -> BulkOperationOut:
     """Execute a bulk state transition on alarms."""
-    redis = get_redis(request)
-
-    async def process(alarm: Alarm) -> AlarmStateOutcome:
-        """Apply the shared target state while reusing this request's resources."""
-        return await apply_alarm_state_change(
-            session,
-            redis,
-            alarm,
-            target_status=target_status,
-            actor=actor_or_acked_by,
-            note=note,
-            logger=logger,
-        )
-
-    return await _execute_bulk_operation(
+    outcome = await apply_bulk_state_change(
         session,
+        get_redis(request),
         alarm_ids,
-        process,
+        target_status=target_status,
+        actor=actor_or_acked_by,
+        note=note,
+        logger=logger,
+    )
+    return BulkOperationOut(
+        requested=len(alarm_ids),
+        changed=outcome.changed,
+        unchanged=outcome.unchanged,
+        missing=outcome.missing,
     )
 
 
@@ -321,7 +245,6 @@ async def delete_alarm(
     session: AsyncSession = Depends(get_session),
 ) -> None:
     """Soft-delete an alarm."""
-    from escalane.web.deps import get_app_settings
 
     alarm = await get_alarm_or_404(session, alarm_id)
 

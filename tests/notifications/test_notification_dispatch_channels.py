@@ -10,14 +10,15 @@ from escalane.notifications import payloads as notification_payloads
 from escalane.notifications import targets as notification_targets
 from escalane.notifications.delivery import NotificationDeliveryError
 from tests.support.assertions import expect
-from tests.support.notification_dispatch_helpers import (
-    _delivery_context,
-    _make_alarm,
-    _make_enriched,
-    _make_settings,
-    _make_svc,
-    _make_target,
-    _noop_session,
+from tests.support.notifications import (
+    default_settings,
+    delivery_context,
+    make_alarm_double,
+    make_enriched,
+    make_service,
+    make_settings,
+    make_target,
+    noop_session,
 )
 
 pytestmark = [pytest.mark.unit]
@@ -27,14 +28,14 @@ pytestmark = [pytest.mark.unit]
 
 
 def test_build_title_step_zero():
-    enriched = _make_enriched(person_name="Alice", room_label="R1")
+    enriched = make_enriched(person_name="Alice", room_label="R1")
     title = notification_payloads.build_title(enriched, step_no=0)
     expect("NOTFALLALARM" in title)
     expect("Alice" in title)
 
 
 def test_build_title_escalation_step():
-    enriched = _make_enriched(person_name="Bob", room_label="R2")
+    enriched = make_enriched(person_name="Bob", room_label="R2")
     title = notification_payloads.build_title(enriched, step_no=2)
     expect("ESKALATION" in title)
     expect("2" in title)
@@ -64,10 +65,10 @@ def test_get_priority_unknown_defaults_to_critical():
 
 
 async def test_send_skips_disabled_target():
-    svc = _make_svc()
-    session = await _noop_session()
+    svc = make_service()
+    session = await noop_session()
     session.scalar.return_value = None
-    target = _make_target(enabled=False)
+    target = make_target(enabled=False)
 
     # _send_to_channel should never be called for disabled targets
     # We exercise the send() method with one disabled target and check no dispatch
@@ -80,21 +81,22 @@ async def test_send_skips_disabled_target():
         ):
             await svc.send(
                 session,
-                alarm=_make_alarm(),
-                enriched=_make_enriched(),
+                alarm=make_alarm_double(),
+                enriched=make_enriched(),
                 step_no=0,
                 ack_url="http://x/a/tok",
+                settings=default_settings(),
             )
 
     mock_dispatch.assert_not_called()
 
 
 async def test_send_attempts_every_target_then_raises_for_retryable_failures():
-    svc = _make_svc()
-    session = await _noop_session()
+    svc = make_service()
+    session = await noop_session()
     session.scalar.return_value = None
-    successful = _make_target(channel="signal", target_id="successful")
-    failed = _make_target(channel="sms", target_id="failed")
+    successful = make_target(channel="signal", target_id="successful")
+    failed = make_target(channel="sms", target_id="failed")
 
     with patch.object(
         notification_targets,
@@ -111,20 +113,21 @@ async def test_send_attempts_every_target_then_raises_for_retryable_failures():
             with pytest.raises(NotificationDeliveryError, match="failed"):
                 await svc.send(
                     session,
-                    alarm=_make_alarm(),
-                    enriched=_make_enriched(),
+                    alarm=make_alarm_double(),
+                    enriched=make_enriched(),
                     step_no=0,
                     ack_url=None,
+                    settings=default_settings(),
                 )
 
     expect(dispatch.await_count == 2)
 
 
 async def test_send_retry_skips_a_target_with_durable_success():
-    svc = _make_svc()
-    session = await _noop_session()
-    already_delivered = _make_target(channel="signal", target_id="already-delivered")
-    still_pending = _make_target(channel="sms", target_id="still-pending")
+    svc = make_service()
+    session = await noop_session()
+    already_delivered = make_target(channel="signal", target_id="already-delivered")
+    still_pending = make_target(channel="sms", target_id="still-pending")
     successful_row = MagicMock()
     successful_row.payload = {"step_no": 0}
     session.scalar = AsyncMock(side_effect=[successful_row, None])
@@ -140,10 +143,11 @@ async def test_send_retry_skips_a_target_with_durable_success():
         ) as dispatch:
             await svc.send(
                 session,
-                alarm=_make_alarm(),
-                enriched=_make_enriched(),
+                alarm=make_alarm_double(),
+                enriched=make_enriched(),
                 step_no=0,
                 ack_url=None,
+                settings=default_settings(),
             )
 
     dispatch.assert_awaited_once()
@@ -154,7 +158,7 @@ async def test_send_retry_skips_a_target_with_durable_success():
 
 
 async def test_send_email_zammad_disabled_logs_skipped():
-    svc, session, target, payload = await _delivery_context("email", zammad_enabled=False)
+    svc, session, target, payload = await delivery_context("email", zammad_enabled=False)
 
     with patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as mock_log:
         await svc._send_email_notifications(session, target, payload)
@@ -164,7 +168,7 @@ async def test_send_email_zammad_disabled_logs_skipped():
 
 
 async def test_send_email_zammad_create_ticket_exception_logs_error():
-    svc, session, target, payload = await _delivery_context("email")
+    svc, session, target, payload = await delivery_context("email")
     svc._zammad.create_ticket = AsyncMock(side_effect=RuntimeError("zammad down"))
 
     # Should not raise: best-effort
@@ -177,7 +181,7 @@ async def test_send_email_zammad_create_ticket_exception_logs_error():
 
 
 async def test_send_via_signal_exception_does_not_raise():
-    svc, session, target, payload = await _delivery_context("signal", address="group-id")
+    svc, session, target, payload = await delivery_context("signal", address="group-id")
     svc._signal.send_group_message = AsyncMock(side_effect=OSError("signal down"))
 
     await svc._send_via_signal(session, target, payload["body"], payload)
@@ -186,7 +190,7 @@ async def test_send_via_signal_exception_does_not_raise():
 
 
 async def test_send_via_signal_success():
-    svc, session, target, payload = await _delivery_context("signal", address="group-id")
+    svc, session, target, payload = await delivery_context("signal", address="group-id")
 
     await svc._send_via_signal(session, target, payload["body"], payload)
 
@@ -194,11 +198,11 @@ async def test_send_via_signal_success():
 
 
 async def test_send_via_signal_disabled_logs_skipped() -> None:
-    svc, session = _make_svc(), await _noop_session()
+    svc, session = make_service(), await noop_session()
     svc._signal.enabled.return_value = False
-    target = _make_target(channel="signal", address="group-id")
+    target = make_target(channel="signal", address="group-id")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as mock_log:
@@ -212,12 +216,12 @@ async def test_send_via_signal_disabled_logs_skipped() -> None:
 
 
 async def test_send_via_sendxms_exception_does_not_raise():
-    svc = _make_svc()
+    svc = make_service()
     svc._sendxms.send_sms = AsyncMock(side_effect=OSError("sms down"))
-    session = await _noop_session()
-    target = _make_target(channel="sms", address="+491234")
+    session = await noop_session()
+    target = make_target(channel="sms", address="+491234")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     await svc._send_via_sendxms(session, target, payload["body"], payload)
@@ -226,11 +230,11 @@ async def test_send_via_sendxms_exception_does_not_raise():
 
 
 async def test_send_via_sendxms_disabled_logs_skipped() -> None:
-    svc, session = _make_svc(), await _noop_session()
+    svc, session = make_service(), await noop_session()
     svc._sendxms.enabled.return_value = False
-    target = _make_target(channel="sms", address="+491234")
+    target = make_target(channel="sms", address="+491234")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as mock_log:
@@ -241,15 +245,15 @@ async def test_send_via_sendxms_disabled_logs_skipped() -> None:
 
 
 async def test_send_webhook_unknown_channel_logs_warning():
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="unknown_channel", address="x")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="unknown_channel", address="x")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     # Should not raise
-    await svc._send_to_channel(session, target, payload)
+    await svc._send_to_channel(session, target, payload, default_settings())
 
 
 # ── _send_to_channel: channel routing ─────────────────────────────────
@@ -257,30 +261,30 @@ async def test_send_webhook_unknown_channel_logs_warning():
 
 async def test_send_to_channel_dispatches_email():
     """_send_to_channel routes email channel to _send_email_notifications."""
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="email")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="email")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch.object(svc, "_send_email_notifications", new_callable=AsyncMock) as mock_email:
-        await svc._send_to_channel(session, target, payload)
+        await svc._send_to_channel(session, target, payload, default_settings())
 
     mock_email.assert_called_once_with(session, target, payload)
 
 
 async def test_send_to_channel_dispatches_webhook():
     """_send_to_channel routes webhook channel to _send_webhook_notifications."""
-    svc = _make_svc()
-    session = await _noop_session()
-    target = _make_target(channel="webhook", address="http://example.com/hook")
+    svc = make_service()
+    session = await noop_session()
+    target = make_target(channel="webhook", address="http://example.com/hook")
     payload = svc._build_notification_payload(
-        alarm=_make_alarm(), enriched=_make_enriched(), step_no=0, ack_url=None
+        alarm=make_alarm_double(), enriched=make_enriched(), step_no=0, ack_url=None
     )
 
     with patch.object(svc, "_send_webhook_notifications", new_callable=AsyncMock) as mock_hook:
-        settings = _make_settings(webhook_allowed_hosts="example.com")
+        settings = make_settings(webhook_allowed_hosts="example.com")
         await svc._send_to_channel(session, target, payload, settings)
 
     mock_hook.assert_called_once_with(session, target, payload, settings)
@@ -291,7 +295,7 @@ async def test_send_to_channel_dispatches_webhook():
 
 async def test_send_email_zammad_success_logs_ok():
     """When create_ticket succeeds, _log_notification_result is called with 'ok'."""
-    svc, session, target, payload = await _delivery_context("email")
+    svc, session, target, payload = await delivery_context("email")
     svc._zammad.create_ticket = AsyncMock(return_value=55)
 
     with patch.object(svc, "_log_notification_result", new_callable=AsyncMock) as mock_log:

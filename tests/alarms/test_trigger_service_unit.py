@@ -10,12 +10,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from escalane.alarms.triggers import TriggerResult, TriggerService
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
 from escalane.persistence.base import Base
-from escalane.persistence.models import Alarm, Device
+from escalane.persistence.models import Alarm, AlarmStatus, Device
 from tests.support.assertions import expect
 from tests.support.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, value_for_test
-from tests.support.helpers import FakeRedis
+from tests.support.fakes import FakeRedis
 
 pytestmark = [pytest.mark.unit]
 

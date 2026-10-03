@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from escalane.contracts.alarms import AlarmStatus
-from escalane.contracts.notifications import EnrichedAlarmContext
-from escalane.persistence.models import Alarm
+from escalane.alarms.enrichment import EnrichedAlarmContext
+from escalane.persistence.models import Alarm, AlarmStatus
 from escalane.web.i18n import translation_context
 from escalane.web.templating import render_template
 

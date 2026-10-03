@@ -32,6 +32,29 @@ JavaScript is unavailable, the full alarm-detail page remains the destination.
 - Put browser enhancements in `src/escalane/web/assets/ui.js`.
 - Keep the English and German strings together in `src/escalane/web/i18n.py`.
 
+## Design system
+
+The interface follows the "dark cockpit" direction recorded in the
+[design brief](DESIGN_BRIEF.md): chrome stays neutral, and hue is spent only
+on alarms that still need a person.
+
+- **Colour roles.** Warning red (`--warning*`) marks triggered alarms, errors
+  and destructive confirmation. Caution amber (`--caution*`) marks
+  acknowledged, still-open alarms and delivery warnings. Resolved and
+  cancelled stay unlit. Ink (`--ink`) is the only interactive colour; don't
+  add a brand or success hue to controls.
+- **Severity is typographic.** P0 is a solid ink mark, P1 an ink outline, and
+  P2 plain text, so severity never competes with status colour.
+- **Tokens.** `tokens.css` defines the colour, type, spacing, radius and motion
+  scales for both themes. Use the custom properties rather than literal
+  values.
+- **Type.** Atkinson Hyperlegible Next and Mono (SIL OFL, licence in
+  `assets/fonts-OFL.txt`) are self-hosted because the CSP allows only
+  same-origin fonts. Times, ages, IDs and counts use the mono face.
+- **Breakpoints.** The rail collapses into a top bar with a menu sheet at
+  60rem. The worklist table becomes two-line entries at 40rem.
+- **Static demo.** A dashed rule marks anything simulated or fictional.
+
 ## Interface requirements
 
 - Give each page semantic landmarks and one visible `h1`. Prefer native

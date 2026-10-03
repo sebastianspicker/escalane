@@ -7,9 +7,10 @@ import pytest
 from sqlalchemy import select
 
 from escalane.notifications import workflows
-from escalane.notifications.delivery import NotificationDeliveryError, log_notification
+from escalane.notifications.delivery import NotificationDeliveryError
 from escalane.notifications.dispatch import NotificationService
 from escalane.persistence.models import Alarm, AlarmNotification, EscalationTarget
+from tests.support.notifications import default_settings
 
 
 def _status_error(code):
@@ -52,8 +53,12 @@ async def test_permanent_target_not_repeated_on_sibling_retry(sessionmaker, monk
         session.add_all([alarm, *targets])
         await session.commit()
         with pytest.raises(NotificationDeliveryError):
-            await service.send(session, alarm, context, step_no=0, ack_url=None)
-        await service.send(session, alarm, context, step_no=0, ack_url=None)
+            await service.send(
+                session, alarm, context, step_no=0, ack_url=None, settings=default_settings()
+            )
+        await service.send(
+            session, alarm, context, step_no=0, ack_url=None, settings=default_settings()
+        )
         rows = (
             await session.scalars(
                 select(AlarmNotification).where(AlarmNotification.alarm_id == alarm.id)
@@ -80,7 +85,6 @@ async def test_permanent_state_webhook_not_repeated(sessionmaker, settings, monk
                 state="resolved",
                 settings=settings,
                 http=None,
-                log_notification=log_notification,
             )
         assert post.await_count == 1
         row = await session.scalar(

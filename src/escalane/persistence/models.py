@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
@@ -23,7 +24,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql.sqltypes import JSON
 from sqlalchemy.types import Uuid
 
-from escalane.contracts import alarms as alarm_contracts
 from escalane.persistence.base import Base
 
 
@@ -153,6 +153,15 @@ class EscalationStep(Base):
     target: Mapped[EscalationTarget] = relationship()
 
 
+class AlarmStatus(StrEnum):
+    """The durable lifecycle states an alarm may occupy."""
+
+    TRIGGERED = "triggered"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    CANCELLED = "cancelled"
+
+
 class Alarm(Base):
     """Persisted alarm lifecycle row.
 
@@ -164,15 +173,15 @@ class Alarm(Base):
     __tablename__ = "alarms"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    status: Mapped[alarm_contracts.AlarmStatus] = mapped_column(
+    status: Mapped[AlarmStatus] = mapped_column(
         Enum(
-            alarm_contracts.AlarmStatus,
+            AlarmStatus,
             name="alarm_status",
             values_callable=lambda x: [e.value for e in x],
         ),
         nullable=False,
-        default=alarm_contracts.AlarmStatus.TRIGGERED,
-        server_default=alarm_contracts.AlarmStatus.TRIGGERED.value,
+        default=AlarmStatus.TRIGGERED,
+        server_default=AlarmStatus.TRIGGERED.value,
         index=True,
     )
     source: Mapped[str] = mapped_column(String, nullable=False)

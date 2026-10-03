@@ -13,8 +13,14 @@ from escalane.persistence.models import Device, Person, Room, Site
 from escalane.persistence.session import create_sessionmaker
 from escalane.web.main import create_app
 from tests.support.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY, TEST_DEVICE_TOKEN
-from tests.support.database_test_helpers import initialized_sqlite_engine
-from tests.support.helpers import FakeRedis
+from tests.support.database import initialized_sqlite_engine
+from tests.support.fakes import FakeRedis
+
+
+@pytest.fixture(autouse=True)
+def _ignore_local_env_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep a developer's repository-root .env file out of every test's Settings."""
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
 
 
 @pytest.fixture

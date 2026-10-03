@@ -11,10 +11,9 @@ import httpx
 import pytest
 
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
 from escalane.notifications import workflows
 from escalane.notifications.delivery import NotificationDeliveryError
-from escalane.persistence.models import Alarm
+from escalane.persistence.models import Alarm, AlarmStatus
 from escalane.security.url_validation import RetryableSSRFError, SSRFError
 
 
@@ -102,31 +101,38 @@ async def test_initial_delivery_continues_stage_zero_after_ticket_failure() -> N
 
 
 @pytest.mark.asyncio
-async def test_validated_webhook_addresses_audit_permanent_and_retryable_failures() -> None:
+async def test_validated_webhook_addresses_audit_permanent_and_retryable_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     session = MagicMock()
     alarm = _alarm()
     audit = AsyncMock()
+    monkeypatch.setattr(workflows, "log_notification", audit)
+    monkeypatch.setattr(
+        "escalane.notifications.webhooks.validate_url_not_internal",
+        AsyncMock(side_effect=SSRFError("blocked target")),
+    )
 
     permanent = await workflows._validated_state_webhook_addresses(
         session,
         alarm=alarm,
         state="triggered",
         settings=_settings(),
-        log_notification=audit,
-        validate_url=AsyncMock(side_effect=SSRFError("blocked target")),
     )
     assert permanent is None
     assert audit.await_args.kwargs["result"] == "skipped"
 
     audit.reset_mock()
+    monkeypatch.setattr(
+        "escalane.notifications.webhooks.validate_url_not_internal",
+        AsyncMock(side_effect=RetryableSSRFError("resolver unavailable")),
+    )
     with pytest.raises(RetryableSSRFError, match="resolver unavailable"):
         await workflows._validated_state_webhook_addresses(
             session,
             alarm=alarm,
             state="triggered",
             settings=_settings(),
-            log_notification=audit,
-            validate_url=AsyncMock(side_effect=RetryableSSRFError("resolver unavailable")),
         )
     assert audit.await_args.kwargs["result"] == "error"
 
@@ -138,6 +144,7 @@ async def test_state_webhook_records_safe_failure_or_success(
     session = MagicMock()
     alarm = _alarm()
     audit = AsyncMock()
+    monkeypatch.setattr(workflows, "log_notification", audit)
     monkeypatch.setattr(
         workflows,
         "post_webhook_bytes_to_validated_addresses",
@@ -153,7 +160,6 @@ async def test_state_webhook_records_safe_failure_or_success(
             payload_bytes=b"{}",
             delivery_id="delivery",
             resolved_addresses=("1.1.1.1",),
-            log_notification=audit,
         )
     assert audit.await_args.kwargs["result"] == "error"
 
@@ -168,6 +174,5 @@ async def test_state_webhook_records_safe_failure_or_success(
         payload_bytes=b"{}",
         delivery_id="delivery",
         resolved_addresses=("1.1.1.1",),
-        log_notification=audit,
     )
     assert audit.await_args.kwargs["result"] == "ok"

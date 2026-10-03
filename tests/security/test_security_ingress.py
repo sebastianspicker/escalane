@@ -10,8 +10,8 @@ from escalane.config.settings import Settings
 from escalane.runtime.rate_limit import rate_limit_key
 from escalane.security.ip_allowlist import ip_allowed
 from tests.support.assertions import expect
+from tests.support.clients import app_client
 from tests.support.constants import TEST_DEVICE_TOKEN
-from tests.support.security_test_helpers import security_client
 
 pytestmark = [pytest.mark.security]
 
@@ -20,7 +20,7 @@ async def _request_alarm(
     settings: Settings, engine, fake_redis, headers: dict[str, str] | None = None
 ):
     """Exercise the Yealink ingress path through a configured in-process app."""
-    async with security_client(settings, engine, fake_redis) as client:
+    async with app_client(settings=settings, engine=engine, redis=fake_redis) as client:
         return await client.get(
             "/v1/yealink/alarm", params={"token": TEST_DEVICE_TOKEN}, headers=headers
         )
@@ -75,7 +75,7 @@ async def test_trusted_proxy_forwarded_https_sets_secure_cookie_and_hsts(
 ) -> None:
     payload = settings.model_dump()
     payload["trusted_proxy_cidrs"] = "127.0.0.1/32,::1/128"
-    async with security_client(Settings(**payload), engine, fake_redis) as client:
+    async with app_client(settings=Settings(**payload), engine=engine, redis=fake_redis) as client:
         response = await _forwarded_https_login(client, settings.admin_api_key)
 
     expect(response.status_code == 303)
@@ -88,7 +88,7 @@ async def test_untrusted_forwarded_https_does_not_set_secure_cookie_or_hsts(
 ) -> None:
     payload = settings.model_dump()
     payload["trusted_proxy_cidrs"] = ""
-    async with security_client(Settings(**payload), engine, fake_redis) as client:
+    async with app_client(settings=Settings(**payload), engine=engine, redis=fake_redis) as client:
         response = await _forwarded_https_login(client, settings.admin_api_key)
 
     expect(response.status_code == 303)

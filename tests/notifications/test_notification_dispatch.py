@@ -8,8 +8,8 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from escalane.alarms.enrichment import EnrichedAlarmContext
 from escalane.config.errors import ConfigurationError
-from escalane.contracts.notifications import EnrichedAlarmContext
 from escalane.notifications.delivery import NotificationDeliveryError, log_notification
 from escalane.notifications.dispatch import NotificationService
 from escalane.notifications.payloads import build_zammad_ticket_payload
@@ -24,7 +24,8 @@ from escalane.persistence.models import (
 from escalane.providers.mock import MockSendXmsClient, MockSignalClient, MockZammadClient
 from escalane.providers.zammad import ZammadConfig
 from tests.support.assertions import expect
-from tests.support.worker_task_helpers import make_alarm
+from tests.support.factories import make_alarm
+from tests.support.notifications import default_settings
 
 pytestmark = pytest.mark.unit
 
@@ -88,6 +89,7 @@ async def _send_stage_zero_notifications(sessionmaker, alarm_id: uuid.UUID):
             enriched=_enriched(),
             step_no=0,
             ack_url="http://localhost:8080/a/tok-dispatch",
+            settings=default_settings(),
         )
         return (
             await session.scalars(

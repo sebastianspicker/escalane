@@ -1,4 +1,4 @@
-"""Worklist dashboard, revision polling, and related query helpers."""
+"""Worklist dashboard and revision-polling routes with their URL and row-rendering helpers."""
 
 from __future__ import annotations
 
@@ -9,100 +9,28 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Cookie, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import String, and_, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from escalane.alarms.dashboard import dashboard_counts, dashboard_revision
+from escalane.alarms.queries import (
+    CONSOLE_SEVERITY_FILTERS,
+    SortField,
+    SortOrder,
+    list_worklist_page,
+)
 from escalane.config.settings import Settings
-from escalane.contracts.alarms import AlarmStatus
-from escalane.operations.dashboard import dashboard_counts, dashboard_revision, visible_counts
-from escalane.persistence.models import Alarm, Person, Room
+from escalane.persistence.models import Alarm, AlarmStatus
 from escalane.web.admin_session import pop_flash
+from escalane.web.console import (
+    render_page,
+    requested_locale,
+    session_from_request,
+)
 from escalane.web.deps import get_app_settings, get_redis, get_session
 from escalane.web.i18n import SUPPORTED_LOCALES
-from escalane.web.routes.admin_console import (
-    _html,
-    _requested_locale,
-    _session_from_request,
-)
 
 router = APIRouter()
-
-
-def _alarm_statement(status_filter: str | None, severity_filter: str | None, search: str | None):
-    stmt = (
-        select(Alarm, Person.display_name, Room.label)
-        .outerjoin(Person, Person.id == Alarm.person_id)
-        .outerjoin(Room, Room.id == Alarm.room_id)
-        .where(Alarm.deleted_at.is_(None))
-    )
-    if status_filter in {item.value for item in AlarmStatus}:
-        stmt = stmt.where(Alarm.status == AlarmStatus(status_filter))
-    if severity_filter in {"P0", "P1", "P2"}:
-        stmt = stmt.where(Alarm.severity == severity_filter)
-    if search:
-        pattern = f"%{search.strip()}%"
-        stmt = stmt.where(
-            or_(
-                cast(Alarm.id, String).ilike(pattern),
-                Alarm.source.ilike(pattern),
-                Alarm.event.ilike(pattern),
-                Person.display_name.ilike(pattern),
-                Room.label.ilike(pattern),
-            )
-        )
-    return stmt
-
-
-def _sort_details(sort_by: str):
-    sort_columns = {
-        "status": Alarm.status,
-        "severity": Alarm.severity,
-        "created_at": Alarm.created_at,
-    }
-    sort_name = sort_by if sort_by in sort_columns else "created_at"
-    return sort_name, sort_columns[sort_name]
-
-
-def _cursor_comparison(sort_column, cursor_alarm: Alarm, sort_name: str, order: str):
-    cursor_sort_value = getattr(cursor_alarm, sort_name)
-    if order == "desc":
-        return or_(
-            sort_column < cursor_sort_value,
-            and_(sort_column == cursor_sort_value, Alarm.id < cursor_alarm.id),
-        )
-    return or_(
-        sort_column > cursor_sort_value,
-        and_(sort_column == cursor_sort_value, Alarm.id > cursor_alarm.id),
-    )
-
-
-async def _apply_alarm_cursor(
-    session: AsyncSession, stmt, sort_column, sort_name: str, order: str, cursor: uuid.UUID | None
-):
-    if cursor is None:
-        return stmt
-    cursor_row = (await session.execute(stmt.where(Alarm.id == cursor))).first()
-    if cursor_row is None:
-        return stmt
-    return stmt.where(_cursor_comparison(sort_column, cursor_row[0], sort_name, order))
-
-
-async def _alarm_query(
-    session: AsyncSession,
-    status_filter: str | None,
-    severity_filter: str | None,
-    search: str | None,
-    sort_by: str,
-    order: str,
-    cursor: uuid.UUID | None,
-    limit: int,
-):
-    stmt = _alarm_statement(status_filter, severity_filter, search)
-    sort_name, sort_column = _sort_details(sort_by)
-    stmt = await _apply_alarm_cursor(session, stmt, sort_column, sort_name, order, cursor)
-    ordering = sort_column.desc() if order == "desc" else sort_column.asc()
-    id_ordering = Alarm.id.desc() if order == "desc" else Alarm.id.asc()
-    return stmt.order_by(ordering, id_ordering).limit(limit + 1)
+_CONSOLE_SEVERITY_PATTERN = f"^({'|'.join(CONSOLE_SEVERITY_FILTERS)})$"
 
 
 def _next_page_url(request: Request, cursor: uuid.UUID | None) -> str | None:
@@ -137,10 +65,6 @@ def _export_url(status_filter: str | None, severity_filter: str | None, export_f
     return f"/admin/export?{urlencode(query)}"
 
 
-async def _counts(session: AsyncSession) -> dict[str, int]:
-    return await visible_counts(session)
-
-
 def _display_time(value: datetime) -> str:
     aware = value if value.tzinfo else value.replace(tzinfo=UTC)
     minutes = max(0, int((datetime.now(UTC) - aware).total_seconds() // 60))
@@ -173,7 +97,9 @@ async def _revision(session: AsyncSession) -> str:
 async def admin_dashboard(
     request: Request,
     status_filter: str | None = Query(default=None, alias="status"),
-    severity_filter: str | None = Query(default=None, alias="severity", pattern="^(P0|P1|P2)$"),
+    severity_filter: str | None = Query(
+        default=None, alias="severity", pattern=_CONSOLE_SEVERITY_PATTERN
+    ),
     search: str | None = Query(default=None, max_length=120),
     sort_by: str = Query(default="created_at", pattern="^(created_at|status|severity)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -184,22 +110,26 @@ async def admin_dashboard(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> HTMLResponse:
-    locale = _requested_locale(request, lang)
-    browser_session = await _session_from_request(request, settings, admin_session, extend=True)
+    locale = requested_locale(request, lang)
+    browser_session = await session_from_request(request, settings, admin_session, extend=True)
     page_revision = await _revision(session)
-    statement = await _alarm_query(
-        session, status_filter, severity_filter, search, sort_by, order, cursor, limit
+    page = await list_worklist_page(
+        session,
+        status_filter=status_filter,
+        severity_filter=severity_filter,
+        search=search,
+        sort_by=SortField(sort_by),
+        sort_order=SortOrder(order),
+        cursor=cursor,
+        limit=limit,
     )
-    result = list((await session.execute(statement)).all())
-    page_rows = result[:limit]
-    next_cursor = page_rows[-1][0].id if len(result) > limit and page_rows else None
     flash = await pop_flash(get_redis(request), browser_session)
-    return _html(
+    return render_page(
         request,
         "admin_worklist.html",
         locale,
         persist_locale=lang in SUPPORTED_LOCALES,
-        alarms=[_worklist_row(alarm, person, room, locale) for alarm, person, room in page_rows],
+        alarms=[_worklist_row(row.alarm, row.person, row.room, locale) for row in page.rows],
         counts=await dashboard_counts(session, get_redis(request)),
         statuses=[item.value for item in AlarmStatus],
         filters={
@@ -215,7 +145,7 @@ async def admin_dashboard(
         },
         severity_urls={
             severity: _filter_url(request, locale, severity=severity)
-            for severity in ("P0", "P1", "P2")
+            for severity in CONSOLE_SEVERITY_FILTERS
         },
         all_severities_url=_filter_url(request, locale, severity=None),
         export_csv_url=_export_url(status_filter, severity_filter, "csv"),
@@ -223,7 +153,7 @@ async def admin_dashboard(
         poll_url=f"/admin/revision?lang={locale}",
         poll_interval=15,
         revision=page_revision,
-        next_page_url=_next_page_url(request, next_cursor),
+        next_page_url=_next_page_url(request, page.next_cursor),
         operator_name=browser_session.operator_name,
         logout_action="/admin/logout",
         csrf_token=browser_session.csrf_token,
@@ -239,5 +169,5 @@ async def admin_revision(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> JSONResponse:
-    await _session_from_request(request, settings, admin_session, extend=False)
+    await session_from_request(request, settings, admin_session, extend=False)
     return JSONResponse({"revision": await _revision(session)})

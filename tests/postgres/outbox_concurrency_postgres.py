@@ -16,10 +16,12 @@ import pytest_asyncio
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from escalane.alarms.outbox import dispatch_pending_alarm_events
-from escalane.config import constants
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm, AlarmEventOutbox
+from escalane.alarms.outbox import (
+    EVENT_ALARM_CREATED,
+    EVENT_ALARM_STATE_CHANGED,
+    dispatch_pending_alarm_events,
+)
+from escalane.persistence.models import Alarm, AlarmEventOutbox, AlarmStatus
 
 pytestmark = pytest.mark.integration
 
@@ -86,21 +88,21 @@ async def test_locked_oldest_stream_event_does_not_block_another_alarm(
     base_time = datetime.now(UTC) - timedelta(minutes=1)
     first_oldest = AlarmEventOutbox(
         alarm_id=first_alarm_id,
-        event_type=constants.EVENT_ALARM_CREATED,
+        event_type=EVENT_ALARM_CREATED,
         payload={},
         sequence=0,
         created_at=base_time,
     )
     first_next = AlarmEventOutbox(
         alarm_id=first_alarm_id,
-        event_type=constants.EVENT_ALARM_STATE_CHANGED,
+        event_type=EVENT_ALARM_STATE_CHANGED,
         payload={"old_state": "triggered", "new_state": "acknowledged"},
         sequence=1,
         created_at=base_time + timedelta(seconds=1),
     )
     second_oldest = AlarmEventOutbox(
         alarm_id=second_alarm_id,
-        event_type=constants.EVENT_ALARM_CREATED,
+        event_type=EVENT_ALARM_CREATED,
         payload={},
         sequence=0,
         created_at=base_time + timedelta(seconds=2),
@@ -155,9 +157,9 @@ async def test_locked_oldest_stream_event_does_not_block_another_alarm(
         assert await dispatch_pending_alarm_events(resume_session, redis, logger=logger) == 2
 
     assert [(job["alarm_id"], job["event_type"]) for job in redis.jobs] == [
-        (str(second_alarm_id), constants.EVENT_ALARM_CREATED),
-        (str(first_alarm_id), constants.EVENT_ALARM_CREATED),
-        (str(first_alarm_id), constants.EVENT_ALARM_STATE_CHANGED),
+        (str(second_alarm_id), EVENT_ALARM_CREATED),
+        (str(first_alarm_id), EVENT_ALARM_CREATED),
+        (str(first_alarm_id), EVENT_ALARM_STATE_CHANGED),
     ]
 
     async with postgres_sessionmaker() as session:
@@ -190,7 +192,7 @@ async def test_delayed_publication_commits_one_complete_short_batch_before_budge
                     _alarm(alarm_id, "postgres-outbox-batch"),
                     AlarmEventOutbox(
                         alarm_id=alarm_id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         payload={},
                     ),
                 )
@@ -228,7 +230,7 @@ async def test_commit_failure_stops_before_a_second_postgres_batch(
                     _alarm(alarm_id, "postgres-outbox-commit-failure"),
                     AlarmEventOutbox(
                         alarm_id=alarm_id,
-                        event_type=constants.EVENT_ALARM_CREATED,
+                        event_type=EVENT_ALARM_CREATED,
                         payload={},
                     ),
                 )

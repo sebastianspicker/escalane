@@ -47,13 +47,16 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "optional": "optional",
         "responder_name": "Your name",
         "acknowledge_alarm": "Acknowledge alarm",
-        "acknowledge_help": "Confirm that you are taking ownership of this alarm.",
+        "acknowledge_help": (
+            "Acknowledge to tell the desk you have this alarm. "
+            "Escalation to the next contact stops."
+        ),
         "back_to_worklist": "Back to worklist",
         "try_again": "Try again",
         "error": "Something went wrong",
         "error_help": "The requested action could not be completed.",
         "close": "Close",
-        "refresh_available": "New alarm information is available.",
+        "refresh_available": "New alarm activity. Refresh to see it.",
         "refresh": "Refresh",
         "triggered": "Triggered",
         "acknowledged": "Acknowledged",
@@ -102,7 +105,7 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "import": "Import",
         "operations": "Operations",
         "manage": "Manage",
-        "worklist_help": "Review current alarm state, age, location, and ownership.",
+        "worklist_help": "Who raised each alarm, where, how long ago, and who has it.",
         "alarm_counts": "Alarm counts by status",
         "search_alarms": "Search alarms",
         "search_hint": "ID, person, room, source, or event",
@@ -131,7 +134,7 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "open": "Open",
         "open_alarm": "Open alarm {id}",
         "no_alarms_help": "Change the search or status filter to see other alarms.",
-        "selected_alarms": "Selected alarms",
+        "selected_alarms": "selected",
         "action": "Action",
         "required_for_cancel": "required for cancellation",
         "reason_required_for_cancel": "Reason required for cancellation",
@@ -147,16 +150,16 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "keep_alarm_open": "Keep alarm open",
         "responder_action": "Responder action",
         "acknowledgement_complete": (
-            "This alarm has already been acknowledged. You may close this page."
+            "Someone already has this alarm, or it has been closed. "
+            "There is nothing more to do here."
         ),
         "sign_in_context": (
-            "A focused work surface for alarm intake, acknowledgement, and escalation."
+            "The operator console for alarm intake, acknowledgement, and escalation. "
+            "Every action is recorded with your name."
         ),
         "configuration_help": (
             "Maintain versioned operational master data. Changes are recorded in the audit log."
         ),
-        "add_resource": "Add {resource}",
-        "add_resource_action": "Add {resource}",
         "existing_resources": "Existing {resource}",
         "active": "Active",
         "inactive": "Inactive",
@@ -209,6 +212,36 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "reference": "Reference",
         "return_to_safe_page": "Return to previous view",
         "saved": "Changes saved.",
+        "public_alpha_notice": "Public alpha. Not validated for emergency response.",
+        "sign_in_headline": "Every alarm stays open until someone takes it.",
+        "summary_triggered": "waiting for someone",
+        "summary_acknowledged": "in hand, still open",
+        "summary_resolved": "closed with an outcome",
+        "summary_cancelled": "withdrawn",
+        "acknowledge_operator_help": "Takes ownership and stops further escalation.",
+        "alarm_closed_help": "This alarm is closed. You can still add a note.",
+        "open_full_detail": "Open full alarm detail",
+        "alarm_from": "Alarm from",
+        "add_name_or_note": "Add your name or a note",
+        "alarm_acknowledged": "Alarm acknowledged. Escalation has stopped.",
+        "alarm_acknowledged_delivery_pending": (
+            "Alarm acknowledged. Notifications are queued for the worker."
+        ),
+        "flash_acknowledged": "Alarm acknowledged. Escalation has stopped.",
+        "flash_acknowledged_pending": (
+            "Alarm acknowledged. Notifications are queued for the worker."
+        ),
+        "flash_resolved": "Alarm resolved.",
+        "flash_resolved_pending": "Alarm resolved. Notifications are queued for the worker.",
+        "flash_cancelled": "Alarm cancelled. The reason is recorded in the activity.",
+        "flash_cancelled_pending": "Alarm cancelled. Notifications are queued for the worker.",
+        "flash_bulk": "{changed} changed · {unchanged} already in that state · {missing} not found",
+        "note_added": "Note added to the activity.",
+        "alarm_deleted": "Alarm removed from the worklist.",
+        "add_sites": "Add site",
+        "add_rooms": "Add room",
+        "add_people": "Add person",
+        "add_devices": "Add device",
     },
     "de": {
         "product_name": "Escalane",
@@ -250,13 +283,16 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "optional": "optional",
         "responder_name": "Ihr Name",
         "acknowledge_alarm": "Alarm übernehmen",
-        "acknowledge_help": "Bestätigen Sie, dass Sie diesen Alarm übernehmen.",
+        "acknowledge_help": (
+            "Übernehmen Sie den Alarm, damit die Leitstelle weiß, dass Sie sich kümmern. "
+            "Die Eskalation an den nächsten Kontakt endet."
+        ),
         "back_to_worklist": "Zurück zur Übersicht",
         "try_again": "Erneut versuchen",
         "error": "Etwas ist schiefgelaufen",
         "error_help": "Die gewünschte Aktion konnte nicht abgeschlossen werden.",
         "close": "Schließen",
-        "refresh_available": "Neue Alarminformationen sind verfügbar.",
+        "refresh_available": "Neue Alarmaktivität. Aktualisieren Sie die Ansicht.",
         "refresh": "Aktualisieren",
         "triggered": "Ausgelöst",
         "acknowledged": "Übernommen",
@@ -305,7 +341,9 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "import": "Import",
         "operations": "Betrieb",
         "manage": "Verwalten",
-        "worklist_help": "Aktuellen Status, Alter, Ort und Übernahme der Alarme prüfen.",
+        "worklist_help": (
+            "Wer den Alarm ausgelöst hat, wo, vor wie langer Zeit und wer ihn übernommen hat."
+        ),
         "alarm_counts": "Alarmanzahl nach Status",
         "search_alarms": "Alarme suchen",
         "search_hint": "ID, Person, Raum, Quelle oder Ereignis",
@@ -334,7 +372,7 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "open": "Öffnen",
         "open_alarm": "Alarm {id} öffnen",
         "no_alarms_help": "Ändern Sie Suche oder Statusfilter, um andere Alarme anzuzeigen.",
-        "selected_alarms": "Ausgewählte Alarme",
+        "selected_alarms": "ausgewählt",
         "action": "Aktion",
         "required_for_cancel": "bei Stornierung erforderlich",
         "reason_required_for_cancel": "Begründung bei Stornierung erforderlich",
@@ -351,16 +389,15 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "keep_alarm_open": "Alarm geöffnet lassen",
         "responder_action": "Aktion für Einsatzkräfte",
         "acknowledgement_complete": (
-            "Dieser Alarm wurde bereits übernommen. Sie können diese Seite schließen."
+            "Dieser Alarm ist bereits übernommen oder abgeschlossen. Hier ist nichts mehr zu tun."
         ),
         "sign_in_context": (
-            "Eine fokussierte Arbeitsoberfläche für Alarmannahme, Übernahme und Eskalation."
+            "Die Bedienoberfläche für Alarmannahme, Übernahme und Eskalation. "
+            "Jede Aktion wird mit Ihrem Namen protokolliert."
         ),
         "configuration_help": (
             "Versionierte Betriebsdaten verwalten. Änderungen werden protokolliert."
         ),
-        "add_resource": "{resource} hinzufügen",
-        "add_resource_action": "{resource} hinzufügen",
         "existing_resources": "Vorhandene {resource}",
         "active": "Aktiv",
         "inactive": "Inaktiv",
@@ -419,6 +456,36 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "reference": "Referenz",
         "return_to_safe_page": "Zur vorherigen Ansicht",
         "saved": "Änderungen gespeichert.",
+        "public_alpha_notice": "Öffentliche Alpha. Nicht für den Notfalleinsatz validiert.",
+        "sign_in_headline": "Jeder Alarm bleibt offen, bis ihn jemand übernimmt.",
+        "summary_triggered": "wartet auf Übernahme",
+        "summary_acknowledged": "in Bearbeitung, noch offen",
+        "summary_resolved": "mit Ergebnis abgeschlossen",
+        "summary_cancelled": "zurückgezogen",
+        "acknowledge_operator_help": "Übernimmt den Alarm und beendet die weitere Eskalation.",
+        "alarm_closed_help": "Dieser Alarm ist abgeschlossen. Notizen sind weiterhin möglich.",
+        "open_full_detail": "Vollständige Alarmdetails öffnen",
+        "alarm_from": "Alarm aus",
+        "add_name_or_note": "Namen oder Notiz hinzufügen",
+        "alarm_acknowledged": "Alarm übernommen. Die Eskalation ist beendet.",
+        "alarm_acknowledged_delivery_pending": (
+            "Alarm übernommen. Benachrichtigungen warten auf den Worker."
+        ),
+        "flash_acknowledged": "Alarm übernommen. Die Eskalation ist beendet.",
+        "flash_acknowledged_pending": "Alarm übernommen. Benachrichtigungen warten auf den Worker.",
+        "flash_resolved": "Alarm abgeschlossen.",
+        "flash_resolved_pending": "Alarm abgeschlossen. Benachrichtigungen warten auf den Worker.",
+        "flash_cancelled": "Alarm storniert. Der Grund steht im Verlauf.",
+        "flash_cancelled_pending": "Alarm storniert. Benachrichtigungen warten auf den Worker.",
+        "flash_bulk": (
+            "{changed} geändert · {unchanged} bereits in diesem Status · {missing} nicht gefunden"
+        ),
+        "note_added": "Notiz zum Verlauf hinzugefügt.",
+        "alarm_deleted": "Alarm aus der Übersicht entfernt.",
+        "add_sites": "Standort hinzufügen",
+        "add_rooms": "Raum hinzufügen",
+        "add_people": "Person hinzufügen",
+        "add_devices": "Gerät hinzufügen",
     },
 }
 

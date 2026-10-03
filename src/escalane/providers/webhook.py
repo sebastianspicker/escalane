@@ -155,110 +155,41 @@ def _pinned_request(
     return request_url, request_headers, {"sni_hostname": sni_hostname}
 
 
-async def _post_webhook_to_validated_address(
-    client: httpx.AsyncClient,
-    webhook_url: str,
-    payload: Any,
-    resolved_address: str,
-    target_id: str,
-    delivery_id: str,
-    timeout: float,
-) -> Exception | None:
-    """Post a JSON payload to one pinned address and return a retryable failure."""
-    request_url, request_headers, request_extensions = _pinned_request(
-        webhook_url,
-        resolved_address,
-        {"Content-Type": "application/json"},
-        delivery_id,
-    )
-    try:
-        response = await client.post(
-            request_url,
-            json=payload,
-            headers=request_headers,
-            extensions=request_extensions,
-            timeout=timeout,
-            follow_redirects=False,
-        )
-        response.raise_for_status()
-    except Exception as exc:
-        logger.warning(
-            "webhook_notification_address_failed",
-            extra={
-                "target_id": target_id,
-                "url": redact_url_for_logging(webhook_url),
-                "error": _safe_transport_error(exc),
-            },
-        )
-        if not _is_retryable_transport_error(exc):
-            raise
-        return exc
-    return None
-
-
-async def post_webhook_to_validated_addresses(
-    webhook_url: str,
-    payload: Any,
-    resolved_addresses: Sequence[str],
-    target_id: str,
-    delivery_id: str,
-    timeout: float,
-    *,
-    client_pool: WebhookClientPool | None = None,
-) -> None:
-    """Post JSON within the caller's total budget to prevalidated pinned addresses."""
-    last_error: Exception = SSRFError("Webhook URL has no validated global addresses")
-    retryable_error: Exception | None = None
-    async with asyncio.timeout(float(timeout)):
-        if client_pool is None:
-            client_context = _temporary_webhook_client(float(timeout))
-        else:
-            client_context = client_pool.client_for(webhook_url)
-        async with client_context as client:
-            for address in resolved_addresses:
-                retryable_error = await _post_webhook_to_validated_address(
-                    client, webhook_url, payload, address, target_id, delivery_id, float(timeout)
-                )
-                if retryable_error is None:
-                    return
-                last_error = retryable_error
-    raise retryable_error or last_error
-
-
-@asynccontextmanager
-async def _temporary_webhook_client(timeout: float):
-    """Provide backward-compatible one-shot transport outside worker ownership."""
-    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-        yield client
-
-
 async def post_webhook_bytes_to_validated_addresses(
-    http: Any,
     webhook_url: str,
     payload_bytes: bytes,
     headers: Mapping[str, str],
-    timeout: float,
-    delivery_id: str,
     resolved_addresses: Sequence[str],
     *,
+    delivery_id: str,
+    timeout: float,
+    address_failed_event: str,
     log_extra: Mapping[str, Any],
+    log_permanent_failures: bool = False,
+    client: httpx.AsyncClient | None = None,
     client_pool: WebhookClientPool | None = None,
 ) -> None:
-    """Post bytes within one total budget, trying only prevalidated pinned addresses."""
+    """Post bytes within one total budget, trying only prevalidated pinned addresses.
+
+    Retryable transport failures move on to the next address; any other failure
+    stops immediately. The client comes from the pool, else the caller's
+    client, else a one-shot client bounded by ``timeout``.
+    """
     last_error: Exception = SSRFError("Webhook URL has no validated global addresses")
     async with asyncio.timeout(float(timeout)):
-        client_context = (
-            client_pool.client_for(webhook_url)
-            if client_pool is not None
-            else _provided_webhook_client(http)
-        )
-        async with client_context as client:
+        if client_pool is not None:
+            client_context = client_pool.client_for(webhook_url)
+        elif client is not None:
+            client_context = _provided_webhook_client(client)
+        else:
+            client_context = _temporary_webhook_client(float(timeout))
+        async with client_context as http:
             for address in resolved_addresses:
                 request_url, request_headers, extensions = _pinned_request(
                     webhook_url, address, headers, delivery_id
                 )
                 try:
-                    response = await client.post(
+                    response = await http.post(
                         request_url,
                         content=payload_bytes,
                         headers=request_headers,
@@ -268,16 +199,18 @@ async def post_webhook_bytes_to_validated_addresses(
                     )
                     response.raise_for_status()
                 except Exception as exc:
-                    if not _is_retryable_transport_error(exc):
+                    retryable = _is_retryable_transport_error(exc)
+                    if retryable or log_permanent_failures:
+                        logger.warning(
+                            address_failed_event,
+                            extra={
+                                **log_extra,
+                                "url": redact_url_for_logging(webhook_url),
+                                "error": _safe_transport_error(exc),
+                            },
+                        )
+                    if not retryable:
                         raise
-                    logger.warning(
-                        "webhook_delivery_address_failed",
-                        extra={
-                            **log_extra,
-                            "url": redact_url_for_logging(webhook_url),
-                            "error": _safe_transport_error(exc),
-                        },
-                    )
                     last_error = exc
                     continue
                 return
@@ -285,6 +218,13 @@ async def post_webhook_bytes_to_validated_addresses(
 
 
 @asynccontextmanager
-async def _provided_webhook_client(client: Any):
-    """Adapt the existing injected-client API to the pooled transport path."""
+async def _temporary_webhook_client(timeout: float):
+    """Provide a one-shot transport outside worker ownership."""
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+        yield client
+
+
+@asynccontextmanager
+async def _provided_webhook_client(client: httpx.AsyncClient):
+    """Adapt a caller-owned client to the pooled transport path."""
     yield client

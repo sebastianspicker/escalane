@@ -9,8 +9,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from escalane.alarms.enrichment import enrich_alarm_context
-from escalane.contracts.alarms import AlarmStatus
-from escalane.persistence.models import Alarm
+from escalane.persistence.models import Alarm, AlarmStatus
 from tests.support.assertions import expect
 
 pytestmark = [pytest.mark.unit]

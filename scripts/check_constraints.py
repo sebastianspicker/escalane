@@ -107,11 +107,8 @@ def validate() -> list[str]:
 
     expected_consumers = {
         "Makefile": ("python314-build.txt", "python314-runtime.txt", "python314-dev.txt"),
-        ".github/workflows/ci.yml": (
-            "python314-build.txt",
-            "python314-runtime.txt",
-            "python314-dev.txt",
-        ),
+        # CI runs the Makefile for runtime-constraint use; it installs only build and dev pins.
+        ".github/workflows/ci.yml": ("python314-build.txt", "python314-dev.txt"),
         "Dockerfile": ("python314-build.txt", "python314-runtime.txt"),
     }
     for relative_path, filenames in expected_consumers.items():

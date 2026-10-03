@@ -8,6 +8,11 @@ This file records notable changes to Escalane. It follows
 
 ### Changed
 
+- Redesigned the operator console, responder page and static demo
+  ("dark cockpit", see `docs/DESIGN_BRIEF.md`). Chrome is neutral, red marks
+  only triggered alarms, amber only acknowledged ones, and closed alarms stay
+  unlit. The interface uses self-hosted Atkinson Hyperlegible fonts (SIL
+  OFL), and phone layouts were reworked for the worklist and acknowledgement.
 - Moved the application to a root `src/escalane` package with explicit
   packages for configuration, persistence, security, providers, features,
   web routes, and workers.
@@ -16,16 +21,47 @@ This file records notable changes to Escalane. It follows
   checks, and release validation.
 - Decoupled feature inputs from HTTP requests by using application commands.
   Moved notification workflows and webhook transport into dedicated modules.
+- Moved alarm, master-data, policy, audit, and readiness queries and
+  transactions out of the web routes and into the `alarms`, `configuration`,
+  and `operations` features. The architecture check now rejects SQL, session
+  calls, HTTP framework imports outside `web`, and imports of private names
+  across modules.
+- Target webhooks and signed state webhooks now share address resolution and
+  one pinned-address transport. Each path keeps its own audit, metric, and
+  retry behavior. The escalation-step and acknowledgement-note rules moved
+  from the worker into `notifications`.
+- Replaced the `contracts` package and `config/constants.py` with types and
+  constants owned by their features. Moved the metrics registry into a
+  `telemetry` package.
+- CI, pre-commit, and the installed-wheel smoke check now run the Makefile
+  targets, so local and CI verification share one definition. Pull requests
+  also build and validate the Pages demo.
+- Reorganized `tests/` to mirror the source packages and consolidated the
+  shared test helpers. Tests no longer read a local `.env` file.
+- Updated pinned `pyjwt` to 2.15.1 and `urllib3` to 2.8.0 to clear
+  pip-audit advisories.
 
 ### Removed
 
 - Removed the nested service package, duplicate webhook implementation,
   obsolete worker and route facades, and unused internal exports.
+- Removed four exception classes that nothing raised (`ConnectorError`,
+  `RateLimitError`, `AuthenticationError`, `AuthorizationError`), along with
+  their unreachable handlers, two unused page-size constants, and the
+  unreferenced `design-preview/` directory.
 
 ### Fixed
 
 - Fixed worker startup when ARQ reads Redis settings directly from the worker
   class. Settings still load lazily and use the configured Redis connection.
+- Configuration edit forms now show stored values. They previously rendered
+  empty, so saving a record could clear its optional fields.
+- Unknown alarms and other missing records on console and responder routes
+  now render the localized error page instead of raw JSON. API routes keep
+  JSON errors.
+- Acknowledge, resolve, cancel and note confirmations now appear on the alarm
+  detail page instead of on the next worklist visit. Bulk, note and
+  acknowledgement messages no longer show raw message keys.
 
 ## [0.4.0-alpha.1]
 

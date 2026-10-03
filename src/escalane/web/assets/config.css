@@ -1,160 +1,331 @@
-/* Configuration, system, activity, simulation panels. */
+/* Configuration, import and policy editors, audit log, system readiness, simulation. */
 
 .configuration-layout {
   display: grid;
-  grid-template-columns: minmax(16rem, 0.85fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.4fr);
   align-items: start;
-  gap: 1rem;
+  gap: var(--space-6);
 }
 
 .configuration-layout .form-grid {
   grid-template-columns: 1fr;
 }
 
-.record-count {
-  min-width: 1.75rem;
-  padding: 0.15rem 0.4rem;
-  text-align: center;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-chip);
-  font-size: 0.75rem;
-  font-weight: 650;
+.form-panel {
+  position: sticky;
+  top: var(--space-6);
+}
+
+.form-panel .form-grid {
+  gap: var(--space-3);
+}
+
+.form-panel .button-primary {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.records-panel .section-heading {
+  margin-bottom: var(--space-3);
+}
+
+.records-panel .section-title {
+  margin: 0;
 }
 
 .resource-record {
-  margin-top: 0.55rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
-  background: var(--surface);
-  overflow: hidden;
+  border: var(--hairline) solid var(--line);
+  border-bottom-width: 0;
+  background: var(--surface-raised);
+}
+
+.resource-record:first-of-type {
+  border-radius: var(--radius-2) var(--radius-2) 0 0;
+}
+
+.resource-record:last-of-type {
+  border-bottom-width: var(--hairline);
+  border-radius: 0 0 var(--radius-2) var(--radius-2);
+}
+
+.resource-record:only-of-type {
+  border-radius: var(--radius-2);
 }
 
 .resource-record summary {
   display: flex;
-  min-height: 2.75rem;
+  min-height: var(--touch-target);
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 0.8rem;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
   cursor: pointer;
-  font-weight: 650;
-  font-size: 0.875rem;
+  list-style: none;
+}
+
+.resource-record summary::-webkit-details-marker {
+  display: none;
+}
+
+.resource-record summary::after {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  content: "+";
+}
+
+.resource-record[open] summary::after {
+  content: "\2212";
+}
+
+.resource-record summary:hover {
+  background: var(--surface-hover);
+}
+
+.resource-record summary .machine-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-record[open] {
+  background: var(--surface);
 }
 
 .resource-record[open] summary {
-  border-bottom: 1px solid var(--line);
+  border-bottom: var(--hairline) solid var(--line-soft);
 }
 
 .resource-record .form-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 0.85rem;
+  padding: var(--space-4);
 }
 
 .resource-state {
-  color: var(--ink-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
 }
 
 .resource-state.is-active {
-  color: var(--success);
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .record-actions {
-  padding: 0 0.85rem 0.85rem;
+  justify-content: flex-end;
+  padding: 0 var(--space-4) var(--space-4);
 }
 
-.code-editor {
-  min-height: 22rem;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  tab-size: 2;
-  border-radius: var(--radius-control);
+.records-panel .pagination {
+  justify-content: space-between;
+}
+
+/* Editors */
+.editor-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.editor-panel form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.editor-panel .notice {
+  margin: 0;
 }
 
 .editor-panel .button,
 .editor-panel .action-row {
-  margin-top: 0.75rem;
+  justify-self: start;
+  margin-top: var(--space-2);
 }
 
+.code-editor {
+  min-height: 24rem;
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* System readiness: unlit when ok, lit when not. */
 .system-list {
   display: grid;
-  gap: 1px;
+  gap: var(--hairline);
   margin: 0;
-  background: var(--line);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
   overflow: hidden;
+  background: var(--line-soft);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-2);
 }
 
 .system-list > div {
   display: grid;
-  grid-template-columns: minmax(9rem, 0.35fr) 1fr;
-  gap: 1rem;
-  padding: 0.8rem 0.9rem;
+  grid-template-columns: minmax(9rem, 14rem) 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   background: var(--surface);
-}
-
-.system-list dd {
-  display: grid;
-  grid-template-columns: minmax(5rem, auto) 1fr;
-  gap: 0.75rem;
-  margin: 0;
-}
-
-.system-list dd span {
-  color: var(--ink-muted);
-  font-weight: 400;
 }
 
 .system-list dt {
   margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 700;
   color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
+.system-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  font-weight: 400;
+}
+
+.system-list code {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+.system-state {
+  display: inline-flex;
+  min-width: 5.5rem;
+  min-height: 1.5rem;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.system-state::before {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border: 1.5px solid currentcolor;
+  border-radius: 50%;
+  content: "";
+}
+
+.system-state-ok::before {
+  background: currentcolor;
+}
+
+.system-state-disabled {
+  color: var(--ink-3);
+}
+
+.system-state-error,
+.system-state-missing,
+.system-state-stale {
+  padding: 0 var(--space-2);
+  color: var(--on-warning);
+  background: var(--warning-fill);
+  border-radius: var(--radius-1);
+}
+
+.system-state-enabled {
+  padding: 0 var(--space-2);
+  color: var(--caution);
+  background: var(--caution-wash);
+  border: var(--hairline) solid var(--caution-line);
+  border-radius: var(--radius-1);
+}
+
+/* Audit log: a ledger. */
 .audit-list {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-panel);
+  margin: 0;
+  padding: 0;
   overflow: hidden;
+  list-style: none;
   background: var(--surface);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-2);
 }
 
 .audit-list li {
   display: grid;
-  grid-template-columns: minmax(9rem, 0.3fr) 1fr;
-  gap: 1rem;
-  padding: 0.8rem 0.9rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line-soft);
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: var(--hairline) solid var(--line-soft);
+  font-size: var(--text-sm);
 }
 
 .audit-list li:last-child {
   border-bottom: 0;
 }
 
-.audit-list li > div {
-  display: grid;
-  grid-template-columns: minmax(7rem, 0.4fr) minmax(9rem, 0.7fr) 1fr;
-  gap: 0.75rem;
-  font-size: 0.8125rem;
+.audit-list li.empty-state {
+  display: block;
 }
 
 .audit-list time {
-  font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.9;
 }
 
+.audit-list li > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.5fr) minmax(10rem, 1fr) minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-4);
+}
+
+.audit-list code {
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+
+/* Simulation feed */
 .result-state {
-  color: var(--success);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: 700;
-  font-size: 0.8125rem;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
-/* Simulation table reuses table-scroll from worklist */
-.page-heading form {
-  margin: 0;
+@media (width <= 64rem) {
+  .configuration-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .form-panel {
+    position: static;
+  }
+}
+
+@media (width <= 40rem) {
+  .resource-record .form-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .system-list > div,
+  .audit-list li,
+  .audit-list li > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .code-editor {
+    min-height: 18rem;
+    font-size: var(--text-xs);
+  }
 }

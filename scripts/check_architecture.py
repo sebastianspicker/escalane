@@ -14,13 +14,13 @@ PACKAGE_NAMES = frozenset(
         "alarms",
         "config",
         "configuration",
-        "contracts",
         "notifications",
         "operations",
         "persistence",
         "providers",
         "runtime",
         "security",
+        "telemetry",
         "web",
         "worker",
     }
@@ -28,46 +28,74 @@ PACKAGE_NAMES = frozenset(
 # Cross-package dependencies deliberately present in the modular monolith.
 # Imports within a package are always allowed and are not package edges.
 ALLOWED_PACKAGE_EDGES: Mapping[str, frozenset[str]] = {
-    "alarms": frozenset({"config", "contracts", "operations", "persistence", "runtime"}),
+    "alarms": frozenset({"config", "persistence", "runtime", "telemetry"}),
     "config": frozenset(),
     "configuration": frozenset({"config", "persistence"}),
-    "contracts": frozenset(),
     "notifications": frozenset(
-        {"config", "contracts", "operations", "persistence", "providers", "security"}
+        {"alarms", "config", "persistence", "providers", "security", "telemetry"}
     ),
-    "operations": frozenset({"contracts", "persistence"}),
-    "persistence": frozenset({"config", "contracts"}),
+    "operations": frozenset({"persistence", "telemetry"}),
+    "persistence": frozenset({"config", "telemetry"}),
     "providers": frozenset({"security"}),
     "runtime": frozenset(),
     "security": frozenset(),
+    "telemetry": frozenset(),
     "web": frozenset(
         {
             "alarms",
             "config",
             "configuration",
-            "contracts",
             "operations",
             "persistence",
             "providers",
             "runtime",
             "security",
+            "telemetry",
         }
     ),
     "worker": frozenset(
         {
             "alarms",
             "config",
-            "contracts",
             "notifications",
             "operations",
             "persistence",
             "providers",
             "security",
+            "telemetry",
         }
     ),
 }
 REMOVED_NAMESPACES = frozenset(
-    {"api", "connectors", "core", "db", "services", "settings", "types", "constants"}
+    {
+        "api",
+        "connectors",
+        "constants",
+        "contracts",
+        "core",
+        "db",
+        "services",
+        "settings",
+        "types",
+    }
+)
+# HTTP frameworks are an inbound-adapter concern.
+FRAMEWORK_MODULES = frozenset({"fastapi", "starlette"})
+FRAMEWORK_PACKAGES = frozenset({"web"})
+# Inbound adapters delegate queries and transactions to feature modules; they may
+# hold an AsyncSession but not build SQL or drive the session directly.
+PERSISTENCE_FREE_ADAPTERS = frozenset({"web", "worker"})
+# SQLAlchemy submodules an adapter may import, per adapter. Everything under
+# sqlalchemy.ext.asyncio (the session type) is allowed. The worker additionally
+# imports sqlalchemy.exc because it classifies SQLAlchemyError for retries; that
+# is error handling, not SQL construction.
+ADAPTER_SQLALCHEMY_ALLOWED: Mapping[str, tuple[str, ...]] = {
+    "web": ("sqlalchemy.ext.asyncio",),
+    "worker": ("sqlalchemy.ext.asyncio", "sqlalchemy.exc"),
+}
+SESSION_DATA_CALLS = frozenset(
+    {"add", "add_all", "commit", "delete", "execute", "flush", "get", "refresh", "rollback"}
+    | {"scalar", "scalars"}
 )
 
 
@@ -123,6 +151,109 @@ def _imports(path: Path, package_root: Path = PACKAGE_ROOT) -> list[ImportRefere
     return imports
 
 
+def _external_modules(tree: ast.AST) -> list[tuple[str, int]]:
+    """Return absolute third-party module names imported anywhere in one module."""
+    modules: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend((alias.name, node.lineno) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.append((node.module, node.lineno))
+    return modules
+
+
+def _private_imports(tree: ast.AST) -> list[tuple[str, str, int]]:
+    """Return underscore-prefixed names imported from other Escalane modules."""
+    found: list[tuple[str, str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if node.module == "escalane" or node.module.startswith("escalane."):
+                found.extend(
+                    (node.module, alias.name, node.lineno)
+                    for alias in node.names
+                    if alias.name.startswith("_") and not alias.name.startswith("__")
+                )
+    return found
+
+
+def _mentions_async_session(annotation: ast.expr | None) -> bool:
+    """Return whether an annotation names AsyncSession in any spelling."""
+    if annotation is None:
+        return False
+    for node in ast.walk(annotation):
+        if isinstance(node, ast.Name) and node.id == "AsyncSession":
+            return True
+        if isinstance(node, ast.Attribute) and node.attr == "AsyncSession":
+            return True
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                parsed = ast.parse(node.value, mode="eval").body
+            except SyntaxError:
+                continue
+            if _mentions_async_session(parsed):
+                return True
+    return False
+
+
+def _session_names(tree: ast.AST) -> set[str]:
+    """Return names that hold an AsyncSession: `session` or annotated parameters."""
+    names = {"session"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            arguments = node.args
+            for argument in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]:
+                if _mentions_async_session(argument.annotation):
+                    names.add(argument.arg)
+            for variadic in (arguments.vararg, arguments.kwarg):
+                if variadic is not None and _mentions_async_session(variadic.annotation):
+                    names.add(variadic.arg)
+    return names
+
+
+def _persistence_access(tree: ast.AST, package: str) -> list[tuple[str, int]]:
+    """Return disallowed SQLAlchemy imports and direct session data calls."""
+    allowed = ADAPTER_SQLALCHEMY_ALLOWED[package]
+    found: list[tuple[str, int]] = []
+    for module, line in _external_modules(tree):
+        if (module == "sqlalchemy" or module.startswith("sqlalchemy.")) and not any(
+            module == prefix or module.startswith(f"{prefix}.") for prefix in allowed
+        ):
+            found.append((f"imports {module}", line))
+    session_names = _session_names(tree)
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in session_names
+            and node.func.attr in SESSION_DATA_CALLS
+        ):
+            found.append((f"calls {node.func.value.id}.{node.func.attr}()", node.lineno))
+    return found
+
+
+def _module_rules(path: Path, tree: ast.AST, package_root: Path, relative: Path) -> list[str]:
+    """Apply per-module adapter rules that complement the package edge table."""
+    violations: list[str] = []
+    source = _package_for(path, package_root)
+    if source not in FRAMEWORK_PACKAGES:
+        for module, line in _external_modules(tree):
+            if module.split(".")[0] in FRAMEWORK_MODULES:
+                violations.append(
+                    f"{relative}:{line}: package {source!r} may not import HTTP framework {module}"
+                )
+    if source in PERSISTENCE_FREE_ADAPTERS:
+        violations.extend(
+            f"{relative}:{line}: {source} adapter {detail}; delegate to a feature module"
+            for detail, line in _persistence_access(tree, source)
+        )
+    violations.extend(
+        f"{relative}:{line}: imports private name {name} from {module}"
+        for module, name, line in _private_imports(tree)
+    )
+    return violations
+
+
 def _top_level(namespace: str) -> str | None:
     parts = namespace.split(".")
     return parts[1] if len(parts) > 1 else None
@@ -175,11 +306,13 @@ def check(
         relative = path.relative_to(repository_root)
         source = _package_for(path, package_root)
         try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             imported_references = _imports(path, package_root)
         except SyntaxError as error:
             line = error.lineno or 1
             violations.append(f"{relative}:{line}: cannot parse Python source: {error.msg}")
             continue
+        violations.extend(_module_rules(path, tree, package_root, relative))
         for imported in imported_references:
             target = _top_level(imported.namespace)
             reason = _violation(source, target)

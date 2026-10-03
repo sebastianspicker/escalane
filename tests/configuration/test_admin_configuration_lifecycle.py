@@ -9,7 +9,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from escalane.persistence.models import AdminAuditEvent, Device, EscalationPolicy, Site
-from tests.support.admin_test_helpers import csrf_token, logged_in_admin_client
+from tests.support.admin import csrf_token, logged_in_admin_client
 from tests.support.constants import TEST_ADMIN_API_KEY, value_for_test
 
 pytestmark = pytest.mark.integration

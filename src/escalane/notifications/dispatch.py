@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -10,9 +11,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.config import constants
+from escalane.alarms.enrichment import EnrichedAlarmContext
+from escalane.alarms.severity import PRIORITY_CRITICAL
 from escalane.config.settings import Settings
-from escalane.contracts.notifications import EnrichedAlarmContext, NotificationPayload
 from escalane.notifications import delivery as notification_delivery
 from escalane.notifications import (
     payloads as notification_payloads,
@@ -24,19 +25,26 @@ from escalane.notifications import (
     zammad as notification_zammad,
 )
 from escalane.notifications.formatting import format_alarm_message
-from escalane.operations.metrics import observe_latency, record_event
+from escalane.notifications.payloads import NotificationPayload
+from escalane.notifications.webhooks import (
+    WebhookAddresses,
+    WebhookDnsFailure,
+    resolve_webhook_addresses,
+)
 from escalane.persistence.models import Alarm, EscalationTarget
 from escalane.providers.base import SignalGroupProvider, SmsProvider, ZammadTicketProvider
-from escalane.providers.webhook import WebhookClientPool, post_webhook_to_validated_addresses
-from escalane.security.url_validation import (
-    RetryableSSRFError,
-    SSRFError,
-    redact_url_for_logging,
-    validate_url_not_internal,
-    validate_webhook_host_allowed,
-)
+from escalane.providers.webhook import WebhookClientPool, post_webhook_bytes_to_validated_addresses
+from escalane.security.url_validation import redact_url_for_logging
+from escalane.telemetry.metrics import observe_latency, record_event
 
 logger = logging.getLogger("escalane")
+
+
+def _target_webhook_body(payload: NotificationPayload) -> bytes:
+    """Serialize a target webhook body exactly as httpx's ``json=`` encoder does."""
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
+        "utf-8"
+    )
 
 
 class NotificationService:
@@ -73,8 +81,8 @@ class NotificationService:
         *,
         step_no: int,
         ack_url: str | None,
+        settings: Settings,
         policy_id: str = "default",
-        settings: Settings | None = None,
     ) -> None:
         """Build payload, fetch escalation targets, dispatch to each enabled channel."""
         payload = self._build_notification_payload(
@@ -147,7 +155,7 @@ class NotificationService:
             step_no=step_no,
         )
 
-        severity = enriched.get("severity", constants.PRIORITY_CRITICAL)
+        severity = enriched.get("severity", PRIORITY_CRITICAL)
         priority = notification_payloads.priority_for_severity(severity)
         title = notification_payloads.build_title(enriched, step_no)
         tags = notification_payloads.build_tags(step_no, severity)
@@ -166,7 +174,7 @@ class NotificationService:
         session: AsyncSession,
         target: EscalationTarget,
         payload: NotificationPayload,
-        settings: Settings | None = None,
+        settings: Settings,
     ) -> bool:
         """Dispatch notification to the appropriate channel-specific method.
 
@@ -177,6 +185,7 @@ class NotificationService:
             session: Database session
             target: Target configuration with channel preference
             payload: Notification payload to send
+            settings: Runtime settings used by webhook delivery
         """
         if target.channel == "email":
             return await self._send_email_notifications(session, target, payload)
@@ -311,7 +320,7 @@ class NotificationService:
         session: AsyncSession,
         target: EscalationTarget,
         payload: NotificationPayload,
-        settings: Settings | None = None,
+        settings: Settings,
     ) -> bool:
         """Send webhook notification via HTTP POST.
 
@@ -321,6 +330,7 @@ class NotificationService:
             session: Database session
             target: Target with webhook configuration
             payload: Notification payload to send
+            settings: Webhook allowlist, scheme policy, and timeout
         """
         webhook_url = target.address
         if not webhook_url:
@@ -329,13 +339,11 @@ class NotificationService:
             )
             return True
 
-        resolved_addresses = await self._resolve_webhook_addresses(
+        resolved = await self._resolve_webhook_addresses(
             session, target, payload, webhook_url, settings
         )
-        if resolved_addresses is None:
-            return True
-        if not resolved_addresses:
-            return False
+        if isinstance(resolved, bool):
+            return resolved
 
         delivery_id = notification_delivery.notification_delivery_id(
             alarm_id=uuid.UUID(payload["alarm_id"]),
@@ -346,17 +354,16 @@ class NotificationService:
         try:
             started_at = time.monotonic()
             try:
-                await post_webhook_to_validated_addresses(
+                await post_webhook_bytes_to_validated_addresses(
                     webhook_url,
-                    payload,
-                    resolved_addresses,
-                    target.id,
-                    delivery_id,
-                    (
-                        settings.webhook_timeout_seconds
-                        if settings
-                        else Settings().webhook_timeout_seconds
-                    ),
+                    _target_webhook_body(payload),
+                    {"Content-Type": "application/json"},
+                    resolved,
+                    delivery_id=delivery_id,
+                    timeout=settings.webhook_timeout_seconds,
+                    address_failed_event="webhook_notification_address_failed",
+                    log_extra={"target_id": target.id},
+                    log_permanent_failures=True,
                     client_pool=self._webhook_pool,
                 )
             finally:
@@ -377,46 +384,33 @@ class NotificationService:
         target: EscalationTarget,
         payload: NotificationPayload,
         webhook_url: str,
-        settings: Settings | None,
-    ) -> tuple[str, ...] | list[str] | None:
+        settings: Settings,
+    ) -> tuple[str, ...] | bool:
         """Resolve safe addresses, distinguishing permanent blocks from retryable DNS.
 
-        ``None`` means a permanent SSRF/configuration rejection was recorded and
-        delivery should stop. An empty sequence means DNS failed transiently and
-        the worker should retry. A populated sequence is pinned for this attempt.
+        A tuple is pinned for this attempt. Otherwise the outcome was audited
+        and the returned flag is the channel result: ``True`` for a permanent
+        SSRF/configuration rejection, ``False`` for a DNS failure to retry.
         """
-        try:
-            allowed_hosts = settings.webhook_allowed_hosts if settings else ""
-            validate_webhook_host_allowed(webhook_url, allowed_hosts)
-            return await validate_url_not_internal(
-                webhook_url, allow_http=bool(settings and settings.simulation_enabled)
-            )
-        except RetryableSSRFError as e:
-            logger.warning(
-                "webhook_dns_unavailable",
-                extra={
-                    "target_id": target.id,
-                    "url": redact_url_for_logging(webhook_url),
-                    "error": str(e),
-                },
-            )
+        resolution = await resolve_webhook_addresses(webhook_url, settings)
+        if isinstance(resolution, WebhookAddresses):
+            return resolution.addresses
+        extra = {
+            "target_id": target.id,
+            "url": redact_url_for_logging(webhook_url),
+            "error": str(resolution.error),
+        }
+        if isinstance(resolution, WebhookDnsFailure):
+            logger.warning("webhook_dns_unavailable", extra=extra)
             await self._log_notification_result(
-                session, target, payload, "error", f"DNS resolution failed: {e}"
+                session, target, payload, "error", f"DNS resolution failed: {resolution.error}"
             )
-            return ()
-        except SSRFError as e:
-            logger.warning(
-                "webhook_ssrf_blocked",
-                extra={
-                    "target_id": target.id,
-                    "url": redact_url_for_logging(webhook_url),
-                    "error": str(e),
-                },
-            )
-            await self._log_notification_result(
-                session, target, payload, "skipped", f"SSRF blocked: {e}"
-            )
-            return None
+            return False
+        logger.warning("webhook_ssrf_blocked", extra=extra)
+        await self._log_notification_result(
+            session, target, payload, "skipped", f"SSRF blocked: {resolution.error}"
+        )
+        return True
 
     async def _log_notification_result(
         self,
@@ -487,6 +481,10 @@ class NotificationService:
             self._zammad,
             notification_payloads.build_zammad_ticket_payload(payload, self._zammad.config),
         )
+
+    def zammad_enabled(self) -> bool:
+        """Return whether ticket notes can be delivered to Zammad."""
+        return self._zammad.enabled()
 
     async def add_zammad_ack_note(
         self,

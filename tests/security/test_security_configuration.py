@@ -12,8 +12,8 @@ from escalane.config.settings import Settings
 from escalane.configuration.seed import apply_seed
 from escalane.web.main import create_app
 from tests.support.assertions import expect
+from tests.support.clients import app_client
 from tests.support.constants import EMPTY_SECRET_VALUE, TEST_ADMIN_API_KEY
-from tests.support.security_test_helpers import security_client
 
 pytestmark = [pytest.mark.security]
 
@@ -32,7 +32,7 @@ def _admin_settings() -> Settings:
 
 
 async def test_docs_and_openapi_disabled_by_default(engine, seeded_db, fake_redis):
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         docs = await client.get("/docs")
         openapi = await client.get("/openapi.json")
 
@@ -56,7 +56,7 @@ def test_default_admin_api_key_is_not_empty_in_dev(monkeypatch) -> None:
 
 
 async def test_invalid_alarm_id_rejected_with_422(engine, seeded_db, fake_redis) -> None:
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         get_resp = await client.get(
             "/v1/alarms/not-a-uuid",
             headers={"X-Admin-Key": TEST_ADMIN_API_KEY},
@@ -88,11 +88,11 @@ def test_admin_seed_rejects_malformed_content_length(content_length: str) -> Non
 
 
 def test_admin_seed_rejects_declared_content_length_over_seed_limit() -> None:
-    from escalane.configuration.importer import _MAX_SEED_BYTES
+    from escalane.configuration.importer import MAX_SEED_BYTES
     from escalane.web.routes.admin import _declared_seed_content_length
 
     with pytest.raises(HTTPException) as exc_info:
-        _declared_seed_content_length(str(_MAX_SEED_BYTES + 1))
+        _declared_seed_content_length(str(MAX_SEED_BYTES + 1))
 
     expect(exc_info.value.status_code == 413)
 
@@ -107,7 +107,7 @@ def test_admin_seed_rejects_pathologically_large_content_length_without_integer_
 
 
 async def test_admin_seed_invalid_json_returns_400(engine, seeded_db, fake_redis) -> None:
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         resp = await client.post(
             "/v1/admin/seed",
             headers={"X-Admin-Key": TEST_ADMIN_API_KEY, "Content-Type": "application/json"},
@@ -118,7 +118,7 @@ async def test_admin_seed_invalid_json_returns_400(engine, seeded_db, fake_redis
 
 
 async def test_admin_seed_invalid_yaml_returns_400(engine, seeded_db, fake_redis) -> None:
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         resp = await client.post(
             "/v1/admin/seed",
             headers={"X-Admin-Key": TEST_ADMIN_API_KEY, "Content-Type": "application/x-yaml"},
@@ -131,7 +131,7 @@ async def test_admin_seed_invalid_yaml_returns_400(engine, seeded_db, fake_redis
 async def test_admin_seed_accepts_application_yaml_content_type(
     engine, seeded_db, fake_redis
 ) -> None:
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         resp = await client.post(
             "/v1/admin/seed",
             headers={"X-Admin-Key": TEST_ADMIN_API_KEY, "Content-Type": "application/yaml"},
@@ -158,7 +158,7 @@ async def _submit_invalid_policy(engine, fake_redis, target_ids: list[str]):
         "steps": [{"step_no": 1, "after_seconds": 60, "target_ids": target_ids}],
     }
 
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         resp = await client.post(
             "/v1/admin/escalation-policy", headers={"X-Admin-Key": TEST_ADMIN_API_KEY}, json=payload
         )
@@ -191,7 +191,7 @@ async def test_policy_duplicate_step_target_rejected(engine, seeded_db, fake_red
 
 
 async def test_admin_seed_invalid_structure_returns_400(engine, seeded_db, fake_redis) -> None:
-    async with security_client(_admin_settings(), engine, fake_redis) as client:
+    async with app_client(settings=_admin_settings(), engine=engine, redis=fake_redis) as client:
         resp = await client.post(
             "/v1/admin/seed",
             headers={"X-Admin-Key": TEST_ADMIN_API_KEY, "Content-Type": "application/json"},

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from escalane.contracts.notifications import EnrichedAlarmContext
 from escalane.persistence.models import Alarm, Person, Room, Site
+
+
+class EnrichedAlarmContext(TypedDict):
+    """Context returned by enrich_alarm_context()."""
+
+    person_name: str | None
+    room_label: str | None
+    site_name: str | None
+    severity: str
 
 
 async def enrich_alarm_context(session: AsyncSession, alarm: Alarm) -> EnrichedAlarmContext:

@@ -58,7 +58,14 @@ where = ["src"]
 include = ["escalane*"]
 
 [tool.setuptools.package-data]
-"escalane.web" = ["templates/*.html", "assets/*.css", "assets/*.js", "assets/*.svg"]
+"escalane.web" = [
+    "templates/*.html",
+    "assets/*.css",
+    "assets/*.js",
+    "assets/*.svg",
+    "assets/*.woff2",
+    "assets/fonts-OFL.txt",
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "escalane.__version__"}

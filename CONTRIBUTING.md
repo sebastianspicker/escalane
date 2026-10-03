@@ -60,13 +60,20 @@ Tests are grouped by feature and by the parts of the system they exercise:
 ```text
 tests/
 ├── alarms/          lifecycle, triggers, and ordered outbox contracts
+├── config/          settings validation and domain errors
 ├── configuration/   seed, policy, and redacted admin-audit contracts
-├── contracts/       settings, runtime, persistence, and worker boundaries
-├── integration/     HTTP, worker, lifecycle, and operator workflows
-├── notifications/   provider delivery and audit behavior
+├── notifications/   delivery, dispatch, and audit behavior
+├── operations/      readiness, metric queries, and worker snapshots
+├── persistence/     engine, pool, and migration behavior
 ├── postgres/        opt-in live PostgreSQL concurrency checks
-├── security/        ingress and HTTP security regressions
-├── support/         test-only helpers
+├── providers/       Zammad, SendXMS, Signal, and webhook transport
+├── repository/      tooling, architecture, documentation, and Pages contracts
+├── runtime/         Redis atomics and rate-limit keys
+├── security/        ingress, URL validation, and HTTP security regressions
+├── support/         test-only fakes, factories, clients, and helpers
+├── telemetry/       metric identity and bounds
+├── web/             HTTP routes, admin console sessions, and public route table
+├── worker/          ARQ tasks, registration, and resource ownership
 └── conftest.py      shared SQLite application fixtures
 ```
 

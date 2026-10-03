@@ -36,28 +36,16 @@ jobs:
             pyproject.toml
             constraints/*.txt
 
-      - name: Check public repository hygiene
-        run: git ls-files --cached --others --exclude-standard -z | python scripts/verify_public_hygiene.py --null
-
       - name: Install dependencies
         run: |
           python -m pip install --constraint constraints/python314-build.txt --upgrade pip
           PIP_BUILD_CONSTRAINT=constraints/python314-build.txt python -m pip install --constraint constraints/python314-dev.txt -e ".[dev]"
 
-      - name: Check dependency constraints
-        run: python scripts/check_constraints.py
+      - name: Check constraints, formatting, lint, types, architecture and hygiene
+        run: make constraints-check lint type-check architecture-check hygiene-check PYTHON=python RUFF=ruff
 
-      - name: Check formatting
-        run: ruff format --check src tests migrations scripts
-
-      - name: Run linter
-        run: ruff check src tests migrations scripts
-
-      - name: Type check
-        run: python -m mypy src migrations scripts
-
-      - name: Check import architecture
-        run: python scripts/check_architecture.py
+      - name: Build and validate the Pages demo
+        run: make pages-build pages-check PYTHON=python
 
   test:
     runs-on: ubuntu-latest
@@ -107,9 +95,7 @@ jobs:
           PIP_BUILD_CONSTRAINT=constraints/python314-build.txt python -m pip install --constraint constraints/python314-dev.txt -e ".[dev]"
 
       - name: Run coverage contracts
-        run: |
-          python -m coverage run -m pytest -q --tb=short
-          python -m coverage report
+        run: make coverage PYTHON=python
 
       - name: Exercise PostgreSQL migrations and outbox concurrency
         run: make test-postgres-smoke PYTHON=python
@@ -139,15 +125,8 @@ jobs:
           python -m pip install --constraint constraints/python314-build.txt --upgrade pip
           PIP_BUILD_CONSTRAINT=constraints/python314-build.txt python -m pip install --constraint constraints/python314-dev.txt -e ".[dev]"
 
-      - name: Run bandit security audit
-        # Static translation labels trigger B105; all executable modules remain scanned.
-        run: |
-          bandit -q -r -x src/escalane/web/i18n.py src/escalane
-          # Script fixtures and fixed-argv Git inspection have reviewed low findings; enforce medium+.
-          bandit -q -ll -r scripts
-
-      - name: Run dependency vulnerability scan
-        run: pip-audit
+      - name: Run bandit security audit and dependency vulnerability scan
+        run: make audit PYTHON=python BANDIT=bandit PIP_AUDIT=pip-audit
 
   package:
     runs-on: ubuntu-latest
@@ -166,21 +145,11 @@ jobs:
             pyproject.toml
             constraints/*.txt
 
-      - name: Build wheel
+      - name: Build wheel and smoke test the installed package
         run: |
           python -m pip install --constraint constraints/python314-build.txt --upgrade pip
           python -m pip install --constraint constraints/python314-build.txt build
-          rm -rf src/escalane.egg-info build/lib
-          if test -d build; then find build -maxdepth 1 -type d -name 'bdist.*' -exec rm -rf {} +; fi
-          PIP_BUILD_CONSTRAINT=constraints/python314-build.txt python -m build --wheel
-          python scripts/validate_wheel.py dist/escalane-*.whl
-
-      - name: Smoke test installed wheel
-        run: |
-          python -m venv /tmp/escalane-wheel
-          /tmp/escalane-wheel/bin/python -m pip install --quiet --constraint constraints/python314-build.txt --upgrade pip
-          /tmp/escalane-wheel/bin/pip install --quiet --constraint constraints/python314-runtime.txt dist/escalane-*.whl
-          env -i HOME="$HOME" PATH="/tmp/escalane-wheel/bin:/usr/bin:/bin" PYTHONPATH="" /tmp/escalane-wheel/bin/python -c "from importlib.resources import files; from pathlib import Path; import escalane; import escalane.web.routes.admin_ui; import escalane.web.ack_presentation; origin = Path(escalane.__file__).resolve(); assert origin.is_relative_to(Path('/tmp/escalane-wheel')), origin; root = files('escalane.web'); assert root.joinpath('templates', 'base.html').is_file(); assert root.joinpath('templates', 'ack.html').is_file(); assert root.joinpath('assets', 'ui.css').is_file(); assert root.joinpath('assets', 'ui.js').is_file(); assert root.joinpath('assets', 'escalane-mark.svg').is_file()"
+          make package-check PYTHON=python
 
   build:
     runs-on: ubuntu-latest
