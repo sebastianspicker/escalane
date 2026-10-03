@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any, cast
 
@@ -14,6 +15,11 @@ from escalane.notifications.payloads import NotificationPayload
 from escalane.persistence.models import AlarmNotification
 
 logger = logging.getLogger("escalane")
+
+_ACKNOWLEDGEMENT_URL = re.compile(
+    r"https?://[^\s<>\"']+/a/[A-Za-z0-9_-]+(?:\?[^\s<>\"']*)?", re.IGNORECASE
+)
+_REDACTED_ACKNOWLEDGEMENT_URL = "[acknowledgement URL redacted]"
 
 
 class NotificationDeliveryError(RuntimeError):
@@ -95,6 +101,17 @@ def logical_delivery_key(payload: dict[str, Any] | NotificationPayload) -> str |
     return None
 
 
+def _redact_audit_secrets(value: Any) -> Any:
+    """Recursively remove acknowledgement capabilities from an audit-only copy."""
+    if isinstance(value, str):
+        return _ACKNOWLEDGEMENT_URL.sub(_REDACTED_ACKNOWLEDGEMENT_URL, value)
+    if isinstance(value, dict):
+        return {key: _redact_audit_secrets(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_audit_secrets(item) for item in value]
+    return value
+
+
 def payload_with_delivery_id(
     *,
     alarm_id: uuid.UUID,
@@ -103,7 +120,7 @@ def payload_with_delivery_id(
     payload: dict[str, Any] | NotificationPayload,
 ) -> dict[str, Any]:
     """Copy audit payload and attach its stable logical-delivery identity."""
-    audit_payload = dict(payload)
+    audit_payload = cast(dict[str, Any], _redact_audit_secrets(dict(payload)))
     audit_payload["delivery_id"] = notification_delivery_id(
         alarm_id=alarm_id,
         channel=channel,

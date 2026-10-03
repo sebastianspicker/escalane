@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,18 @@ def test_canonical_container_disables_uvicorn_access_logging() -> None:
     dockerfile = Path(__file__).resolve().parents[2] / "Dockerfile"
 
     expect('"--no-access-log"' in dockerfile.read_text(encoding="utf-8"))
+
+
+def test_development_server_disables_uvicorn_access_logging() -> None:
+    """The documented direct server must not log credential-bearing request targets."""
+    root = Path(__file__).resolve().parents[2]
+    command = subprocess.run(
+        ["make", "-n", "dev"], cwd=root, check=True, capture_output=True, text=True
+    ).stdout
+
+    expect("-m uvicorn escalane.web.main:app" in command)
+    expect("--reload" in command)
+    expect("--no-access-log" in command)
 
 
 async def test_untrusted_x_forwarded_for_does_not_bypass_ip_allowlist(

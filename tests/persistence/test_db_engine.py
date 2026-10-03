@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import StatementError
 
 from escalane.persistence.engine import _install_slow_query_listener, create_async_engine_from_url
 from tests.support.assertions import expect
@@ -68,6 +69,7 @@ class TestCreateAsyncEngineFromUrl:
 
         mock_create.assert_called_once_with(
             _SQLITE_URL,
+            hide_parameters=True,
             pool_pre_ping=True,
             pool_size=3,
             max_overflow=5,
@@ -88,6 +90,19 @@ class TestCreateAsyncEngineFromUrl:
             result = create_async_engine_from_url(_SQLITE_URL, slow_query_log_ms=0)
 
         expect(result is sentinel)
+
+    def test_hidden_statement_parameters_do_not_render_bearer_tokens(self):
+        token = "synthetic-ack-bearer-token"
+        error = StatementError(
+            "database failed",
+            "SELECT * FROM alarms WHERE ack_token = :token",
+            {"token": token},
+            RuntimeError("driver failed"),
+            hide_parameters=True,
+        )
+
+        expect(token not in str(error))
+        expect("SQL parameters hidden" in str(error))
 
 
 class TestInstallSlowQueryListener:

@@ -478,13 +478,10 @@ class TriggerService:
             return await self._handle_duplicate_alarm(existing_alarm)
         return TriggerResult.error(409, "An alarm for this token is already being created.")
 
-    async def _validate_device_for_trigger(
-        self, token: str, alarm_id: uuid.UUID
-    ) -> Device | TriggerResult:
-        """Validate device mapping and release the reservation when no alarm can be created."""
+    async def _validate_device_for_trigger(self, token: str) -> Device | TriggerResult:
+        """Validate device mapping before allocating token-derived Redis state."""
         device, device_error = await self.validate_device(token)
         if device_error or device is None:
-            await self.clear_idempotency(token, alarm_id)
             # Always 404: distinguishing "unknown token" (404) from "mapping incomplete"
             # (409) would let callers probe for valid device tokens.
             return TriggerResult.error(404, device_error or "Unknown device error")
@@ -542,17 +539,17 @@ class TriggerService:
         event: str | None,
         request_id: str | None,
     ) -> tuple[Alarm, Device] | TriggerResult:
-        """Perform rate limit, reservation, validation, and creation before dispatch begins."""
+        """Validate, rate limit, reserve, and create before dispatch begins."""
+        device_or_error = await self._validate_device_for_trigger(token)
+        if isinstance(device_or_error, TriggerResult):
+            return device_or_error
+
         if not await self.check_rate_limit(token):
             return self._rate_limit_error(token)
 
         alarm_id = await self._reserve_idempotency_key(token)
         if not alarm_id:
             return await self._handle_reservation_failure(token)
-
-        device_or_error = await self._validate_device_for_trigger(token, alarm_id)
-        if isinstance(device_or_error, TriggerResult):
-            return device_or_error
 
         alarm_or_error = await self._create_alarm_for_trigger(
             token=token,

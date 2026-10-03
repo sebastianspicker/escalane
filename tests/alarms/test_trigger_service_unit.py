@@ -329,7 +329,8 @@ async def test_process_trigger_empty_token_returns_400():
 
 
 async def test_process_trigger_rate_limit_exceeded_returns_429():
-    svc, _, r = _make_service()
+    svc, session, r = _make_service()
+    session.scalar = AsyncMock(return_value=_make_device())
     r.get = AsyncMock(return_value=None)  # no existing idempotency key
     r.eval = AsyncMock(return_value=999)  # far above limit
 
@@ -342,7 +343,7 @@ async def test_process_trigger_rate_limit_exceeded_returns_429():
 
 
 async def test_process_trigger_unknown_device_returns_404():
-    svc, _, _ = _make_process_service()
+    svc, _, redis = _make_process_service()
 
     result = await svc.process_trigger(
         token=UNKNOWN_PROCESS_TOKEN, client_ip="127.0.0.1", user_agent="test"
@@ -350,6 +351,8 @@ async def test_process_trigger_unknown_device_returns_404():
 
     expect(not result.success)
     expect(result.error_code == 404)
+    redis.eval.assert_not_awaited()
+    redis.set.assert_not_awaited()
 
 
 async def test_process_trigger_device_mapping_incomplete_returns_404():
@@ -365,7 +368,8 @@ async def test_process_trigger_device_mapping_incomplete_returns_404():
 
 async def test_process_trigger_idempotency_reservation_failure_no_existing_alarm():
     """reserve_alarm_id returns None and no existing alarm → 500."""
-    svc, _, r = _make_service()
+    svc, session, r = _make_service()
+    session.scalar = AsyncMock(return_value=_make_device())
     r.get = AsyncMock(return_value=None)  # no initial duplicate
     r.eval = AsyncMock(return_value=1)
     r.set = AsyncMock(return_value=None)  # NX fails → reservation fails

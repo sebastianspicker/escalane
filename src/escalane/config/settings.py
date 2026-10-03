@@ -136,7 +136,7 @@ def _validate_settings_field(value: str, field_name: str | None) -> str:
 
 def _uses_default_database_password(database_url: str) -> bool:
     parsed_database_url = urlparse(database_url)
-    return unquote(parsed_database_url.password or "") == "change-me"
+    return unquote(parsed_database_url.password or "").lower() in {"change-me", "change_me"}
 
 
 def _default_database_password_message() -> str:

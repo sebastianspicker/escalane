@@ -31,7 +31,7 @@ constraints-refresh:
 	$(PYTHON) scripts/check_constraints.py
 
 dev:
-	$(PYTHON) -m uvicorn escalane.web.main:app --reload
+	$(PYTHON) -m uvicorn escalane.web.main:app --reload --no-access-log
 
 test:
 	$(PYTHON) -m pytest -q -p no:cacheprovider

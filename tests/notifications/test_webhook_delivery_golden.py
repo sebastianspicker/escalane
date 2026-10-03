@@ -217,7 +217,9 @@ TARGET_MESSAGE = (
 )
 TARGET_AUDIT_PAYLOAD = {
     "title": "ESKALATION Stufe 1 - Jörg Müller - Raum 1.23",
-    "body": TARGET_MESSAGE,
+    "body": TARGET_MESSAGE.replace(
+        "http://localhost:8080/a/golden-ack-token", "[acknowledgement URL redacted]"
+    ),
     "tags": ["silent"],
     "priority": 3,
     "step_no": 1,

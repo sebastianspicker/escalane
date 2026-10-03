@@ -27,6 +27,20 @@ from tests.support.notifications import (
 pytestmark = [pytest.mark.unit]
 
 
+class _StreamResult:
+    def __init__(self, response: object | None = None, error: Exception | None = None) -> None:
+        self.response = response
+        self.error = error
+
+    async def __aenter__(self) -> Any:
+        if self.error is not None:
+            raise self.error
+        return self.response
+
+    async def __aexit__(self, *_args: object) -> bool:
+        return False
+
+
 async def test_webhook_transport_shares_one_client_and_timeout_across_failover() -> None:
     """Validated-address failover stays inside one client and timeout budget."""
     _svc, _session, _target, payload = await delivery_context("webhook")
@@ -46,11 +60,11 @@ async def test_webhook_transport_shares_one_client_and_timeout_across_failover()
         async def __aexit__(self, *_args: object) -> bool:
             return False
 
-        async def post(self, url: str, **_kwargs: object) -> MagicMock:
+        def stream(self, _method: str, url: str, **_kwargs: object) -> _StreamResult:
             attempts.append(url)
             if len(attempts) == 1:
-                raise httpx.ConnectError("first address unavailable")
-            return MagicMock(raise_for_status=MagicMock())
+                return _StreamResult(error=httpx.ConnectError("first address unavailable"))
+            return _StreamResult(MagicMock(raise_for_status=MagicMock()))
 
     timeout_factory = MagicMock(return_value=OverallTimeout())
     client_factory = MagicMock(return_value=FailoverClient())
@@ -89,10 +103,10 @@ async def test_webhook_transport_preserves_final_retryable_error_and_safe_logs(c
         async def __aexit__(self, *_args: object) -> bool:
             return False
 
-        async def post(self, url: str, **_kwargs: object) -> None:
+        def stream(self, _method: str, url: str, **_kwargs: object) -> _StreamResult:
             error = httpx.ConnectError(f"delivery failed for {url}")
             failures.append(error)
-            raise error
+            return _StreamResult(error=error)
 
     caplog.set_level(logging.WARNING, logger="escalane")
     with patch("escalane.providers.webhook.httpx.AsyncClient", return_value=FailingClient()):
@@ -276,7 +290,7 @@ async def test_send_webhook_success_logs_ok():
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.stream = MagicMock(return_value=_StreamResult(mock_response))
 
     with patch(
         "escalane.notifications.webhooks.validate_url_not_internal",
@@ -296,7 +310,7 @@ async def test_send_webhook_success_logs_ok():
                 )
 
     mock_log.assert_called_once_with(session, target, payload, "ok")
-    expect("X-Alarm-Delivery-ID" in mock_client.post.await_args.kwargs["headers"])
+    expect("X-Alarm-Delivery-ID" in mock_client.stream.call_args.kwargs["headers"])
 
 
 async def test_send_webhook_fails_over_to_second_validated_address():
@@ -314,11 +328,11 @@ async def test_send_webhook_fails_over_to_second_validated_address():
         async def __aexit__(self, *_args):
             return False
 
-        async def post(self, url, *, headers, extensions, **_kwargs):
+        def stream(self, _method, url, *, headers, extensions, **_kwargs):
             attempts.append((url, headers, extensions))
             if "1.1.1.1" in url:
-                raise httpx.ConnectError("first address unavailable")
-            return MagicMock(raise_for_status=MagicMock())
+                return _StreamResult(error=httpx.ConnectError("first address unavailable"))
+            return _StreamResult(MagicMock(raise_for_status=MagicMock()))
 
     with patch(
         "escalane.notifications.webhooks.validate_url_not_internal",
@@ -363,9 +377,9 @@ async def test_send_webhook_stops_on_permanent_response() -> None:
         async def __aexit__(self, *_args):
             return False
 
-        async def post(self, url, **_kwargs):
+        def stream(self, _method, url, **_kwargs):
             attempts.append(url)
-            return response
+            return _StreamResult(response)
 
     with (
         patch(
@@ -411,9 +425,9 @@ async def test_send_webhook_logs_one_safe_error_when_all_validated_addresses_fai
         async def __aexit__(self, *_args):
             return False
 
-        async def post(self, url, **_kwargs):
+        def stream(self, _method, url, **_kwargs):
             attempts.append(url)
-            raise httpx.ConnectError(f"delivery failed for {url}")
+            return _StreamResult(error=httpx.ConnectError(f"delivery failed for {url}"))
 
     with patch(
         "escalane.notifications.webhooks.validate_url_not_internal",

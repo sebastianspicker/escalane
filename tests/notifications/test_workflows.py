@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import traceback
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -176,3 +177,84 @@ async def test_state_webhook_records_safe_failure_or_success(
         resolved_addresses=("1.1.1.1",),
     )
     assert audit.await_args.kwargs["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_state_webhook_retry_error_suppresses_secret_transport_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = MagicMock()
+    alarm = _alarm()
+    secret = "callback-secret-capability"
+    request = httpx.Request("POST", f"https://hooks.example.test/private/{secret}?token={secret}")
+    response = httpx.Response(503, request=request)
+    monkeypatch.setattr(workflows, "log_notification", AsyncMock())
+    monkeypatch.setattr(
+        workflows,
+        "post_webhook_bytes_to_validated_addresses",
+        AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "callback unavailable", request=request, response=response
+            )
+        ),
+    )
+
+    with pytest.raises(NotificationDeliveryError) as raised:
+        await workflows._send_state_webhook(
+            MagicMock(),
+            session=session,
+            alarm=alarm,
+            state="triggered",
+            settings=_settings(),
+            payload_bytes=b"{}",
+            delivery_id="delivery",
+            resolved_addresses=("1.1.1.1",),
+        )
+
+    rendered = "".join(
+        traceback.format_exception(
+            type(raised.value), raised.value, raised.value.__traceback__, chain=True
+        )
+    )
+    assert secret not in rendered
+    assert raised.value.__cause__ is None
+
+
+@pytest.mark.asyncio
+async def test_state_webhook_audit_failure_does_not_chain_secret_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = MagicMock()
+    alarm = _alarm()
+    secret = "callback-audit-secret"
+    request = httpx.Request("POST", f"https://hooks.example.test/{secret}?token={secret}")
+    response = httpx.Response(503, request=request)
+    transport_error = httpx.HTTPStatusError(
+        "callback unavailable", request=request, response=response
+    )
+    audit_error = RuntimeError("audit unavailable")
+    monkeypatch.setattr(
+        workflows,
+        "post_webhook_bytes_to_validated_addresses",
+        AsyncMock(side_effect=transport_error),
+    )
+    monkeypatch.setattr(workflows, "log_notification", AsyncMock(side_effect=audit_error))
+
+    with pytest.raises(RuntimeError) as raised:
+        await workflows._send_state_webhook(
+            MagicMock(),
+            session=session,
+            alarm=alarm,
+            state="triggered",
+            settings=_settings(),
+            payload_bytes=b"{}",
+            delivery_id="delivery",
+            resolved_addresses=("1.1.1.1",),
+        )
+
+    rendered = "".join(
+        traceback.format_exception(
+            type(raised.value), raised.value, raised.value.__traceback__, chain=True
+        )
+    )
+    assert secret not in rendered

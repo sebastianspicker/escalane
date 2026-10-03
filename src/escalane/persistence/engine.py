@@ -28,6 +28,7 @@ def create_async_engine_from_url(
     """Create a pre-pinged async pool and attach timing only when operators request it."""
     engine = create_async_engine(
         database_url,
+        hide_parameters=True,
         pool_pre_ping=True,
         pool_size=pool_size,
         max_overflow=max_overflow,

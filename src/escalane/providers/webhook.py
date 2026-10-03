@@ -189,15 +189,16 @@ async def post_webhook_bytes_to_validated_addresses(
                     webhook_url, address, headers, delivery_id
                 )
                 try:
-                    response = await http.post(
+                    async with http.stream(
+                        "POST",
                         request_url,
                         content=payload_bytes,
                         headers=request_headers,
                         timeout=float(timeout),
                         extensions=extensions,
                         follow_redirects=False,
-                    )
-                    response.raise_for_status()
+                    ) as response:
+                        response.raise_for_status()
                 except Exception as exc:
                     retryable = _is_retryable_transport_error(exc)
                     if retryable or log_permanent_failures:

@@ -220,9 +220,13 @@ def test_simulation_keeps_incomplete_connector_configuration_explicit() -> None:
     expect(not settings.is_webhook_enabled())
 
 
-def test_production_rejects_explicit_default_database_password() -> None:
+@pytest.mark.parametrize(
+    "password",
+    ["change-me", "CHANGE-ME", "change_me", "CHANGE_ME", "CHANGE%5FME"],
+)
+def test_production_rejects_explicit_default_database_password(password: str) -> None:
     with pytest.raises(ValidationError, match="default DATABASE_URL password"):
-        _production_settings(database_url="postgresql+asyncpg://alarm:change-me@db:5432/alarm")
+        _production_settings(database_url=f"postgresql+asyncpg://alarm:{password}@db:5432/alarm")
 
 
 def test_production_rejects_url_encoded_default_database_password() -> None:

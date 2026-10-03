@@ -325,6 +325,7 @@ async def _send_state_webhook(
     webhook_client_pool: WebhookClientPool | None = None,
 ) -> None:
     """Send and audit a state callback, surfacing only retryable failures."""
+    delivery_error: Exception | None = None
     try:
         started_at = time.monotonic()
         try:
@@ -343,7 +344,10 @@ async def _send_state_webhook(
         finally:
             observe_latency("provider_delivery", time.monotonic() - started_at)
     except Exception as exc:
-        safe_error = safe_delivery_error(exc)
+        delivery_error = exc
+
+    if delivery_error is not None:
+        safe_error = safe_delivery_error(delivery_error)
         logger.error(
             "webhook_delivery_failed",
             extra={"alarm_id": str(alarm.id), "state": state, "error": safe_error},
@@ -354,12 +358,12 @@ async def _send_state_webhook(
             channel="webhook",
             target_id=None,
             payload={"state": state},
-            result="error" if is_retryable_delivery_error(exc) else "permanent_error",
+            result="error" if is_retryable_delivery_error(delivery_error) else "permanent_error",
             error=safe_error,
         )
         record_event("webhook_delivery_error")
-        if is_retryable_delivery_error(exc):
-            raise NotificationDeliveryError("State webhook delivery failed") from exc
+        if is_retryable_delivery_error(delivery_error):
+            raise NotificationDeliveryError("State webhook delivery failed") from None
         return
     await log_notification(
         session,

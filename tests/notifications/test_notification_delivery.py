@@ -79,6 +79,47 @@ async def test_log_notification_adds_deterministic_delivery_payload_and_commits(
     session.commit.assert_awaited_once()
 
 
+async def test_log_notification_recursively_redacts_acknowledgement_urls_from_audit_copy() -> None:
+    session = await noop_session()
+    secret = "ack-secret-capability"
+    ack_url = f"https://alarm.example.test/a/{secret}?lang=de"
+    payload = {
+        "body": f"Alarm\nQuittieren: {ack_url}",
+        "nested": [{"url": ack_url}],
+    }
+
+    await log_notification(
+        session,
+        alarm_id=ALARM_ID,
+        channel="signal",
+        target_id="group-1",
+        payload=payload,
+        result="ok",
+    )
+
+    audit_payload = session.add.call_args.args[0].payload
+    assert secret in payload["body"]
+    assert secret not in str(audit_payload)
+    assert audit_payload["body"].endswith("[acknowledgement URL redacted]")
+    assert audit_payload["nested"] == [{"url": "[acknowledgement URL redacted]"}]
+
+
+async def test_log_notification_redacts_acknowledgement_url_with_uppercase_scheme() -> None:
+    session = await noop_session()
+    secret = "uppercase-scheme-secret"
+
+    await log_notification(
+        session,
+        alarm_id=ALARM_ID,
+        channel="sms",
+        target_id="target-1",
+        payload={"body": f"Quittieren: HTTP://localhost:8080/a/{secret}"},
+        result="ok",
+    )
+
+    assert secret not in str(session.add.call_args.args[0].payload)
+
+
 @pytest.mark.parametrize(
     ("payload", "expected"),
     [

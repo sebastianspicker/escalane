@@ -72,6 +72,9 @@ make install
 make dev
 ```
 
+The development target disables Uvicorn access logs because trigger query
+parameters and acknowledgement paths contain bearer credentials.
+
 Start the worker in another shell:
 
 ```bash
@@ -103,7 +106,8 @@ variables you will usually set:
 | `ENABLE_API_DOCS` | Enables OpenAPI and the interactive API documentation |
 
 [Integrations](INTEGRATIONS.md) lists the provider settings and their validation
-rules. Placeholder credentials are suitable only for local simulation.
+rules. Placeholder credentials are suitable only for local simulation;
+production startup rejects both `change-me` and `CHANGE_ME` database passwords.
 
 ## Work with pinned dependencies
 
