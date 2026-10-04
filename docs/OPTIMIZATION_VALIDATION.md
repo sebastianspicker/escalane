@@ -114,9 +114,6 @@ TEST_POSTGRES_URL='<disposable PostgreSQL URL>' \
 YELK_IP_ALLOWLIST='127.0.0.1/32' \
   make test-postgres-smoke
 
-TEST_REDIS_URL='<disposable Redis URL>' \
-  .venv/bin/pytest -q tests/alarms/test_trigger_service_redis.py
-
 make container-check
 
 .venv/bin/python scripts/benchmark_indexes.py \

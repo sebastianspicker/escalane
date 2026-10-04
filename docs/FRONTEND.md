@@ -34,8 +34,7 @@ JavaScript is unavailable, the full alarm-detail page remains the destination.
 
 ## Design system
 
-The interface follows the "dark cockpit" direction recorded in the
-[design brief](DESIGN_BRIEF.md): chrome stays neutral, and hue is spent only
+The interface follows the "dark cockpit" direction used here: chrome stays neutral, and hue is spent only
 on alarms that still need a person.
 
 - **Colour roles.** Warning red (`--warning*`) marks triggered alarms, errors

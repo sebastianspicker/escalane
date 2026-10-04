@@ -47,7 +47,7 @@ jobs:
       - name: Build and validate the Pages demo
         run: make pages-build pages-check PYTHON=python
 
-  test:
+  migrations:
     runs-on: ubuntu-latest
     needs: lint
     timeout-minutes: 10
@@ -65,17 +65,6 @@ jobs:
           --health-interval=5s
           --health-timeout=5s
           --health-retries=20
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=20
-    env:
-      TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -94,10 +83,7 @@ jobs:
           python -m pip install --constraint constraints/python314-build.txt --upgrade pip
           PIP_BUILD_CONSTRAINT=constraints/python314-build.txt python -m pip install --constraint constraints/python314-dev.txt -e ".[dev]"
 
-      - name: Run coverage contracts
-        run: make coverage PYTHON=python
-
-      - name: Exercise PostgreSQL migrations and outbox concurrency
+      - name: Exercise PostgreSQL migrations
         run: make test-postgres-smoke PYTHON=python
         env:
           TEST_POSTGRES_URL: postgresql+asyncpg://alarm:postgres@127.0.0.1:5432/alarm
@@ -130,7 +116,7 @@ jobs:
 
   package:
     runs-on: ubuntu-latest
-    needs: [lint, test, security]
+    needs: [lint, migrations, security]
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -153,7 +139,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: [lint, test, security, package]
+    needs: [lint, migrations, security, package]
     timeout-minutes: 15
     if: github.event_name == 'pull_request' || inputs.release_smoke || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     steps:

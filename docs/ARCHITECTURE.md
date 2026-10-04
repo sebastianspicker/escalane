@@ -187,18 +187,14 @@ static site never connects to a running Escalane service.
   exceptions.
 - Add HTTP routes under `web/routes/` and register them explicitly in
   `ALL_ROUTERS`. Registration order matters where a literal path shares a
-  prefix with a parameterized one, and `tests/web/test_public_route_table.py`
-  pins it. Shared console rendering and session helpers live in `web/console.py`.
+  prefix with a parameterized one. Shared console rendering and session helpers live in `web/console.py`.
 - Put new provider transports behind the narrow protocols in `providers/`, and
   leave notification policy in `notifications/`.
 - Register new worker behavior as ARQ functions without changing existing
-  payload formats or job IDs. `tests/worker/test_worker_registration.py` pins
-  the registered functions and cron jobs.
+  payload formats or job IDs.
 - Represent each schema change with a new Alembic revision, update
   `EXPECTED_ALEMBIC_HEAD` in `operations/readiness.py`, and apply the revision
   before starting API or worker code that depends on it.
-- Put tests in the `tests/` directory that mirrors the source package, and put
-  shared fixtures and fakes in `tests/support/`.
 - Preserve existing HTTP routes, worker payloads, database schema, provider
   behavior, packaged templates and assets, and operator workflows unless a
   change explicitly updates them.

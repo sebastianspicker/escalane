@@ -2,7 +2,7 @@
  * Design tokens: the "dark cockpit" system.
  * Chrome is neutral graphite; hue is spent only on alarms that still need a
  * person. Warning red = triggered, caution amber = acknowledged and open.
- * Closed states and all interface chrome stay unlit. See docs/DESIGN_BRIEF.md.
+ * Closed states and all interface chrome stay unlit.
  */
 
 @font-face {

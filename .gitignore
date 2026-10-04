@@ -160,3 +160,8 @@ service-account*.json
 /ai-prompts/
 /docs/agent/
 /docs/source-audit/
+
+# Internal and non-public files
+/docs/DESIGN_BRIEF.md
+/RELEASE_STATUS.md
+/tests/

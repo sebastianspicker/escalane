@@ -9,7 +9,7 @@ This file records notable changes to Escalane. It follows
 ### Changed
 
 - Redesigned the operator console, responder page and static demo
-  ("dark cockpit", see `docs/DESIGN_BRIEF.md`). Chrome is neutral, red marks
+  ("dark cockpit"). Chrome is neutral, red marks
   only triggered alarms, amber only acknowledged ones, and closed alarms stay
   unlit. The interface uses self-hosted Atkinson Hyperlegible fonts (SIL
   OFL), and phone layouts were reworked for the worklist and acknowledgement.
@@ -36,8 +36,6 @@ This file records notable changes to Escalane. It follows
 - CI, pre-commit, and the installed-wheel smoke check now run the Makefile
   targets, so local and CI verification share one definition. Pull requests
   also build and validate the Pages demo.
-- Reorganized `tests/` to mirror the source packages and consolidated the
-  shared test helpers. Tests no longer read a local `.env` file.
 - Updated pinned `pyjwt` to 2.15.1 and `urllib3` to 2.8.0 to clear
   pip-audit advisories.
 

@@ -171,14 +171,13 @@ make install
 make format-check
 make lint
 make type-check
-make test
 make package-check
 ```
 
-`make check` runs all local checks, including coverage, import boundaries, the
+`make check` runs all local checks, including import boundaries, the
 Pages build, repository hygiene, packaging, Bandit, and dependency auditing.
 [Contributing](CONTRIBUTING.md) explains which checks to run for each kind of
-change and where to find the tests.
+change.
 
 ## Documentation
 

@@ -34,14 +34,15 @@ def requested_locale(request: Request, explicit: str | None) -> str:
 
 def local_redirect(target: str, *, fallback: str = "/admin") -> RedirectResponse:
     """Redirect with 303 only to a same-site absolute path, otherwise to the fallback path."""
-    parsed = urlparse(target)
+    candidate = target.replace("\\", "")
+    parsed = urlparse(candidate)
     if (
-        not parsed.scheme
-        and not parsed.netloc
-        and target.startswith("/")
-        and not target.startswith(("//", "/\\"))
+        parsed.scheme == ""
+        and parsed.netloc == ""
+        and candidate.startswith("/")
+        and not candidate.startswith("//")
     ):
-        return RedirectResponse(target, status_code=303)
+        return RedirectResponse(candidate, status_code=303)
     return RedirectResponse(fallback, status_code=303)
 
 

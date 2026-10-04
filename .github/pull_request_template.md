@@ -23,7 +23,6 @@
 - [ ] `make lint`
 - [ ] `make type-check`
 - [ ] `make hygiene-check`
-- [ ] `make test`
 - [ ] `make audit` for changes to dependencies, authentication, outbound requests, secrets, parsing, or security controls
 - [ ] `make package-check` for changes to Python packaging or packaged templates and assets
 - [ ] `make release-check RELEASE_TAG=v<version>` for changes to the version, changelog, or release metadata

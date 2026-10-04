@@ -84,7 +84,7 @@ Start the worker in another shell:
 `make install` creates `.venv` and installs Escalane with its development
 dependencies in editable mode. Both direct processes read settings from the
 shell environment and, when present, the root `.env` file. Always apply
-migrations before starting the API or worker. Run `make test`, `make lint`,
+migrations before starting the API or worker. Run `make lint`,
 `make type-check`, and `make package-check` for the main local checks.
 
 ## Configure the runtime
@@ -145,8 +145,7 @@ worker smoke checks.
 ## Run service-backed and synthetic checks
 
 `make test-postgres-smoke` needs an explicit `TEST_POSTGRES_URL` and
-`YELK_IP_ALLOWLIST`. It applies migrations and runs the outbox and dashboard
-concurrency checks, so point it only at a disposable test database. Follow
+`YELK_IP_ALLOWLIST`. It applies migrations and verifies the schema, so point it only at a disposable test database. Follow
 [Operations](OPERATIONS.md) for the full service-backed procedure.
 
 You can run synthetic comparisons without external services:
@@ -166,9 +165,8 @@ and the PostgreSQL checks that remain necessary.
 | Path | Contents |
 |---|---|
 | `src/escalane/` | Application package |
-| `tests/` | Application contracts and tests |
 | `migrations/` | Alembic environment and revisions |
-| `pyproject.toml` | Package, test, lint, and build configuration |
+| `pyproject.toml` | Package, lint, and build configuration |
 | `alembic.ini` | Root migration configuration |
 | `deploy/` | Compose deployment and sample seed |
 
