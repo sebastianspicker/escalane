@@ -30,7 +30,7 @@ from escalane.web.deps import (
     get_session,
     is_secure_request,
 )
-from escalane.web.i18n import SUPPORTED_LOCALES
+from escalane.web.i18n import SUPPORTED_LOCALES, canonical_locale
 from escalane.web.schemas import AckIn
 
 router = APIRouter()
@@ -184,7 +184,9 @@ async def ack_page(
         max_age=3600,
     )
     if lang in SUPPORTED_LOCALES:
-        response.set_cookie("ui_locale", selected_locale, max_age=31_536_000, samesite="lax")
+        response.set_cookie(
+            "ui_locale", canonical_locale(selected_locale), max_age=31_536_000, samesite="lax"
+        )
     return response
 
 

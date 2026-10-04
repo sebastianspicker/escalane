@@ -496,6 +496,14 @@ def normalise_locale(value: str | None) -> str:
     return candidate if candidate in SUPPORTED_LOCALES else DEFAULT_LOCALE
 
 
+def canonical_locale(value: str | None) -> str:
+    """Return the matching supported locale constant, never the caller-supplied string."""
+    for locale in SUPPORTED_LOCALES:
+        if locale == value:
+            return locale
+    return DEFAULT_LOCALE
+
+
 def translate(key: str, locale: str | None = None, **values: object) -> str:
     """Look up *key*, falling back to English and then to the key itself."""
     selected = normalise_locale(locale)

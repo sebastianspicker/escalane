@@ -8,6 +8,7 @@ separate Redis values so no privileged credential is serialized to HTML.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from dataclasses import dataclass
 from typing import NoReturn
@@ -37,7 +38,9 @@ def _key(token: str, field: str) -> str:
 
 def admin_key_marker(settings: Settings) -> str:
     """Derive the digest used only to invalidate sessions after key rotation."""
-    return hashlib.sha256(settings.admin_api_key.encode()).hexdigest()
+    return hmac.new(
+        settings.admin_api_key.encode(), b"escalane-admin-session-marker", hashlib.sha256
+    ).hexdigest()
 
 
 async def create_admin_session(redis, settings: Settings, operator_name: str) -> AdminSession:

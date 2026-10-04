@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from fastapi import Cookie, Depends, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from escalane.config.settings import Settings
 from escalane.web.admin_session import AdminSession, require_admin_session, validate_admin_csrf
 from escalane.web.deps import get_app_settings, get_redis
-from escalane.web.i18n import SUPPORTED_LOCALES, normalise_locale, translation_context
+from escalane.web.i18n import (
+    SUPPORTED_LOCALES,
+    canonical_locale,
+    normalise_locale,
+    translation_context,
+)
 from escalane.web.templating import render_template
 
 UiLanguage = Annotated[str | None, Query()]
@@ -19,11 +25,24 @@ UiSessionCookie = Annotated[str | None, Cookie()]
 
 def requested_locale(request: Request, explicit: str | None) -> str:
     if explicit in SUPPORTED_LOCALES:
-        return explicit
+        return canonical_locale(explicit)
     persisted = request.cookies.get("ui_locale")
     if persisted in SUPPORTED_LOCALES:
-        return persisted
-    return normalise_locale(request.headers.get("accept-language"))
+        return canonical_locale(persisted)
+    return canonical_locale(normalise_locale(request.headers.get("accept-language")))
+
+
+def local_redirect(target: str, *, fallback: str = "/admin") -> RedirectResponse:
+    """Redirect with 303 only to a same-site absolute path, otherwise to the fallback path."""
+    parsed = urlparse(target)
+    if (
+        not parsed.scheme
+        and not parsed.netloc
+        and target.startswith("/")
+        and not target.startswith(("//", "/\\"))
+    ):
+        return RedirectResponse(target, status_code=303)
+    return RedirectResponse(fallback, status_code=303)
 
 
 def base_context(request: Request, locale: str, **values: Any) -> dict[str, Any]:
@@ -53,7 +72,9 @@ def render_page(
         status_code=status_code,
     )
     if persist_locale:
-        response.set_cookie("ui_locale", locale, max_age=31_536_000, samesite="lax")
+        response.set_cookie(
+            "ui_locale", canonical_locale(locale), max_age=31_536_000, samesite="lax"
+        )
     return response
 
 

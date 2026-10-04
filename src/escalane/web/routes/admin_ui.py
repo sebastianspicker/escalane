@@ -28,7 +28,7 @@ from escalane.web.deps import (
     get_redis,
     is_secure_request,
 )
-from escalane.web.i18n import SUPPORTED_LOCALES
+from escalane.web.i18n import SUPPORTED_LOCALES, canonical_locale
 
 router = APIRouter()
 _FAILED_LOGIN_LIMIT = 5
@@ -100,7 +100,7 @@ def _login_success_response(
         samesite="strict",
         max_age=SESSION_TTL_SECONDS,
     )
-    response.set_cookie("ui_locale", locale, max_age=31_536_000, samesite="lax")
+    response.set_cookie("ui_locale", canonical_locale(locale), max_age=31_536_000, samesite="lax")
     return response
 
 

@@ -30,6 +30,7 @@ from escalane.persistence.models import Alarm, AlarmStatus, Person, Room
 from escalane.web.admin_session import AdminSession, pop_flash, set_flash
 from escalane.web.console import (
     action_session,
+    local_redirect,
     render_page,
     requested_locale,
     session_from_request,
@@ -376,7 +377,7 @@ async def admin_bulk_action(
 
 def _detail_redirect(alarm_id: uuid.UUID, request: Request) -> RedirectResponse:
     locale = requested_locale(request, request.query_params.get("lang"))
-    return RedirectResponse(f"/admin/alarms/{alarm_id}?lang={locale}", status_code=303)
+    return local_redirect(f"/admin/alarms/{alarm_id}?lang={locale}")
 
 
 def _validate_bulk_request(action: str, reason: str | None, raw_ids: list[Any]) -> None:

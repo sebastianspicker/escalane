@@ -26,6 +26,7 @@ from escalane.web.admin_session import AdminSession, pop_flash, set_flash
 from escalane.web.console import (
     UiPageContext,
     action_session,
+    local_redirect,
     render_page,
     requested_locale,
 )
@@ -175,7 +176,7 @@ async def admin_configuration_save(
     )
     await set_saved_flash(request, browser_session)
     locale = requested_locale(request, request.query_params.get("lang"))
-    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
+    return local_redirect(f"/admin/configuration/{resource_name}?lang={locale}")
 
 
 async def set_saved_flash(request: Request, browser_session: Any) -> None:
@@ -222,7 +223,7 @@ async def admin_configuration_deactivate(
     except (UnknownResourceError, ResourceNotFoundError, ResourceStateConflict) as exc:
         raise _mutation_http_error(exc) from exc
     locale = requested_locale(request, request.query_params.get("lang"))
-    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
+    return local_redirect(f"/admin/configuration/{resource_name}?lang={locale}")
 
 
 @router.post("/admin/configuration/{resource_name}/{resource_id}/delete")
@@ -245,4 +246,4 @@ async def admin_configuration_delete(
     except (UnknownResourceError, ResourceNotFoundError, ResourceStateConflict) as exc:
         raise _mutation_http_error(exc) from exc
     locale = requested_locale(request, request.query_params.get("lang"))
-    return RedirectResponse(f"/admin/configuration/{resource_name}?lang={locale}", status_code=303)
+    return local_redirect(f"/admin/configuration/{resource_name}?lang={locale}")
