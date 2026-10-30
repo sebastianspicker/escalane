@@ -5,6 +5,7 @@ All configuration is loaded from environment variables (and optional .env file).
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Any
 from urllib.parse import ParseResult, unquote, urlparse
@@ -14,6 +15,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _YEALINK_TRIGGER_QUERY_KEY = "".join(("tok", "en"))
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_MIN_ADMIN_API_KEY_LENGTH = 32
+_E164_NUMBER = re.compile(r"\+[1-9][0-9]{6,14}")
 
 
 def _require_http_url(value: str, variable_name: str) -> None:
@@ -162,6 +165,10 @@ def _validate_signal_settings(settings: Settings) -> None:
     if not settings.signal_target_group_id.strip():
         raise ValueError("SIGNAL_TARGET_GROUP_ID is required when SIGNAL_ENABLED=true")
     _require_http_url(settings.signal_cli_endpoint, "SIGNAL_CLI_ENDPOINT")
+    if not settings.signal_sender_number.strip():
+        raise ValueError("SIGNAL_SENDER_NUMBER is required when SIGNAL_ENABLED=true")
+    if not _E164_NUMBER.fullmatch(settings.signal_sender_number):
+        raise ValueError("SIGNAL_SENDER_NUMBER must be an E.164 number such as +4915100000000")
 
 
 def _validate_zammad_settings(settings: Settings) -> None:
@@ -209,6 +216,15 @@ def _reject_weak_admin_keys(settings: Settings) -> None:
         "password",
         "secret",
     }
+    if (
+        not settings.simulation_enabled
+        and settings.admin_api_key
+        and len(settings.admin_api_key) < _MIN_ADMIN_API_KEY_LENGTH
+    ):
+        raise ValueError(
+            f"ADMIN_API_KEY must contain at least {_MIN_ADMIN_API_KEY_LENGTH} characters "
+            "outside simulation mode"
+        )
     if not settings.simulation_enabled and settings.admin_api_key.lower() in weak_keys:
         raise ValueError(
             f"Refusing to start with a weak ADMIN_API_KEY ('{settings.admin_api_key}'). "
@@ -307,6 +323,7 @@ class Settings(_SettingsRuntimeSupport, BaseSettings):
     signal_enabled: bool = False
     signal_cli_endpoint: str = "http://signal-cli:8080"
     signal_target_group_id: str = ""
+    signal_sender_number: str = ""
     signal_send_path: str = "/v2/send"
 
     # Webhook callbacks

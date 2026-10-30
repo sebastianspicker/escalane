@@ -81,7 +81,8 @@ once after a retry. Integrations need to handle those duplicates.
 ## Prerequisites
 
 The Compose quick start requires Docker Engine with the Compose plugin. Local
-Python development requires CPython `3.14.7`, GNU Make, and pip; the
+Python development requires CPython 3.14 (CI and the container use `3.14.7`;
+other 3.14 releases only print a warning), GNU Make, and pip; the
 Makefile creates and uses `.venv`. The package supports Python `>=3.14,<3.15`.
 
 ## Quick start
@@ -109,7 +110,7 @@ device token and Signal target from the settings above.
 Start the Compose stack, then check whether it is ready:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 curl --fail http://127.0.0.1:8080/readyz
 ```
 

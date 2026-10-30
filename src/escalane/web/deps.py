@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
 import secrets
 from collections.abc import AsyncIterator
 from functools import lru_cache
@@ -12,6 +13,12 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from escalane.config.settings import Settings, get_settings
+from escalane.runtime.rate_limit import rate_limit_key
+from escalane.runtime.redis_atomic import increment_with_expiry, redis_text
+
+logger = logging.getLogger("escalane")
+_ADMIN_KEY_FAILURE_LIMIT = 5
+_ADMIN_KEY_FAILURE_WINDOW_SECONDS = 60
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -22,7 +29,38 @@ def get_app_settings(request: Request) -> Settings:
     return settings
 
 
-def require_admin(
+async def _admin_key_failures(redis, failure_key: str) -> int:
+    count = redis_text(await redis.get(failure_key))
+    try:
+        return int(count) if count is not None else 0
+    except ValueError:
+        return _ADMIN_KEY_FAILURE_LIMIT
+
+
+async def _throttle_admin_key(request: Request, settings: Settings, *, failed: bool) -> None:
+    """Count failed admin keys per address; Redis outages skip throttling, never auth.
+
+    Admin health endpoints must still answer while Redis is down, so a Redis
+    error is logged and the key comparison alone decides.
+    """
+    failure_key = rate_limit_key(f"admin-api:{get_client_ip(request, settings) or 'unknown'}", 0)
+    try:
+        redis = get_redis(request)
+        if failed:
+            await increment_with_expiry(redis, failure_key, _ADMIN_KEY_FAILURE_WINDOW_SECONDS)
+            return
+        limited = await _admin_key_failures(redis, failure_key) >= _ADMIN_KEY_FAILURE_LIMIT
+    except Exception as exc:
+        logger.warning("admin_key_throttle_unavailable", extra={"error": type(exc).__name__})
+        return
+    if limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed admin key attempts. Wait one minute and try again.",
+        )
+
+
+async def require_admin(
     request: Request,
     x_admin_key: str | None = Header(default=None, alias="X-Admin-Key"),
     settings: Settings = Depends(get_app_settings),
@@ -31,13 +69,17 @@ def require_admin(
 
     Missing server-side configuration fails closed with 403. A bad client key is
     401 so operators can distinguish "server not configured" from "wrong key".
+    Like browser sign-in, five failures per client address within a minute
+    answer 429 until the window passes.
     """
     if not settings.admin_api_key:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin key not configured on server",
         )
-    if not secrets.compare_digest(x_admin_key or "", settings.admin_api_key):
+    await _throttle_admin_key(request, settings, failed=False)
+    if not secrets.compare_digest((x_admin_key or "").encode(), settings.admin_api_key.encode()):
+        await _throttle_admin_key(request, settings, failed=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin key")
 
 

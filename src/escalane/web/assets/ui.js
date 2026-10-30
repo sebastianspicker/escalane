@@ -57,6 +57,8 @@
     request.open("GET", notice.dataset.pollUrl);
     request.setRequestHeader("X-Requested-With", "EscalaneUI");
     request.onload = () => {
+      // An expired session must not leave a stale "Live" console; the reload shows sign-in.
+      if (request.status === 401) { window.location.reload(); return; }
       if (request.status < 200 || request.status >= 300) return;
       try {
         const payload = JSON.parse(request.responseText);

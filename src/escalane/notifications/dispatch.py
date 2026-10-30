@@ -114,7 +114,7 @@ class NotificationService:
                     },
                 )
                 continue
-            delivered = await self._send_to_channel(session, target, payload, settings)
+            delivered = await self._send_to_channel(session, alarm, target, payload, settings)
             if not delivered:
                 failed_targets.append(str(target.id))
 
@@ -172,6 +172,7 @@ class NotificationService:
     async def _send_to_channel(
         self,
         session: AsyncSession,
+        alarm: Alarm,
         target: EscalationTarget,
         payload: NotificationPayload,
         settings: Settings,
@@ -183,12 +184,13 @@ class NotificationService:
 
         Args:
             session: Database session
+            alarm: Alarm whose Zammad ticket carries email targets
             target: Target configuration with channel preference
             payload: Notification payload to send
             settings: Runtime settings used by webhook delivery
         """
         if target.channel == "email":
-            return await self._send_email_notifications(session, target, payload)
+            return await self._send_email_notifications(session, alarm, target, payload)
         if target.channel == "sms":
             return await self._send_via_sendxms(session, target, payload["body"], payload)
         if target.channel == "signal":
@@ -208,28 +210,70 @@ class NotificationService:
     async def _send_email_notifications(
         self,
         session: AsyncSession,
+        alarm: Alarm,
         target: EscalationTarget,
         payload: NotificationPayload,
     ) -> bool:
-        """Send email notification via Zammad.
+        """Email the target address through an article on the alarm's Zammad ticket.
 
-        Formats the email payload and creates a ticket in Zammad.
+        The alarm ticket is created first when it does not exist yet. Zammad
+        sends the article through the email channel of the ticket's group.
         Failure does not affect other channels.
 
         Args:
             session: Database session
-            target: Target with email configuration
+            alarm: Alarm whose Zammad ticket receives the article
+            target: Target with the recipient email address
             payload: Notification payload
         """
+        if not self._zammad.enabled():
+            await self._log_notification_result(
+                session, target, payload, "skipped", "Zammad not enabled"
+            )
+            return True
+        address = (target.address or "").strip()
+        if not address:
+            await self._log_notification_result(
+                session, target, payload, "skipped", "No email address configured"
+            )
+            return True
+
+        ticket_id = alarm.zammad_ticket_id
+        if ticket_id is None:
+            try:
+                ticket_id = await notification_zammad.create_ticket(
+                    session,
+                    alarm,
+                    self._zammad,
+                    notification_payloads.build_zammad_ticket_payload(payload, self._zammad.config),
+                )
+            except notification_delivery.NotificationAuditError:
+                raise
+            except notification_delivery.NotificationDeliveryError as exc:
+                return await self._record_channel_failure(
+                    session,
+                    target,
+                    payload,
+                    exc,
+                    error="Zammad ticket for the alarm is not available yet",
+                )
+            if ticket_id is None:
+                await self._log_notification_result(
+                    session, target, payload, "permanent_error", "Alarm has no Zammad ticket"
+                )
+                return True
+            alarm.zammad_ticket_id = ticket_id
+
+        email_ticket_id = ticket_id
         return await self._send_with_client(
             session,
             target,
             payload,
-            enabled=self._zammad.enabled(),
+            enabled=True,
             disabled_reason="Zammad not enabled",
             failure_event="email_notification_failed",
-            send=lambda: self._zammad.create_ticket(
-                notification_payloads.build_zammad_ticket_payload(payload, self._zammad.config)
+            send=lambda: self._zammad.add_email_article(
+                email_ticket_id, to=address, subject=payload["title"], body=payload["body"]
             ),
         )
 

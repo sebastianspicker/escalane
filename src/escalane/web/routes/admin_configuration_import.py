@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.config.settings import Settings
@@ -14,13 +14,15 @@ from escalane.configuration.importer import (
     seed_digest_matches,
     seed_sections,
 )
+from escalane.web.admin_session import pop_flash, set_flash
 from escalane.web.console import (
     action_session,
+    local_redirect,
     render_page,
     requested_locale,
     session_from_request,
 )
-from escalane.web.deps import get_app_settings, get_session
+from escalane.web.deps import get_app_settings, get_redis, get_session
 
 router = APIRouter()
 
@@ -43,6 +45,7 @@ async def admin_import_page(
         logout_action="/admin/logout",
         preview=None,
         seed_text="",
+        flash=await pop_flash(get_redis(request), browser_session),
     )
 
 
@@ -57,7 +60,7 @@ async def admin_import_submit(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_app_settings),
 ) -> Response:
-    locale = requested_locale(request, None)
+    locale = requested_locale(request, request.query_params.get("lang"))
     browser_session = await action_session(request, settings, admin_session, csrf_token)
     raw = seed_text.encode()
     data = parse_seed_payload("application/x-yaml", raw)
@@ -83,4 +86,5 @@ async def admin_import_submit(
         operator_name=browser_session.operator_name,
         request_id=getattr(request.state, "request_id", None),
     )
-    return RedirectResponse("/admin/configuration/import", status_code=303)
+    await set_flash(get_redis(request), browser_session, "success", "import_applied")
+    return local_redirect(f"/admin/configuration/import?lang={locale}")

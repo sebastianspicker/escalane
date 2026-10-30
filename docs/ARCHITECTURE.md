@@ -132,16 +132,15 @@ can still receive the same request more than once.
 | Store | What it stores | What happens during recovery |
 |---|---|---|
 | PostgreSQL | Master data, escalation policy and targets, alarms, notes, lifecycle events, administrative audit, notification audit, and ordered outbox | This is the durable source of truth. Back up and restore it consistently. |
-| Redis | ARQ jobs, delayed work, browser sessions, CSRF/session data, trigger reservations, idempotency state, and rate limits | This data coordinates current work. A restart invalidates sessions and requires a tested queue recovery procedure. |
-| Process memory | Simulation notification records and mock ticket counter | This data disappears with its process and is not shared between API and worker processes. |
+| Redis | ARQ jobs, delayed work, browser sessions, CSRF/session data, trigger reservations, idempotency state, rate limits, and simulation notification records (newest 500) with the mock ticket counter | This data coordinates current work. A restart invalidates sessions and requires a tested queue recovery procedure. |
 
 If Redis restarts or ARQ retries a job, PostgreSQL remains the source of truth.
 Simulation records exist only for the demonstration flow and cannot establish
-that a provider received a delivery. Because the worker records simulated
-deliveries in its own memory, `/v1/simulation/notifications` and the console's
-simulation page show them only when the API and worker run in the same
-process. With the separate API and worker containers of the reference Compose
-deployment, the list stays empty.
+that a provider received a delivery. The worker and the API share the
+simulation records and the mock ticket counter through Redis, so
+`/v1/simulation/notifications` and the console's simulation page show
+simulated deliveries in the reference Compose deployment. Only the newest 500
+records are kept, and the clear action removes them.
 
 ## HTTP and trust boundaries
 
@@ -149,7 +148,7 @@ deployment, the list stays empty.
 |---|---|
 | `/healthz`, `/readyz` | Public liveness and dependency/schema readiness |
 | `/v1/yealink/alarm` | Per-device token, Redis-backed limit, and source allowlist outside simulation |
-| `/a/{ack_token}` | Bearer capability; responses are marked no-store |
+| `/a/{ack_token}` | Bearer capability; responses are marked no-store; 10 requests per minute per link and client address, 120 per minute per address |
 | `/v1/alarms`, `/v1/admin`, `/metrics`, `/healthz/details` | Static `X-Admin-Key` comparison |
 | `/admin/*` | Admin-key login exchanged for a one-hour Redis session; mutating forms require CSRF |
 | `/v1/simulation/*` | Admin key and simulation mode; routes return 404 when simulation is disabled |

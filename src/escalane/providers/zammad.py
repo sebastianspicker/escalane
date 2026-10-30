@@ -68,10 +68,13 @@ class ZammadClient(BaseConnector):
     def _headers(self) -> dict[str, str]:
         """Build headers for Zammad API requests.
 
+        Zammad access tokens use the ``Token token=`` scheme; ``Bearer`` is
+        reserved for OAuth2 tokens.
+
         Returns:
             Dictionary with Authorization header
         """
-        return {"Authorization": f"Bearer {self._zammad_cfg.api_token}"}
+        return {"Authorization": f"Token token={self._zammad_cfg.api_token}"}
 
     async def create_ticket(self, payload: dict[str, Any]) -> int:
         """Create a new ticket in Zammad.
@@ -113,3 +116,27 @@ class ZammadClient(BaseConnector):
             }
         }
         await self._put(f"/api/v1/tickets/{ticket_id}", json=payload)
+
+    async def add_email_article(self, ticket_id: int, *, to: str, subject: str, body: str) -> None:
+        """Send an outgoing email through the email channel of the ticket's group.
+
+        Args:
+            ticket_id: ID of the ticket that receives the article
+            to: Recipient email address
+            subject: Email subject
+            body: Plain-text email body
+
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
+        """
+        payload = {
+            "ticket_id": ticket_id,
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "content_type": "text/plain",
+            "type": "email",
+            "internal": False,
+            "sender": "Agent",
+        }
+        await self._post("/api/v1/ticket_articles", json=payload)

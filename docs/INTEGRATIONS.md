@@ -35,9 +35,20 @@ before using it outside a demonstration.
 |---|---|
 | Zammad | `ZAMMAD_API_TOKEN`, HTTPS `ZAMMAD_BASE_URL`, and deployment-specific group, customer, priority, and state values |
 | SendXMS | `SENDXMS_ENABLED=true`, `SENDXMS_API_KEY`, and HTTPS `SENDXMS_BASE_URL`; optional sender/path overrides |
-| Signal REST bridge | `SIGNAL_ENABLED=true`, `SIGNAL_CLI_ENDPOINT`, `SIGNAL_TARGET_GROUP_ID`, and optional path override |
+| Signal REST bridge | `SIGNAL_ENABLED=true`, `SIGNAL_CLI_ENDPOINT`, `SIGNAL_SENDER_NUMBER` (the registered signal-cli account in E.164 form), `SIGNAL_TARGET_GROUP_ID`, and optional path override |
 | State callback | `WEBHOOK_ENABLED=true`, HTTPS `WEBHOOK_URL`, `WEBHOOK_SECRET`, and an allowed host |
 | Generic webhook target | Exact host in `WEBHOOK_ALLOWED_HOSTS`; HTTP only in simulation mode |
+
+Email targets add an outgoing email article to the alarm's Zammad ticket, so
+the configured `ZAMMAD_GROUP` needs an email channel (sender address) in
+Zammad. The message text is German.
+
+Escalane authenticates to Zammad with an access token (`Authorization: Token
+token=…`), so create `ZAMMAD_API_TOKEN` as a Zammad access token rather than an
+OAuth2 token. Signal messages go to signal-cli-rest-api `POST /v2/send` with the
+sender in `number` and the target in `recipients`. Use the group `id` that
+`GET /v1/groups/<sender-number>` returns (it starts with `group.`) for
+`SIGNAL_TARGET_GROUP_ID` and for Signal target addresses.
 
 Zammad and SendXMS URLs cannot contain credentials and must use HTTPS. A Signal
 bridge may use HTTP only on a controlled private network. Escalane signs the
@@ -46,9 +57,9 @@ state callback with HMAC-SHA256 and places the signature in
 entry and public-address validation when simulation mode permits HTTP.
 
 Before deployment, test the real credentials, provider field identifiers,
-idempotency behavior, and delivery results against each target system. The
-local test suite uses controlled substitutes and cannot prove that a live
-provider accepts or handles requests correctly.
+idempotency behavior, and delivery results against each target system.
+Simulation mode and the repository checks use controlled substitutes and cannot
+prove that a live provider accepts or handles requests correctly.
 
 ## Simulation
 
@@ -57,6 +68,6 @@ enables the simulation routes. This mode requires a loopback `BASE_URL` and can
 exercise the application flow. It does not test provider credentials,
 transport, rate limits, idempotency, or actual delivery.
 
-Mock notification records and ticket counters live only in the process that
-created them. They disappear on restart, are not shared between separate API
-and worker processes, and cannot serve as delivery evidence.
+Mock notification records and ticket counters are kept in Redis (newest 500)
+and are shared by the API and worker. The clear action removes them. They
+cannot serve as delivery evidence.

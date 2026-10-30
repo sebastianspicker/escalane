@@ -16,7 +16,7 @@ This file records notable changes to Escalane. It follows
 - Moved the application to a root `src/escalane` package with explicit
   packages for configuration, persistence, security, providers, features,
   web routes, and workers.
-- Moved migrations and tests to repository-level directories and made the
+- Moved migrations to a repository-level directory and made the
   root package the basis for CI, Docker builds, type checking, import-boundary
   checks, and release validation.
 - Decoupled feature inputs from HTTP requests by using application commands.
@@ -60,6 +60,50 @@ This file records notable changes to Escalane. It follows
 - Acknowledge, resolve, cancel and note confirmations now appear on the alarm
   detail page instead of on the next worklist visit. Bulk, note and
   acknowledgement messages no longer show raw message keys.
+- Live Signal delivery now uses the signal-cli-rest-api `/v2/send` contract
+  (`number` and `recipients`). The new required `SIGNAL_SENDER_NUMBER` setting
+  names the registered sender account.
+- Zammad requests now authenticate with `Authorization: Token token=…`, the
+  scheme Zammad uses for access tokens.
+- `LOG_LEVEL` is now applied. API and worker events are written to stderr as
+  JSON lines that keep their context fields, such as `request_id` and
+  `alarm_id`; INFO events were previously dropped.
+- The documented Compose commands and the Makefile docker targets now pass
+  `--env-file .env`, so Compose reads the root `.env` instead of failing with
+  "POSTGRES_PASSWORD must be set".
+- `make bootstrap` accepts any CPython 3.14 release and only warns when it is
+  not 3.14.7, the CI and container version. `.python-version` now names 3.14.7
+  instead of 3.14.6.
+- Simulated deliveries now appear on the console's simulation page and in
+  `/v1/simulation/notifications` when the API and worker run in separate
+  containers. Simulation records and the mock ticket counter are kept in Redis
+  (newest 500) instead of process memory.
+- Responders and operators now see the localized error page instead of raw
+  JSON when an action conflicts with the alarm's current state (for example
+  acknowledging an alarm that was already resolved), when submitted data is
+  invalid, or when a form or query parameter fails validation. API routes keep
+  their JSON errors. Error pages for failed console actions link back to the
+  worklist.
+- Acknowledging, resolving and cancelling an alarm now adds an entry with
+  the actor and any note or cancel reason to the alarm's activity. These
+  entries also appear in the alarm notes API with note types `ack`,
+  `resolve` and `cancel`.
+- Operator sessions no longer end 60 minutes after sign-in while the
+  operator is active: console page views now renew the session cookie along
+  with the server-side session. An idle console still signs out after 60
+  minutes, and the worklist reloads to the sign-in prompt instead of showing
+  stale data.
+- Applying a configuration import now confirms the import and keeps the
+  selected language.
+- The responder link limit now applies per link (10 requests per minute per
+  client address) with a ceiling of 120 per minute per address, so responders
+  behind one NAT or proxy no longer share a single 10-per-minute budget.
+- Outside simulation, `ADMIN_API_KEY` must now have at least 32 characters,
+  and five failed `X-Admin-Key` attempts per client address within a minute
+  are answered with HTTP 429, matching the console sign-in limit.
+- Email escalation targets now send the message to the target's address as an
+  outgoing email article on the alarm's Zammad ticket, instead of opening a
+  separate ticket with an internal note that mailed nobody.
 
 ## [0.4.0-alpha.1]
 

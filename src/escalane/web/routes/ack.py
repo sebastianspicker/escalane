@@ -7,6 +7,7 @@ captured page cannot be submitted blindly from another origin.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 
@@ -39,31 +40,45 @@ logger = logging.getLogger("escalane")
 _CSRF_COOKIE_NAME = "csrf_token"
 
 _ACK_RATE_MAX = 10
+_ACK_ADDRESS_RATE_MAX = 120
 _ACK_RATE_WINDOW = 60  # seconds
 
 
-def _ack_rate_limit_key(client_ip: str | None) -> str:
-    """Bucket ACK form traffic by client IP and minute."""
-    return rate_limit_key(f"ack:{client_ip or 'unknown'}", minute_bucket())
+def _ack_rate_limit_key(client_ip: str | None, ack_token: str | None = None) -> str:
+    """Bucket ACK traffic per client IP and minute, optionally per hashed link."""
+    subject = f"ack:{client_ip or 'unknown'}"
+    if ack_token is not None:
+        subject += ":" + hashlib.sha256(ack_token.encode()).hexdigest()[:32]
+    return rate_limit_key(subject, minute_bucket())
 
 
 async def _check_ack_rate_limit(
     request: Request,
     redis,
+    ack_token: str,
     settings: Settings | None = None,
 ) -> None:
-    """Enforce per-IP rate limit on ACK endpoints (10 req/min)."""
+    """Limit each link to 10 req/min per address, and each address to 120 req/min.
+
+    Responders behind one NAT or proxy each use their own link, so they no longer
+    share one bucket; the per-address ceiling still bounds link enumeration.
+    """
     client_ip = get_client_ip(request, settings)
-    rl_key = _ack_rate_limit_key(client_ip)
-    rl_val = await increment_with_expiry(redis, rl_key, _ACK_RATE_WINDOW + 10)
-    if rl_val > _ACK_RATE_MAX:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                f"Too many requests. Limit: {_ACK_RATE_MAX} per {_ACK_RATE_WINDOW}s. "
-                "Please wait and try again."
-            ),
-        )
+    # The address ceiling goes first so random links cannot mint per-link keys past it.
+    buckets = (
+        (_ack_rate_limit_key(client_ip), _ACK_ADDRESS_RATE_MAX),
+        (_ack_rate_limit_key(client_ip, ack_token), _ACK_RATE_MAX),
+    )
+    for rl_key, limit in buckets:
+        rl_val = await increment_with_expiry(redis, rl_key, _ACK_RATE_WINDOW + 10)
+        if rl_val > limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Too many requests. Limit: {limit} per {_ACK_RATE_WINDOW}s. "
+                    "Please wait and try again."
+                ),
+            )
 
 
 def _validate_csrf(csrf_token: str | None, form_csrf: str) -> None:
@@ -156,7 +171,7 @@ async def ack_page(
     """Render the acknowledgement page and issue a one-hour CSRF cookie."""
     settings = get_app_settings(request)
     redis = get_redis(request)
-    await _check_ack_rate_limit(request, redis, settings)
+    await _check_ack_rate_limit(request, redis, ack_token, settings)
     alarm = await get_alarm_by_ack_token(session, ack_token)
     if not alarm:
         raise HTTPException(
@@ -201,7 +216,7 @@ async def ack_submit(
     """Validate the ACK form, transition the alarm, and enqueue follow-up events."""
     settings = get_app_settings(request)
     redis = get_redis(request)
-    await _check_ack_rate_limit(request, redis, settings)
+    await _check_ack_rate_limit(request, redis, ack_token, settings)
     alarm = await get_alarm_by_ack_token(session, ack_token)
     if not alarm:
         raise HTTPException(

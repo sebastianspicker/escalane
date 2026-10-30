@@ -13,7 +13,7 @@ screenshot tour. To run Escalane, follow [Setup](SETUP.md).
 | [Performance validation](OPTIMIZATION_VALIDATION.md) | Recorded measurements, their limits, and checks still needed with real services |
 | [Releasing](RELEASING.md) | How to check and publish a release |
 | [Security policy](../SECURITY.md) | Access controls, deployment precautions, and private vulnerability reporting |
-| [Contributing](../CONTRIBUTING.md) | Development setup, tests, and pull requests |
+| [Contributing](../CONTRIBUTING.md) | Development setup, checks, and pull requests |
 | [Support](../SUPPORT.md) | How to report a problem or ask for help |
 
 See the [changelog](../CHANGELOG.md) for release history and the

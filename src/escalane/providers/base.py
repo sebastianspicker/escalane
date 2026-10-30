@@ -185,6 +185,9 @@ class ZammadTicketProvider(Protocol):
     async def add_internal_note(self, ticket_id: int, subject: str, body: str) -> None:
         """Add one private ticket note."""
 
+    async def add_email_article(self, ticket_id: int, *, to: str, subject: str, body: str) -> None:
+        """Send one outgoing email article on an existing ticket."""
+
 
 class SmsProvider(Protocol):
     """The narrow SMS contract used by notification dispatch."""

@@ -24,7 +24,15 @@ data, personal data, and internal hostnames.
 - Admin JSON endpoints require `X-Admin-Key`.
 - The operator console uses a Redis-backed session and CSRF protection for
   mutating forms.
-- An empty `ADMIN_API_KEY` does not grant admin access.
+- An empty `ADMIN_API_KEY` does not grant admin access. Outside simulation the
+  key must have at least 32 characters.
+- Five failed `X-Admin-Key` attempts from one client address within a minute
+  are answered with HTTP 429 for the rest of that minute; console sign-in has
+  its own, separate limit of five failures per minute. Both limits, and the
+  responder link limit, see the address of the immediate peer unless
+  `TRUSTED_PROXY_CIDRS` names your reverse proxy. Behind a proxy, set it, or
+  every client shares the proxy's address and one client's failures block the
+  others.
 - Anyone with a responder acknowledgement URL can use its token to acknowledge
   that alarm. Treat the whole URL as a secret.
 - Yealink triggers require a device token and, outside simulation, a source

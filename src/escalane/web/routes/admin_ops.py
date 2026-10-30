@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,7 @@ from escalane.web.console import (
     requested_locale,
     session_from_request,
 )
-from escalane.web.deps import get_app_settings, get_session
+from escalane.web.deps import get_app_settings, get_redis, get_session
 
 router = APIRouter()
 
@@ -79,12 +80,13 @@ async def admin_simulation(
     lang: str | None = Query(default=None),
     admin_session: str | None = Cookie(default=None),
     settings: Settings = Depends(get_app_settings),
+    redis: ArqRedis = Depends(get_redis),
 ) -> HTMLResponse:
     if not settings.simulation_enabled:
         raise HTTPException(status_code=404, detail="simulation_disabled")
     locale = requested_locale(request, lang)
     browser_session = await session_from_request(request, settings, admin_session, extend=True)
-    notifications = get_mock_store().get_all()
+    notifications = await get_mock_store(redis).get_all()
     return render_page(
         request,
         "admin_simulation.html",
@@ -103,9 +105,10 @@ async def admin_simulation_clear(
     csrf_token: str | None = Form(default=None),
     admin_session: str | None = Cookie(default=None),
     settings: Settings = Depends(get_app_settings),
+    redis: ArqRedis = Depends(get_redis),
 ) -> RedirectResponse:
     if not settings.simulation_enabled:
         raise HTTPException(status_code=404, detail="simulation_disabled")
     await action_session(request, settings, admin_session, csrf_token)
-    get_mock_store().clear()
+    await get_mock_store(redis).clear()
     return RedirectResponse("/admin/simulation", status_code=303)

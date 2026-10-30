@@ -1,12 +1,12 @@
 # Set up Escalane
 
 You can run Escalane with Docker Compose or directly from a local Python
-environment. Both options need PostgreSQL and Redis. The standard test suite
-uses isolated fixtures, while separate checks cover live PostgreSQL and Redis.
+environment. Both options need PostgreSQL and Redis.
 
 The Compose deployment needs Docker Engine and the Compose plugin. The package
-supports Python `>=3.14,<3.15`, while the repository bootstrap uses CPython
-3.14.7. Local development also needs GNU Make and pip.
+supports Python `>=3.14,<3.15`. The repository bootstrap accepts any CPython
+3.14 release and warns when it is not 3.14.7, the version CI and the container
+use. Local development also needs GNU Make and pip.
 
 ## Run with Docker Compose
 
@@ -36,7 +36,7 @@ provider delivery is simulated.
 Build and start the stack, then wait for the readiness check to pass:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
@@ -97,7 +97,7 @@ variables you will usually set:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection for ARQ and temporary state |
 | `BASE_URL` | Public origin used to build acknowledgement links |
-| `ADMIN_API_KEY` | Credential for the admin API and operator sign-in |
+| `ADMIN_API_KEY` | Credential for the admin API and operator sign-in; at least 32 characters outside simulation |
 | `YELK_IP_ALLOWLIST` | Source CIDRs allowed to trigger devices outside simulation |
 | `YELK_TOKEN_QUERY_PARAM` | Query parameter name used for device triggers |
 | `RATE_LIMIT_PER_MINUTE` | Per-device trigger limit |

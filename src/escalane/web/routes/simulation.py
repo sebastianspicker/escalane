@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from escalane.config.settings import Settings
 from escalane.providers.mock import MockNotification, get_mock_store
-from escalane.web.deps import get_app_settings, require_admin
+from escalane.web.deps import get_app_settings, get_redis, require_admin
 
 router = APIRouter(prefix="/v1/simulation", tags=["simulation"])
 
@@ -45,6 +46,7 @@ def _serialize_notifications(notifications: list[MockNotification]) -> list[dict
 async def get_simulation_notifications(
     channel: str | None = Query(default=None),
     settings: Settings = Depends(get_app_settings),
+    redis: ArqRedis = Depends(get_redis),
 ) -> dict[str, Any]:
     """Get all notifications sent during simulation mode.
 
@@ -62,14 +64,14 @@ async def get_simulation_notifications(
     """
     _ensure_simulation_enabled(settings)
 
-    store = get_mock_store()
+    store = get_mock_store(redis)
     if channel and channel not in _VALID_CHANNELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid channel. Must be one of: {sorted(_VALID_CHANNELS)}",
         )
 
-    notifications = store.get_by_channel(channel) if channel else store.get_all()
+    notifications = await store.get_by_channel(channel) if channel else await store.get_all()
 
     return {
         "simulation_enabled": True,
@@ -83,6 +85,7 @@ async def get_simulation_notifications(
 async def clear_simulation_notifications(
     response: Response,
     settings: Settings = Depends(get_app_settings),
+    redis: ArqRedis = Depends(get_redis),
 ) -> dict[str, str]:
     """Clear all stored simulation notifications.
 
@@ -97,8 +100,8 @@ async def clear_simulation_notifications(
     """
     _ensure_simulation_enabled(settings)
 
-    store = get_mock_store()
-    store.clear()
+    store = get_mock_store(redis)
+    await store.clear()
 
     response.status_code = status.HTTP_200_OK
     return {"status": "ok", "message": "All simulation notifications cleared"}
@@ -107,6 +110,7 @@ async def clear_simulation_notifications(
 @router.get("/status", dependencies=[Depends(require_admin)])
 async def get_simulation_status(
     settings: Settings = Depends(get_app_settings),
+    redis: ArqRedis = Depends(get_redis),
 ) -> dict[str, Any]:
     """Get current simulation mode status.
 
@@ -118,16 +122,15 @@ async def get_simulation_status(
     """
     _ensure_simulation_enabled(settings)
 
-    store = get_mock_store()
-    notifications = store.get_all()
+    store = get_mock_store(redis)
+    notifications = await store.get_all()
 
     return {
         "simulation_enabled": True,
         "total_notifications": len(notifications),
         "by_channel": {
-            "zammad": len(store.get_by_channel("zammad")),
-            "sms": len(store.get_by_channel("sms")),
-            "signal": len(store.get_by_channel("signal")),
+            channel: sum(1 for item in notifications if item.channel == channel)
+            for channel in ("zammad", "sms", "signal")
         },
     }
 

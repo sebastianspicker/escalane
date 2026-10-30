@@ -21,12 +21,14 @@ class SignalConfig(BaseConnectorConfig):
         enabled: Whether Signal sending is enabled
         base_url: signal-cli-rest-api endpoint URL
         target_group_id: Default target group ID for messages
+        sender_number: Registered signal-cli account number that sends messages
         send_path: API endpoint path for sending messages
     """
 
     enabled: bool = False
     base_url: str = ""
     target_group_id: str = ""
+    sender_number: str = ""
     send_path: str = "/v2/send"
 
 
@@ -60,5 +62,9 @@ class SignalClient(BaseConnector):
             return
 
         gid = group_id or self._signal_cfg.target_group_id
-        payload = {"message": message, "groupId": gid}
+        payload = {
+            "message": message,
+            "number": self._signal_cfg.sender_number,
+            "recipients": [gid],
+        }
         await self._post(self._signal_cfg.send_path, json=payload)

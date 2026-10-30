@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import and_, literal, or_, select
+from sqlalchemy import String, and_, cast, literal, null, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from escalane.persistence.models import AlarmNote, AlarmNotification
 
 HISTORY_LIMIT = 50
+_TRANSITION_LABELS = {"ack": "acknowledged", "resolve": "resolved", "cancel": "cancelled"}
 
 
 class InvalidHistoryCursor(ValueError):
@@ -69,7 +70,12 @@ async def _source_events(
     session: AsyncSession, alarm_id: uuid.UUID, kind: str, before: HistoryKey | None
 ) -> list[tuple[HistoryKey, dict[str, str]]]:
     model: Any = AlarmNote if kind == "note" else AlarmNotification
-    fields = (model.created_by, model.note) if kind == "note" else (model.channel, model.result)
+    fields = (
+        (model.created_by, model.note, model.note_type)
+        if kind == "note"
+        # A typed NULL, not a bind parameter: asyncpg cannot infer an untyped $n.
+        else (model.channel, model.result, cast(null(), String))
+    )
     query = select(model.id, model.created_at, *fields).where(model.alarm_id == alarm_id)
     if before is not None:
         tie = model.id < before.id if kind == before.kind else literal(kind < before.kind)
@@ -82,13 +88,15 @@ async def _source_events(
         )
     ).all()
     result = []
-    for identifier, at, actor, description in rows:
+    for identifier, at, actor, description, note_type in rows:
         key = HistoryKey(_utc(at), kind, identifier)
-        text = (
-            f"{actor or 'System'}: {description}"
-            if kind == "note"
-            else f"{actor}: {description or 'pending'}"
-        )
+        if kind != "note":
+            text = f"{actor}: {description or 'pending'}"
+        elif note_type in _TRANSITION_LABELS:
+            label = f"{actor or 'System'} ({_TRANSITION_LABELS[note_type]})"
+            text = f"{label}: {description}" if description else label
+        else:
+            text = f"{actor or 'System'}: {description}"
         result.append(
             (
                 key,

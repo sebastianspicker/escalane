@@ -12,11 +12,17 @@ from arq.cron import cron
 from escalane.config.settings import get_settings
 from escalane.persistence.engine import create_async_engine_from_settings
 from escalane.persistence.session import create_sessionmaker
-from escalane.providers.mock import MockSendXmsClient, MockSignalClient, MockZammadClient
+from escalane.providers.mock import (
+    MockNotificationStore,
+    MockSendXmsClient,
+    MockSignalClient,
+    MockZammadClient,
+)
 from escalane.providers.sendxms import SendXmsClient, SendXmsConfig
 from escalane.providers.signal import SignalClient, SignalConfig
 from escalane.providers.webhook import WebhookClientPool
 from escalane.providers.zammad import ZammadClient, ZammadConfig
+from escalane.telemetry.logging import configure_logging
 from escalane.worker.tasks import (
     MAX_DELIVERY_ATTEMPTS,
     WorkerContext,
@@ -36,6 +42,7 @@ async def startup(ctx: WorkerContext) -> None:
     """Validate configuration and create worker-owned database/HTTP/connectors."""
     settings = get_settings()
     settings.validate_runtime_configuration()
+    configure_logging(settings.log_level)
     ctx["settings"] = settings
 
     try:
@@ -48,9 +55,10 @@ async def startup(ctx: WorkerContext) -> None:
         ctx["http"] = http
 
         if settings.simulation_enabled:
-            ctx["zammad"] = MockZammadClient()
-            ctx["sendxms"] = MockSendXmsClient()
-            ctx["signal"] = MockSignalClient()
+            store = MockNotificationStore(ctx["redis"])
+            ctx["zammad"] = MockZammadClient(store=store)
+            ctx["sendxms"] = MockSendXmsClient(store=store)
+            ctx["signal"] = MockSignalClient(store=store)
         else:
             ctx["zammad"] = ZammadClient(
                 http=http,
@@ -79,6 +87,7 @@ async def startup(ctx: WorkerContext) -> None:
                     enabled=settings.signal_enabled,
                     base_url=str(settings.signal_cli_endpoint),
                     target_group_id=settings.signal_target_group_id,
+                    sender_number=settings.signal_sender_number,
                     send_path=settings.signal_send_path,
                 ),
             )

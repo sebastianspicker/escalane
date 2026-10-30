@@ -6,10 +6,10 @@ that store all sent notifications for later retrieval and demonstration purposes
 
 from __future__ import annotations
 
+import json
 import logging
-import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from escalane.providers.zammad import ZammadConfig
@@ -29,28 +29,24 @@ class MockNotification:
     error: str | None = None
 
 
-class MockNotificationStore:
-    """Thread-safe storage for mock notifications.
+_NOTIFICATIONS_KEY = "escalane:simulation:notifications"
+_SEQ_KEY = "escalane:simulation:notification_seq"
+_TICKET_COUNTER_KEY = "escalane:simulation:ticket_counter"
+_MAX_NOTIFICATIONS = 500
 
-    This store holds all notifications sent through mock connectors
-    during simulation mode, allowing retrieval for demonstration.
+
+class MockNotificationStore:
+    """Redis-backed storage for mock notifications.
+
+    The API and worker run in separate processes, so records and mock ticket
+    counters live in Redis. Only the newest 500 records are kept.
     """
 
-    _instance: MockNotificationStore | None = None
-    _lock = threading.Lock()
-    _notifications: list[MockNotification]
-    _ticket_counter: int
+    def __init__(self, redis: Any) -> None:
+        """Bind the store to a Redis client shared by the API and worker."""
+        self._redis = redis
 
-    def __new__(cls) -> MockNotificationStore:
-        """Singleton pattern to ensure one store across the application."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._notifications = []
-                cls._instance._ticket_counter = 1000
-            return cls._instance
-
-    def add(
+    async def add(
         self,
         channel: str,
         payload: dict[str, Any],
@@ -65,29 +61,45 @@ class MockNotificationStore:
             result: Result status (ok, error)
             error: Error message if result is not ok
         """
-        notification = MockNotification(
-            id=f"mock-{len(self._notifications) + 1}",
-            channel=channel,
-            timestamp=datetime.now(),
-            payload=payload,
-            result=result,
-            error=error,
-        )
-        self._notifications.append(notification)
+        notification_id = f"mock-{await self._redis.incr(_SEQ_KEY)}"
+        record = {
+            "id": notification_id,
+            "channel": channel,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "payload": payload,
+            "result": result,
+            "error": error,
+        }
+        await self._redis.rpush(_NOTIFICATIONS_KEY, json.dumps(record, default=str))
+        await self._redis.ltrim(_NOTIFICATIONS_KEY, -_MAX_NOTIFICATIONS, -1)
         logger.debug(
             "mock_notification_stored",
-            extra={"channel": channel, "notification_id": notification.id},
+            extra={"channel": channel, "notification_id": notification_id},
         )
 
-    def get_all(self) -> list[MockNotification]:
-        """Get all stored notifications.
+    async def get_all(self) -> list[MockNotification]:
+        """Get all stored notifications, oldest first.
 
         Returns:
             List of all mock notifications
         """
-        return list(self._notifications)
+        raw_records = await self._redis.lrange(_NOTIFICATIONS_KEY, 0, -1)
+        notifications: list[MockNotification] = []
+        for raw in raw_records:
+            data = json.loads(raw)
+            notifications.append(
+                MockNotification(
+                    id=data["id"],
+                    channel=data["channel"],
+                    timestamp=datetime.fromisoformat(data["timestamp"]),
+                    payload=data["payload"],
+                    result=data.get("result", "ok"),
+                    error=data.get("error"),
+                )
+            )
+        return notifications
 
-    def get_by_channel(self, channel: str) -> list[MockNotification]:
+    async def get_by_channel(self, channel: str) -> list[MockNotification]:
         """Get notifications filtered by channel.
 
         Args:
@@ -96,34 +108,29 @@ class MockNotificationStore:
         Returns:
             List of notifications for the specified channel
         """
-        return [n for n in self._notifications if n.channel == channel]
+        return [n for n in await self.get_all() if n.channel == channel]
 
-    def clear(self) -> None:
-        """Clear all stored notifications."""
-        self._notifications.clear()
-        self._ticket_counter = 1000
+    async def clear(self) -> None:
+        """Clear all stored notifications and reset the counters."""
+        await self._redis.delete(_NOTIFICATIONS_KEY, _SEQ_KEY, _TICKET_COUNTER_KEY)
         logger.info("mock_notifications_cleared")
 
-    def generate_ticket_id(self) -> int:
+    async def generate_ticket_id(self) -> int:
         """Generate a mock ticket ID.
 
         Returns:
             A unique mock ticket ID
         """
-        self._ticket_counter += 1
-        return self._ticket_counter
+        return 1000 + int(await self._redis.incr(_TICKET_COUNTER_KEY))
 
 
-_mock_store = MockNotificationStore()
-
-
-def get_mock_store() -> MockNotificationStore:
-    """Get the global mock notification store.
+def get_mock_store(redis: Any) -> MockNotificationStore:
+    """Build a mock notification store over the shared Redis client.
 
     Returns:
-        The singleton MockNotificationStore instance
+        A MockNotificationStore backed by ``redis``
     """
-    return _mock_store
+    return MockNotificationStore(redis)
 
 
 class MockZammadClient:
@@ -133,9 +140,9 @@ class MockZammadClient:
     all ticket operations instead of making real API calls.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, store: MockNotificationStore, **kwargs: Any) -> None:
         """Initialize the mock Zammad client."""
-        self._store = get_mock_store()
+        self._store = store
         self._enabled = True
         self._config = ZammadConfig(enabled=True, base_url="http://mock-zammad")
 
@@ -157,8 +164,8 @@ class MockZammadClient:
         Returns:
             A mock ticket ID
         """
-        ticket_id = self._store.generate_ticket_id()
-        self._store.add(
+        ticket_id = await self._store.generate_ticket_id()
+        await self._store.add(
             channel="zammad",
             payload={
                 "action": "create_ticket",
@@ -182,7 +189,7 @@ class MockZammadClient:
             subject: Note subject
             body: Note body content
         """
-        self._store.add(
+        await self._store.add(
             channel="zammad",
             payload={
                 "action": "add_internal_note",
@@ -197,6 +204,31 @@ class MockZammadClient:
             extra={"ticket_id": ticket_id, "subject": subject},
         )
 
+    async def add_email_article(self, ticket_id: int, *, to: str, subject: str, body: str) -> None:
+        """Record a mock outgoing email article on a ticket.
+
+        Args:
+            ticket_id: ID of the ticket that receives the article
+            to: Recipient email address
+            subject: Email subject
+            body: Email body content
+        """
+        await self._store.add(
+            channel="zammad",
+            payload={
+                "action": "email_article",
+                "ticket_id": ticket_id,
+                "to": to,
+                "subject": subject,
+                "body": body,
+            },
+            result="ok",
+        )
+        logger.info(
+            "mock_zammad_email_article_added",
+            extra={"ticket_id": ticket_id, "subject": subject},
+        )
+
 
 class MockSendXmsClient:
     """Mock SendXMS connector for simulation mode.
@@ -205,9 +237,9 @@ class MockSendXmsClient:
     all SMS operations instead of making real API calls.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, store: MockNotificationStore, **kwargs: Any) -> None:
         """Initialize the mock SMS client."""
-        self._store = get_mock_store()
+        self._store = store
         self._enabled = True
 
     def enabled(self) -> bool:
@@ -221,7 +253,7 @@ class MockSendXmsClient:
             to: Recipient phone number
             message: Message content
         """
-        self._store.add(
+        await self._store.add(
             channel="sms",
             payload={
                 "action": "send_sms",
@@ -241,9 +273,9 @@ class MockSignalClient:
     all Signal message operations instead of making real API calls.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, store: MockNotificationStore, **kwargs: Any) -> None:
         """Initialize the mock Signal client."""
-        self._store = get_mock_store()
+        self._store = store
         self._enabled = True
 
     def enabled(self) -> bool:
@@ -257,7 +289,7 @@ class MockSignalClient:
             message: Message content
             group_id: Target group ID
         """
-        self._store.add(
+        await self._store.add(
             channel="signal",
             payload={
                 "action": "send_group_message",

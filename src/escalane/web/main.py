@@ -18,6 +18,7 @@ from escalane import __version__
 from escalane.config.settings import Settings, get_settings
 from escalane.persistence.engine import create_async_engine_from_settings
 from escalane.persistence.session import create_sessionmaker
+from escalane.telemetry.logging import configure_logging
 from escalane.telemetry.metrics import record_http_request
 from escalane.web.deps import is_secure_request
 from escalane.web.errors import install_exception_handlers
@@ -76,6 +77,7 @@ def _lifespan(
         """Attach validated settings, database, and Redis resources to application state."""
         resolved_settings = settings or get_settings()
         resolved_settings.validate_runtime_configuration()
+        configure_logging(resolved_settings.log_level)
         app.state.settings = resolved_settings
 
         engine: AsyncEngine | None = None

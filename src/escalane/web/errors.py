@@ -6,6 +6,8 @@ import logging
 from typing import cast
 
 from fastapi import FastAPI, Request, status
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ExceptionHandler
@@ -40,6 +42,17 @@ _BROWSER_MESSAGES = {
         "en": "This record does not exist or has been removed.",
         "de": "Dieser Eintrag existiert nicht oder wurde entfernt.",
     },
+    "conflict": {
+        "en": "This record has changed or no longer allows this action. "
+        "Reload the page to see its current state.",
+        "de": "Dieser Eintrag wurde geändert oder lässt diese Aktion nicht mehr zu. "
+        "Laden Sie die Seite neu, um den aktuellen Stand zu sehen.",
+    },
+    "invalid_request": {
+        "en": "The submitted data is not valid. Check your entries and try again.",
+        "de": "Die übermittelten Daten sind ungültig. Prüfen Sie die Eingaben und "
+        "versuchen Sie es erneut.",
+    },
 }
 
 
@@ -47,17 +60,22 @@ def _is_browser_path(path: str) -> bool:
     return path.startswith("/admin") or path.startswith("/a/")
 
 
-def _return_url(path: str, status_code: int) -> str | None:
+def _return_url(path: str, status_code: int, method: str = "GET") -> str | None:
     """Offer a way out that leads somewhere that exists for this audience."""
     if status_code == status.HTTP_401_UNAUTHORIZED:
         return "/admin/login"
     if status_code == status.HTTP_404_NOT_FOUND:
         # Responders have no console session; a link back would be a dead end.
         return None if path.startswith("/a/") else "/admin"
+    if method != "GET" and path.startswith("/admin"):
+        # Console actions are POST-only; linking back to them would answer 405.
+        return "/admin"
     return path
 
 
-def _browser_error_page(request: Request, status_code: int, detail: object) -> HTMLResponse:
+def _browser_error_page(
+    request: Request, status_code: int, detail: object, reason: str | None = None
+) -> HTMLResponse:
     locale = request.query_params.get("lang") or request.cookies.get("ui_locale")
     if not locale:
         locale = request.headers.get("accept-language")
@@ -65,6 +83,8 @@ def _browser_error_page(request: Request, status_code: int, detail: object) -> H
     message = _BROWSER_MESSAGES.get(str(detail), {}).get(locale)
     if message is None:
         message = str(detail) if isinstance(detail, str) else "Request failed"
+    if reason:
+        message = f"{message} ({reason})"
     context = {
         **translation_context(locale),
         "asset_url": "/admin/assets/ui.css",
@@ -73,7 +93,7 @@ def _browser_error_page(request: Request, status_code: int, detail: object) -> H
         "error": {
             "message": message,
             "reference": getattr(request.state, "request_id", None),
-            "return_url": _return_url(request.url.path, status_code),
+            "return_url": _return_url(request.url.path, status_code, request.method),
         },
     }
     return HTMLResponse(render_template("error.html", **context), status_code=status_code)
@@ -93,7 +113,20 @@ async def validation_error_handler(request: Request, exc: ValidationError):
         "validation_error",
         extra={"error": exc.message, "field": exc.field, "details": exc.details},
     )
+    if _is_browser_path(request.url.path):
+        return _browser_error_page(
+            request, status.HTTP_400_BAD_REQUEST, "invalid_request", reason=exc.message
+        )
     return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content=exc.to_dict())
+
+
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    """Render malformed browser form/query input as a page; APIs keep FastAPI's 422 JSON."""
+    if _is_browser_path(request.url.path):
+        return _browser_error_page(
+            request, status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid_request"
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 async def not_found_error_handler(request: Request, exc: NotFoundError):
@@ -110,6 +143,8 @@ async def not_found_error_handler(request: Request, exc: NotFoundError):
 async def conflict_error_handler(request: Request, exc: ConflictError):
     """Convert optimistic-concurrency or state conflicts to an explicit 409 response."""
     logger.warning("conflict_error", extra={"error": exc.message, "details": exc.details})
+    if _is_browser_path(request.url.path):
+        return _browser_error_page(request, status.HTTP_409_CONFLICT, "conflict")
     return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=exc.to_dict())
 
 
@@ -138,6 +173,7 @@ def install_exception_handlers(app: FastAPI) -> None:
     """Install standardized error handlers without nesting their implementations."""
     handlers = {
         StarletteHTTPException: browser_http_error_handler,
+        RequestValidationError: request_validation_error_handler,
         ValidationError: validation_error_handler,
         NotFoundError: not_found_error_handler,
         ConflictError: conflict_error_handler,

@@ -18,6 +18,11 @@ documented deployment artifact and is not published.
    make container-check
    ```
 
+5. Run the maintainers' private regression checks locally on the candidate
+   commit and record the result. Public CI runs only the static, package and
+   container checks above, so this local run is the behavioural gate before a
+   tag.
+
 `make release-check` confirms that the tag, package version, and changelog
 agree. It does not test a real deployment or live providers.
 
@@ -53,10 +58,10 @@ Deploy and verify the published image by digest:
 
 ```bash
 export ESCALANE_IMAGE='ghcr.io/sebastianspicker/escalane@sha256:<digest>'
-docker compose -f deploy/docker-compose.yml pull migration api worker
-docker compose -f deploy/docker-compose.yml up -d --wait postgres redis
-docker compose -f deploy/docker-compose.yml run --rm --no-deps migration
-docker compose -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
+docker compose --env-file .env -f deploy/docker-compose.yml pull migration api worker
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait postgres redis
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm --no-deps migration
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
 curl --fail http://127.0.0.1:8080/readyz
 ```
 
@@ -77,6 +82,6 @@ Alarm export returns at most 2,000 records. It is not intended as a bulk archive
 or large-scale export interface.
 
 Before version 1.0, changes may affect HTTP routes, worker payloads, the database
-schema, provider contracts, or deployment requirements. Cover those changes
-with tests, add migration or operator instructions when needed, and record the
+schema, provider contracts, or deployment requirements. Verify those changes
+before release, add migration or operator instructions when needed, and record the
 user-visible impact in `CHANGELOG.md`.

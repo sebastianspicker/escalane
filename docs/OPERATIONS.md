@@ -9,20 +9,24 @@ monitoring, and scheduled backups for the environment where you run it.
 Build and start all services:
 
 ```bash
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 ```
 
 Check their status and review logs from the migration, API, and worker:
 
 ```bash
-docker compose -f deploy/docker-compose.yml ps
-docker compose -f deploy/docker-compose.yml logs migration api worker
+docker compose --env-file .env -f deploy/docker-compose.yml ps
+docker compose --env-file .env -f deploy/docker-compose.yml logs migration api worker
 ```
+
+The API and worker write application events to stderr as one JSON object per
+line, with context such as `request_id` and `alarm_id`. `LOG_LEVEL` (default
+`INFO`) sets the minimum level.
 
 Stop the stack while keeping its persistent volumes:
 
 ```bash
-docker compose -f deploy/docker-compose.yml down
+docker compose --env-file .env -f deploy/docker-compose.yml down
 ```
 
 Adding `--volumes` deletes the PostgreSQL and Redis volumes. Use it only when
@@ -61,7 +65,7 @@ least once.
 Create a custom-format backup:
 
 ```bash
-docker compose -f deploy/docker-compose.yml exec -T postgres \
+docker compose --env-file .env -f deploy/docker-compose.yml exec -T postgres \
   pg_dump -U alarm -d alarm -Fc > escalane.dump
 ```
 
@@ -69,7 +73,7 @@ Before restoring, stop application writes and verify the target database. Then
 run:
 
 ```bash
-docker compose -f deploy/docker-compose.yml exec -T postgres \
+docker compose --env-file .env -f deploy/docker-compose.yml exec -T postgres \
   pg_restore -U alarm -d alarm --clean --if-exists < escalane.dump
 ```
 
@@ -83,10 +87,10 @@ Use the same immutable image digest for the migration, API, and worker:
 
 ```bash
 export ESCALANE_IMAGE='ghcr.io/sebastianspicker/escalane@sha256:<digest>'
-docker compose -f deploy/docker-compose.yml pull migration api worker
-docker compose -f deploy/docker-compose.yml up -d --wait postgres redis
-docker compose -f deploy/docker-compose.yml run --rm --no-deps migration
-docker compose -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
+docker compose --env-file .env -f deploy/docker-compose.yml pull migration api worker
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --wait postgres redis
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm --no-deps migration
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --no-deps --force-recreate api worker
 curl --fail http://127.0.0.1:8080/readyz
 ```
 

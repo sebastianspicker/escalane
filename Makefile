@@ -16,7 +16,7 @@ RELEASE_TAG ?= v0.4.0-alpha.1
 CHECK_PATHS := src migrations scripts
 
 bootstrap:
-	$(PYTHON_BOOTSTRAP) -c 'import sys; expected = (3, 14, 7); assert sys.version_info[:3] == expected, f"CPython {expected[0]}.{expected[1]}.{expected[2]} is required, found {sys.version.split()[0]}"'
+	$(PYTHON_BOOTSTRAP) -c 'import sys; reference = tuple(int(part) for part in "$(PYTHON_PATCH)".split(".")); found = sys.version.split()[0]; assert sys.version_info[:2] == reference[:2], f"CPython {reference[0]}.{reference[1]} is required, found {found}"; sys.version_info[:3] == reference or print(f"warning: CI and the container use CPython $(PYTHON_PATCH); found {found}", file=sys.stderr)'
 	$(PYTHON_BOOTSTRAP) -m venv "$(VENV)"
 	$(PYTHON) -m pip install --constraint "$(BUILD_CONSTRAINTS)" --upgrade pip
 
@@ -96,16 +96,16 @@ clean:
 	find . -path ./.git -prune -o -type d -name .venv -prune -o -type d -name venv -prune -o -type d -name __pycache__ -prune -exec rm -rf {} +
 
 docker-build:
-	docker compose -f deploy/docker-compose.yml build
+	docker compose --env-file .env -f deploy/docker-compose.yml build
 
 docker-up:
-	docker compose -f deploy/docker-compose.yml up -d
+	docker compose --env-file .env -f deploy/docker-compose.yml up -d
 
 docker-down:
-	docker compose -f deploy/docker-compose.yml down
+	docker compose --env-file .env -f deploy/docker-compose.yml down
 
 docker-logs:
-	docker compose -f deploy/docker-compose.yml logs -f
+	docker compose --env-file .env -f deploy/docker-compose.yml logs -f
 
 container-check:
 	bash scripts/smoke_container.sh escalane:local

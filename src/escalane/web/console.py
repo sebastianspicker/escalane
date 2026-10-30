@@ -9,8 +9,14 @@ from fastapi import Cookie, Depends, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from escalane.config.settings import Settings
-from escalane.web.admin_session import AdminSession, require_admin_session, validate_admin_csrf
-from escalane.web.deps import get_app_settings, get_redis
+from escalane.web.admin_session import (
+    SESSION_COOKIE,
+    SESSION_TTL_SECONDS,
+    AdminSession,
+    require_admin_session,
+    validate_admin_csrf,
+)
+from escalane.web.deps import get_app_settings, get_redis, is_secure_request
 from escalane.web.i18n import (
     SUPPORTED_LOCALES,
     canonical_locale,
@@ -76,6 +82,19 @@ def render_page(
         response.set_cookie(
             "ui_locale", canonical_locale(locale), max_age=31_536_000, samesite="lax"
         )
+    refreshed = getattr(request.state, "refreshed_admin_session", None)
+    if refreshed is not None:
+        # Slide the cookie with the Redis TTL so active operators are not cut off
+        # 60 minutes after login; idle sessions still expire after one TTL.
+        token, settings = refreshed
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            httponly=True,
+            secure=is_secure_request(request, settings),
+            samesite="strict",
+            max_age=SESSION_TTL_SECONDS,
+        )
     return response
 
 
@@ -86,7 +105,12 @@ async def session_from_request(
     *,
     extend: bool,
 ) -> AdminSession:
-    return await require_admin_session(get_redis(request), settings, token, extend=extend)
+    browser_session = await require_admin_session(
+        get_redis(request), settings, token, extend=extend
+    )
+    if extend:
+        request.state.refreshed_admin_session = (browser_session.token, settings)
+    return browser_session
 
 
 async def action_session(

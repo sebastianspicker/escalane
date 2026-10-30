@@ -179,6 +179,26 @@ def _acknowledgement_events(
     ]
 
 
+_TRANSITION_NOTE_TYPES: dict[AlarmStatus, str] = {
+    AlarmStatus.ACKNOWLEDGED: "ack",
+    AlarmStatus.RESOLVED: "resolve",
+    AlarmStatus.CANCELLED: "cancel",
+}
+
+
+def _transition_note(
+    alarm: Alarm, target_status: AlarmStatus, actor: str | None, note: str | None
+) -> AlarmNote:
+    """Record who moved the alarm, and why, in the activity timeline."""
+    return AlarmNote(
+        alarm_id=alarm.id,
+        note=note or "",
+        created_by=actor,
+        note_type=_TRANSITION_NOTE_TYPES[target_status],
+        created_at=datetime.now(UTC),
+    )
+
+
 def _transition_values(
     session: AsyncSession,
     target_status: AlarmStatus,
@@ -251,6 +271,7 @@ async def acknowledge_alarm(
         return False
 
     session.add_all(_acknowledgement_events(alarm, acked_by, note))
+    session.add(_transition_note(alarm, AlarmStatus.ACKNOWLEDGED, acked_by, note))
     await session.commit()
     await session.refresh(alarm)
     return True
@@ -298,6 +319,7 @@ async def transition_alarm(
             new_state=target_status.value,
         )
     )
+    session.add(_transition_note(alarm, target_status, actor, note))
     await session.commit()
     await session.refresh(alarm)
     return True

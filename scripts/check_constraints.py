@@ -65,6 +65,10 @@ def _check_python_version_consumers() -> list[str]:
     if configured_local != [PYTHON_PATCH]:
         errors.append(f"Makefile Python version must be {PYTHON_PATCH}; found {configured_local}")
 
+    pinned_local = (ROOT / ".python-version").read_text().strip()
+    if pinned_local != PYTHON_PATCH:
+        errors.append(f".python-version must be {PYTHON_PATCH}; found {pinned_local}")
+
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     configured_ci = re.findall(r'python-version: "([^"]+)"', workflow)
     if not configured_ci or set(configured_ci) != {PYTHON_PATCH}:

@@ -84,3 +84,16 @@ warn_return_any = true
 warn_unused_configs = true
 check_untyped_defs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "unit: Fast isolated tests without external integrations.",
+  "integration: Tests that exercise multiple application boundaries together.",
+  "security: Tests for authentication, trust boundaries, and secure defaults.",
+]
+filterwarnings = [
+  "ignore:ADMIN_API_KEY is not set.*:UserWarning",
+]

@@ -10,7 +10,7 @@ commits. Follow [SECURITY.md](SECURITY.md) to report a suspected vulnerability p
 
 ## Development setup
 
-Use Python 3.14.7 for local development, matching CI and the container image.
+Use Python 3.14 for local development; 3.14.7 matches CI and the container image.
 The package supports Python 3.14.x. From the repository root, run:
 
 ```bash
@@ -70,7 +70,7 @@ commands you ran and their results. If you could not run a check, explain why.
 
 Use the pull-request template to explain what changes for users and why.
 Call out any new configuration, required migration, or compatibility concern,
-and include your test results.
+and list the checks you ran with their results.
 
 Participation is governed by the
 [Code of Conduct](CODE_OF_CONDUCT.md).

@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # Keep this value synchronized with the single Alembic head packaged in
-# migrations/versions. The regression test verifies it.
+# migrations/versions; the pre-release checks in docs/RELEASING.md verify it.
 EXPECTED_ALEMBIC_HEAD = "0008"
 
 
