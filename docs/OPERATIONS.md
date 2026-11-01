@@ -120,8 +120,16 @@ batches. Its default is 10 seconds and its maximum is 300 seconds. This is a
 soft budget rather than a provider timeout: a slow Redis request may keep a
 batch running beyond it. When one alarm stream fails, recovery blocks that
 stream for the rest of the run and continues with other streams. Stable ARQ job
-identities prevent a successful enqueue from producing a second job when the
-database commit must be retried.
+identities prevent a second job while the first one for the same event is still
+queued, waiting to retry, or running. An event that is published again after its
+job finished runs again; its delivery records stop a repeat send unless the
+earlier provider result was unclear.
+
+The worker retries a failed delivery up to 12 times over about six minutes.
+The waits double from 1 second up to 60 seconds. After the last try the step
+is recorded as failed and is not sent again. Initial notifications and
+escalation steps are sent only while the alarm is still triggered; the Zammad
+ticket is created either way.
 
 Notification delivery is serial and at least once. A permanent provider
 rejection is recorded as `permanent_error`, which prevents a retry for another

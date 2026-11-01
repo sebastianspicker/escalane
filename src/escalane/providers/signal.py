@@ -58,9 +58,6 @@ class SignalClient(BaseConnector):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        if not self._signal_cfg.enabled:
-            return
-
         gid = group_id or self._signal_cfg.target_group_id
         payload = {
             "message": message,

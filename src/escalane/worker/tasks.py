@@ -40,7 +40,8 @@ from escalane.security.url_validation import RetryableSSRFError
 from escalane.telemetry.metrics import record_event
 
 logger = logging.getLogger("escalane")
-MAX_DELIVERY_ATTEMPTS = 5
+# About six minutes of retries: waits double from 1 s and are capped at 60 s.
+MAX_DELIVERY_ATTEMPTS = 12
 WorkerTask = Callable[..., Coroutine[Any, Any, None]]
 
 

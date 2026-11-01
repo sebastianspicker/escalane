@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from escalane.config.errors import ValidationError
 from escalane.config.settings import Settings
 from escalane.configuration.master_data import lock_active_referenced_parents
+from escalane.configuration.policy import TARGET_CHANNELS
 from escalane.persistence.models import (
     Device,
     EscalationPolicy,
@@ -268,6 +269,12 @@ async def _upsert_policy(session: AsyncSession, policy: dict[str, Any] | None) -
 
 async def _upsert_targets(session: AsyncSession, targets: list[dict[str, Any]]) -> None:
     for target_data in targets:
+        if target_data["channel"] not in TARGET_CHANNELS:
+            # Without this, an unknown channel was stored and later skipped at alarm time.
+            raise ValidationError(
+                f"Unknown channel {target_data['channel']!r} for escalation target "
+                f"{target_data['id']!r}; use one of {', '.join(sorted(TARGET_CHANNELS))}"
+            )
         target = await session.scalar(
             select(EscalationTarget)
             .where(EscalationTarget.id == target_data["id"])

@@ -7,6 +7,7 @@ import hashlib
 import logging
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,7 +22,7 @@ from escalane.alarms.outbox import (
     has_pending_alarm_events,
     new_outbox_event,
 )
-from escalane.alarms.severity import DEFAULT_SEVERITY, PRIORITY_ALL
+from escalane.alarms.severity import DEFAULT_SEVERITY
 from escalane.config.settings import Settings
 from escalane.persistence.models import (
     Alarm,
@@ -38,26 +39,16 @@ from escalane.runtime.redis_atomic import compare_and_delete, increment_with_exp
 logger = logging.getLogger("escalane")
 
 
+@dataclass(kw_only=True)
 class TriggerResult:
     """Outcome of a trigger operation."""
 
-    def __init__(
-        self,
-        *,
-        success: bool = True,
-        alarm_id: uuid.UUID | None = None,
-        status: AlarmStatus | None = None,
-        is_duplicate: bool = False,
-        error_code: int | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        """Store either a successful alarm outcome or a stable failure contract."""
-        self.success = success
-        self.alarm_id = alarm_id
-        self.status = status
-        self.is_duplicate = is_duplicate
-        self.error_code = error_code
-        self.error_message = error_message
+    success: bool = True
+    alarm_id: uuid.UUID | None = None
+    status: AlarmStatus | None = None
+    is_duplicate: bool = False
+    error_code: int | None = None
+    error_message: str | None = None
 
     @classmethod
     def ok(
@@ -145,32 +136,8 @@ class TriggerService:
         token_digest = hashlib.sha256(token.encode()).hexdigest()
         return f"idemp:{token_digest}"
 
-    def _get_rate_limit_key(self, token: str) -> str:
-        """Get the Redis key for rate limiting.
-
-        Args:
-            token: Device token
-
-        Returns:
-            Redis key string
-        """
-        if self._rate_limit_bucket is None:
-            raise RuntimeError("Rate limit bucket is not set")
-        return rate_limit_key(token, self._rate_limit_bucket)
-
-    async def _compare_and_delete(self, key: str, expected: Any) -> bool:
-        """Delete ``key`` atomically only while it still contains ``expected``."""
-        return await compare_and_delete(self._redis, key, expected)
-
     async def check_idempotency(self, token: str) -> tuple[bool, uuid.UUID | None]:
-        """Check if this request is idempotent (duplicate).
-
-        Args:
-            token: Device token
-
-        Returns:
-            Tuple of (is_duplicate, existing_alarm_id)
-        """
+        """Return (is_duplicate, existing_alarm_id) for this token."""
         idem_key = self._get_idempotency_key(token)
 
         existing_alarm_id = await self._redis.get(idem_key)
@@ -179,27 +146,20 @@ class TriggerService:
 
         existing_alarm_text = redis_text(existing_alarm_id)
         if existing_alarm_text is None:
-            await self._compare_and_delete(idem_key, existing_alarm_id)
+            await compare_and_delete(self._redis, idem_key, existing_alarm_id)
             return False, None
 
         try:
             existing_uuid = uuid.UUID(existing_alarm_text)
         except ValueError:
             # Invalid UUID in Redis: clear only the value that was inspected.
-            await self._compare_and_delete(idem_key, existing_alarm_id)
+            await compare_and_delete(self._redis, idem_key, existing_alarm_id)
             return False, None
 
         return True, existing_uuid
 
     async def reserve_alarm_id(self, token: str) -> uuid.UUID | None:
-        """Reserve an alarm ID for idempotency.
-
-        Args:
-            token: Device token
-
-        Returns:
-            Reserved UUID or None if reservation failed
-        """
+        """Reserve an alarm ID for idempotency; None if the reservation failed."""
         idem_key = self._get_idempotency_key(token)
 
         for _attempt in range(3):
@@ -211,33 +171,25 @@ class TriggerService:
             if existing is None:
                 continue
             if _valid_alarm_reservation(existing):
-                return None
+                break
             # Retry only after atomically removing the corrupt value we inspected.
-            await self._compare_and_delete(idem_key, existing)
+            await compare_and_delete(self._redis, idem_key, existing)
+        logger.error(
+            "idempotency_reservation_failed",
+            extra={"token_hash": _hash_token_for_logging(token)},
+        )
         return None
 
     async def clear_idempotency(self, token: str, alarm_id: uuid.UUID) -> None:
-        """Clear this request's idempotency reservation on error.
-
-        Args:
-            token: Device token
-            alarm_id: Reserved alarm ID that must still own the key
-        """
+        """Clear this request's reservation on error, only while it still owns the key."""
         idem_key = self._get_idempotency_key(token)
-        await self._compare_and_delete(idem_key, str(alarm_id))
+        await compare_and_delete(self._redis, idem_key, str(alarm_id))
 
     async def check_rate_limit(self, token: str) -> bool:
-        """Check if the request is within rate limits.
-
-        Args:
-            token: Device token
-
-        Returns:
-            True if within limits, False if exceeded
-        """
+        """Return True if within rate limits, False if exceeded."""
         if self._rate_limit_bucket is None:
             return True
-        rl_key = self._get_rate_limit_key(token)
+        rl_key = rate_limit_key(token, self._rate_limit_bucket)
         rl_val = await increment_with_expiry(self._redis, rl_key, 70)
         return rl_val <= self._settings.rate_limit_per_minute
 
@@ -337,50 +289,39 @@ class TriggerService:
                 await asyncio.sleep(self._IDEMPOTENCY_LOOKUP_DELAY_SECONDS)
         return None
 
-    async def _ensure_alarm_events_dispatched(self, alarm: Alarm) -> bool:
-        """Best-effort publish of atomically persisted initial lifecycle events."""
-        await dispatch_pending_alarm_events(
-            self._session,
-            self._redis,
-            logger=logger,
-            alarm_id=alarm.id,
-        )
-        return not await has_pending_alarm_events(self._session, alarm.id)
+    async def _publish_alarm_events(self, alarm: Alarm) -> bool:
+        """Publish durable outbox events; False when events stay pending or delivery failed."""
+        alarm_id = alarm.id
+        try:
+            await dispatch_pending_alarm_events(
+                self._session, self._redis, logger=logger, alarm_id=alarm_id
+            )
+            return not await has_pending_alarm_events(self._session, alarm_id)
+        except Exception:
+            try:
+                await self._session.rollback()
+            except Exception:
+                logger.exception(
+                    "alarm_event_delivery_rollback_failed",
+                    extra={"alarm_id": str(alarm_id)},
+                )
+            logger.exception(
+                "alarm_event_delivery_failed",
+                extra={"alarm_id": str(alarm_id)},
+            )
+            return False
 
-    def _validate_trigger(
-        self,
-        token: str,
-        severity: str | None = None,
-    ) -> tuple[bool, str | None]:
-        """Validate trigger data.
-
-        Checks required fields and severity validity.
-
-        Args:
-            token: Device token
-            severity: Optional severity level
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
+    def _validate_trigger(self, token: str) -> tuple[bool, str | None]:
+        """Return (is_valid, error_message) for the trigger token."""
         if not token or not token.strip():
             return False, "Token is required"
-        if severity is not None and severity not in PRIORITY_ALL:
-            return False, f"Invalid severity: {severity}"
         return True, None
 
     async def _check_idempotency(
         self,
         token: str,
     ) -> tuple[bool, uuid.UUID | None, Alarm | None]:
-        """Check idempotency and return existing alarm if found.
-
-        Args:
-            token: Device token
-
-        Returns:
-            Tuple of (is_duplicate, alarm_id, existing_alarm)
-        """
+        """Return (is_duplicate, alarm_id, existing_alarm) for this token."""
         is_duplicate, existing_id = await self.check_idempotency(token)
         if is_duplicate and existing_id:
             # The Redis key is reserved before the DB commit. A duplicate request
@@ -399,50 +340,9 @@ class TriggerService:
             return True, existing_id, None
         return False, None, None
 
-    async def _reserve_idempotency_key(self, token: str) -> uuid.UUID | None:
-        """Reserve idempotency key for the request.
-
-        Args:
-            token: Device token
-
-        Returns:
-            Reserved UUID or None if reservation failed
-        """
-        alarm_id = await self.reserve_alarm_id(token)
-        if not alarm_id:
-            logger.error(
-                "idempotency_reservation_failed",
-                extra={"token_hash": _hash_token_for_logging(token)},
-            )
-        return alarm_id
-
-    async def _send_notifications(self, alarm: Alarm) -> bool:
-        """Publish durable outbox events without losing alarms to recoverable queue failures."""
-        alarm_id = alarm.id
-        try:
-            return await self._ensure_alarm_events_dispatched(alarm)
-        except Exception:
-            await self._rollback_failed_alarm_event_delivery(alarm_id)
-            logger.exception(
-                "alarm_event_delivery_failed",
-                extra={"alarm_id": str(alarm_id)},
-            )
-            return False
-
-    async def _rollback_failed_alarm_event_delivery(self, alarm_id: uuid.UUID) -> None:
-        """Rollback failed outbox work without masking the original delivery error."""
-        try:
-            await self._session.rollback()
-        except Exception:
-            logger.exception(
-                "alarm_event_delivery_rollback_failed",
-                extra={"alarm_id": str(alarm_id)},
-            )
-
     async def _handle_duplicate_alarm(self, alarm: Alarm) -> TriggerResult:
         """Return idempotent success only after retrying any unfinished downstream dispatch."""
-        events_ok = await self._send_notifications(alarm)
-        if not events_ok:
+        if not await self._publish_alarm_events(alarm):
             return TriggerResult.error(
                 503,
                 "Alarm already exists, but downstream processing still needs a retry request.",
@@ -460,15 +360,6 @@ class TriggerService:
         )
         return TriggerResult.error(429, "Rate limit exceeded")
 
-    async def _handle_reservation_failure(self, token: str) -> TriggerResult:
-        """Distinguish a duplicate in progress from a genuine idempotency-store failure."""
-        is_duplicate, _, existing_alarm = await self._check_idempotency(token)
-        if is_duplicate and existing_alarm:
-            return await self._handle_duplicate_alarm(existing_alarm)
-        if is_duplicate:
-            return TriggerResult.error(409, "An alarm for this token is already being created.")
-        return TriggerResult.error(500, "Idempotency failure")
-
     async def _duplicate_trigger_result(self, token: str) -> TriggerResult | None:
         """Return an existing alarm result before allocating another idempotency reservation."""
         is_duplicate, _, existing_alarm = await self._check_idempotency(token)
@@ -482,9 +373,13 @@ class TriggerService:
         """Validate device mapping before allocating token-derived Redis state."""
         device, device_error = await self.validate_device(token)
         if device_error or device is None:
-            # Always 404: distinguishing "unknown token" (404) from "mapping incomplete"
-            # (409) would let callers probe for valid device tokens.
-            return TriggerResult.error(404, device_error or "Unknown device error")
+            # One public answer for unknown and inactive tokens, so callers cannot probe
+            # for valid device tokens; the reason goes to the log only.
+            logger.info(
+                "trigger_device_rejected",
+                extra={"reason": device_error, "token_hash": _hash_token_for_logging(token)},
+            )
+            return TriggerResult.error(404, "Unknown or inactive device")
         return device
 
     async def _create_alarm_for_trigger(
@@ -516,20 +411,6 @@ class TriggerService:
             )
             return TriggerResult.error(500, "Alarm creation failed")
 
-    async def _send_notifications_for_trigger(self, alarm: Alarm) -> TriggerResult | None:
-        """Report a retryable 503 when the alarm committed but its outbox remains pending."""
-        alarm_id = alarm.id
-        if await self._send_notifications(alarm):
-            return None
-        logger.warning(
-            "alarm_event_enqueue_incomplete",
-            extra={"alarm_id": str(alarm_id)},
-        )
-        return TriggerResult.error(
-            503,
-            "Alarm was created, but downstream processing still needs a retry request.",
-        )
-
     async def _prepare_new_alarm(
         self,
         *,
@@ -547,9 +428,12 @@ class TriggerService:
         if not await self.check_rate_limit(token):
             return self._rate_limit_error(token)
 
-        alarm_id = await self._reserve_idempotency_key(token)
+        alarm_id = await self.reserve_alarm_id(token)
         if not alarm_id:
-            return await self._handle_reservation_failure(token)
+            # A duplicate in progress is not an idempotency-store failure.
+            return await self._duplicate_trigger_result(token) or TriggerResult.error(
+                500, "Idempotency failure"
+            )
 
         alarm_or_error = await self._create_alarm_for_trigger(
             token=token,
@@ -610,9 +494,13 @@ class TriggerService:
             return prepared
 
         alarm, device = prepared
-        notification_error = await self._send_notifications_for_trigger(alarm)
-        if notification_error is not None:
-            return notification_error
+        alarm_id = alarm.id  # read before awaiting: a rollback expires the instance
+        if not await self._publish_alarm_events(alarm):
+            logger.warning("alarm_event_enqueue_incomplete", extra={"alarm_id": str(alarm_id)})
+            return TriggerResult.error(
+                503,
+                "Alarm was created, but downstream processing still needs a retry request.",
+            )
 
         self._log_alarm_triggered(alarm, device)
         return TriggerResult.ok(alarm.id, alarm.status)

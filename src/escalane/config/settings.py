@@ -5,6 +5,7 @@ All configuration is loaded from environment variables (and optional .env file).
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from functools import lru_cache
 from typing import Any
@@ -238,7 +239,20 @@ def _validate_simulation_base_url(settings: Settings) -> None:
         raise ValueError("BASE_URL must use a loopback host when SIMULATION_ENABLED=true")
 
 
+def _require_ip_networks(raw: str, variable_name: str) -> None:
+    """Reject a bad entry at startup; at request time it would refuse every address."""
+    for item in (part.strip() for part in raw.split(",")):
+        if not item:
+            continue
+        try:
+            ipaddress.ip_network(item, strict=False)
+        except ValueError as exc:
+            raise ValueError(f"{variable_name} contains an invalid entry: {item!r}") from exc
+
+
 def _validate_runtime_configuration(settings: Settings) -> None:
+    _require_ip_networks(settings.yelk_ip_allowlist, "YELK_IP_ALLOWLIST")
+    _require_ip_networks(settings.trusted_proxy_cidrs, "TRUSTED_PROXY_CIDRS")
     if settings.simulation_enabled:
         return
     if _uses_default_database_password(settings.database_url):

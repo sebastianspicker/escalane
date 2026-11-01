@@ -37,7 +37,9 @@ from escalane.web.schemas import AckIn
 router = APIRouter()
 logger = logging.getLogger("escalane")
 
-_CSRF_COOKIE_NAME = "csrf_token"
+# Renamed from "csrf_token": an old Path=/ cookie of that name would be sent last
+# and shadow the per-link cookie when the server parses the Cookie header.
+_CSRF_COOKIE_NAME = "ack_csrf"
 
 _ACK_RATE_MAX = 10
 _ACK_ADDRESS_RATE_MAX = 120
@@ -83,7 +85,7 @@ async def _check_ack_rate_limit(
 
 def _validate_csrf(csrf_token: str | None, form_csrf: str) -> None:
     """Require the page-specific CSRF secret before a capability-link transition."""
-    if csrf_token and form_csrf and secrets.compare_digest(csrf_token, form_csrf):
+    if csrf_token and form_csrf and secrets.compare_digest(csrf_token.encode(), form_csrf.encode()):
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -193,6 +195,8 @@ async def ack_page(
     response.set_cookie(
         key=_CSRF_COOKIE_NAME,
         value=csrf_token,
+        # One cookie per link, so opening a second alarm link keeps the first usable.
+        path=f"/a/{ack_token}",
         httponly=True,
         secure=is_secure_request(request, settings),
         samesite="strict",
@@ -210,7 +214,7 @@ async def ack_submit(
     request: Request,
     ack_token: str,
     lang: str | None = Query(default=None),
-    csrf_token: str | None = Cookie(default=None),
+    csrf_token: str | None = Cookie(default=None, alias=_CSRF_COOKIE_NAME),
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     """Validate the ACK form, transition the alarm, and enqueue follow-up events."""

@@ -6,6 +6,7 @@ import logging
 from typing import Any, cast
 
 import httpx
+from arq import func
 from arq.connections import RedisSettings
 from arq.cron import cron
 
@@ -156,7 +157,9 @@ class WorkerSettings:
         escalate,
         alarm_acked,
         alarm_state_changed,
-        process_alarm_event,
+        # No stored result: ARQ refuses a job ID while its result exists, which would
+        # silently drop a re-armed acknowledgement event for an hour.
+        func(cast(Any, process_alarm_event), keep_result=0),
         recover_incomplete_alarm_events,
     ]
     cron_jobs = [

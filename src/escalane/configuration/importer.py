@@ -112,7 +112,9 @@ def seed_sections(data: dict[str, Any]) -> list[str]:
 
 def seed_digest_matches(content_hash: str | None, digest: str) -> bool:
     """Compare a previewed content hash with the current digest in constant time."""
-    return content_hash is not None and secrets.compare_digest(content_hash, digest)
+    return content_hash is not None and secrets.compare_digest(
+        content_hash.encode(), digest.encode()
+    )
 
 
 async def apply_seed_payload(

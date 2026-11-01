@@ -139,7 +139,7 @@ async def require_admin_session(
 
 def validate_admin_csrf(session: AdminSession, submitted: str | None) -> None:
     """Reject form submissions whose CSRF secret does not match the session."""
-    if submitted and secrets.compare_digest(session.csrf_token, submitted):
+    if submitted and secrets.compare_digest(session.csrf_token.encode(), submitted.encode()):
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="csrf_invalid")
 

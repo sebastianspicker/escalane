@@ -5,12 +5,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from escalane.alarms.severity import PRIORITY_ALL
-from escalane.configuration.policy import EscalationPolicyCommand, StepCommand, TargetCommand
+from escalane.configuration.policy import (
+    EscalationPolicyCommand,
+    StepCommand,
+    TargetChannel,
+    TargetCommand,
+)
 from escalane.persistence.models import AlarmStatus
 
 
@@ -66,7 +71,7 @@ class DeviceUpsertIn(BaseModel):
 class TargetIn(BaseModel):
     id: str
     label: str
-    channel: Literal["email", "sms", "signal", "webhook"]
+    channel: TargetChannel
     address: str
     enabled: bool = True
 

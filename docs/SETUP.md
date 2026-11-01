@@ -98,10 +98,10 @@ variables you will usually set:
 | `REDIS_URL` | Redis connection for ARQ and temporary state |
 | `BASE_URL` | Public origin used to build acknowledgement links |
 | `ADMIN_API_KEY` | Credential for the admin API and operator sign-in; at least 32 characters outside simulation |
-| `YELK_IP_ALLOWLIST` | Source CIDRs allowed to trigger devices outside simulation |
+| `YELK_IP_ALLOWLIST` | Comma-separated addresses or CIDRs allowed to trigger devices outside simulation; an invalid entry stops startup |
 | `YELK_TOKEN_QUERY_PARAM` | Query parameter name used for device triggers |
 | `RATE_LIMIT_PER_MINUTE` | Per-device trigger limit |
-| `TRUSTED_PROXY_CIDRS` | Proxy peers allowed to supply forwarded headers |
+| `TRUSTED_PROXY_CIDRS` | Comma-separated proxy peers allowed to supply forwarded headers; an invalid entry stops startup |
 | `SIMULATION_ENABLED` | Enables mock delivery and simulation routes |
 | `ENABLE_API_DOCS` | Enables OpenAPI and the interactive API documentation |
 

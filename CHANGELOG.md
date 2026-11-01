@@ -50,6 +50,31 @@ This file records notable changes to Escalane. It follows
 
 ### Fixed
 
+- A short provider outage no longer drops a notification. The worker now
+  retries a failed delivery up to 12 times over about six minutes instead of
+  giving up after about 15 seconds. Initial notifications, like escalation
+  steps, stop once the alarm has been acknowledged, resolved or cancelled; the
+  Zammad ticket is still created.
+- A re-armed acknowledgement note now reaches Zammad within about ten
+  minutes. ARQ kept each finished event job's result for an hour under the
+  same job ID and refused the re-armed event until it expired.
+- Acknowledgement links opened at the same time no longer invalidate each
+  other. Each link now keeps its own `ack_csrf` cookie, scoped to that link.
+- An invalid entry in `YELK_IP_ALLOWLIST` or `TRUSTED_PROXY_CIDRS` now stops
+  the API, worker and migration at startup and names the entry. Before, one
+  bad allowlist entry made every device trigger fail with 403, and a bad
+  proxy entry was silently ignored.
+- The seed import now rejects an escalation target whose `channel` is not
+  `email`, `sms`, `signal` or `webhook`, like the API and the console. Before,
+  such a target was saved and then skipped at alarm time. Targets saved earlier
+  with an unknown channel are now recorded as `permanent_error` instead of
+  `skipped`.
+- A non-ASCII admin key, CSRF value or import hash now gets the normal
+  rejection instead of a server error. A wrong admin key with such characters
+  now also counts toward the sign-in limit.
+- Device triggers with an unknown token and with an inactive device now get
+  the same 404 text, `Unknown or inactive device`, so a caller cannot tell
+  them apart. The log keeps the exact reason.
 - Fixed worker startup when ARQ reads Redis settings directly from the worker
   class. Settings still load lazily and use the configured Redis connection.
 - Configuration edit forms now show stored values. They previously rendered

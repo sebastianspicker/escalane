@@ -202,8 +202,9 @@ class NotificationService:
             "unknown_channel",
             extra={"channel": target.channel, "target_id": target.id},
         )
+        # Only rows saved before channels were validated can get here; count them as failures.
         await self._log_notification_result(
-            session, target, payload, "skipped", "Unknown notification channel"
+            session, target, payload, "permanent_error", "Unknown notification channel"
         )
         return True
 

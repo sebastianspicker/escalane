@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Literal, get_args
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from escalane.config.errors import ConflictError, ValidationError
 from escalane.configuration.audit import add_admin_audit_event
 from escalane.persistence.models import EscalationPolicy, EscalationStep, EscalationTarget
+
+# The one list of notification channels; the API schema and the seed import both check it.
+TargetChannel = Literal["email", "sms", "signal", "webhook"]
+TARGET_CHANNELS = frozenset(get_args(TargetChannel))
 
 
 @dataclass(frozen=True, slots=True)

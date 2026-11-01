@@ -100,6 +100,13 @@ async def deliver_initial_notifications(
             if ticket_id:
                 alarm.zammad_ticket_id = ticket_id
                 await session.commit()
+    if alarm.status != AlarmStatus.TRIGGERED:
+        # Like escalation steps, stop paging once someone has handled the alarm.
+        logger.info(
+            "initial_notification_skipped",
+            extra={"alarm_id": str(alarm.id), "status": alarm.status.value},
+        )
+        return errors[0] if errors else None
     try:
         await notification.send(
             session=session,

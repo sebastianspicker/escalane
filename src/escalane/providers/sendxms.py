@@ -54,12 +54,5 @@ class SendXmsClient(BaseConnector):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        if not self._sms_cfg.enabled:
-            return
-
         payload = {"to": to, "message": message, "from": self._sms_cfg.from_name}
-        await self._post(
-            self._sms_cfg.send_path,
-            json=payload,
-            headers={"Authorization": f"Bearer {self._sms_cfg.api_key}"},
-        )
+        await self._post(self._sms_cfg.send_path, json=payload)

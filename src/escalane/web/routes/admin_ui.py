@@ -137,7 +137,8 @@ async def admin_login_submit(
     failure_key = _failed_login_key(request, settings)
     if await _login_failure_limit_reached(redis, failure_key):
         return _login_error_response(request, locale, "rate", 429)
-    if not secrets.compare_digest(admin_key, settings.admin_api_key):
+    # Bytes, not str: compare_digest raises TypeError for non-ASCII text.
+    if not secrets.compare_digest(admin_key.encode(), settings.admin_api_key.encode()):
         failed_attempts = await _record_login_failure(redis, failure_key)
         if failed_attempts > _FAILED_LOGIN_LIMIT:
             return _login_error_response(request, locale, "rate", 429)

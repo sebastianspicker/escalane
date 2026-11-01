@@ -28,8 +28,10 @@ Escalane stores escalation routes in PostgreSQL instead of hard-coding them. A
 policy links each escalation step to enabled `email`, `sms`, `signal`, or
 `webhook` targets. Environment variables configure the provider connections;
 seed imports or the operator console set the targets and delays for a particular
-deployment. The sample seed contains placeholders, so replace those values
-before using it outside a demonstration.
+deployment. A target's `channel` must be exactly one of these four lower-case
+names; the API, the console and the seed import reject any other value. The
+sample seed contains placeholders, so replace those values before using it
+outside a demonstration.
 
 | Provider | Required configuration |
 |---|---|
