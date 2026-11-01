@@ -7,6 +7,22 @@ acknowledgement links for responders. It records each alarm’s history in
 PostgreSQL and uses background workers to send notifications and escalate
 unanswered alarms. You can also configure the service and manage alarms through its API.
 
+<details>
+<summary>Status and limitations</summary>
+
+**Project status:** Escalane is an independent experimental project exploring device-alarm
+worklists, acknowledgements and escalation. Developed independently alongside my main
+professional work. The public alpha is a starting point for evaluation and adaptation, not a
+ready-to-use response system. Live notification integrations still need verification in the
+intended environment.
+
+**Disclaimer.** This project has not been validated for emergency response or
+safety-critical duties. Operators must assess delivery, escalation, outages and failure
+handling independently; a simulation or successful local test does not establish reliable
+live response.
+
+</details>
+
 Escalane is a public alpha intended for evaluation. It has not been validated
 for emergency response or uses that require safety, security, or compliance
 assurance.
@@ -15,6 +31,22 @@ Try the [interactive browser demo](https://sebastianspicker.github.io/escalane/)
 to explore the worklist, inspect an alarm, and try the responder flow with
 fictional data. It runs entirely in your browser, without credentials or
 connections to Escalane or its notification providers.
+
+## How it fits together
+
+```mermaid
+flowchart LR
+  Device[Device alarm trigger] --> Intake[Authenticated intake]
+  Intake --> DB[PostgreSQL alarm history and outbox]
+  DB --> Worker[Background notification worker]
+  Worker --> Providers[Configured notification providers]
+  People[Operators and responders] --> API[Worklist and acknowledgement API]
+  API --> DB
+```
+
+Security checks run automatically. General build checks run for Dependabot pull
+requests or on manual dispatch; Pages and release publication are manual-only.
+See [release instructions](docs/RELEASING.md) for validation and approval steps.
 
 ## Who it fits
 

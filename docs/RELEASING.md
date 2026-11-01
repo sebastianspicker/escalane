@@ -1,6 +1,7 @@
 # Release Escalane
 
-A tagged release publishes a container image and creates a GitHub prerelease.
+A manually dispatched release publishes an existing version tag as a container
+image and GitHub prerelease. Branch and tag pushes do not publish artifacts.
 The wheel verifies installation and package contents in CI, but it is not the
 documented deployment artifact and is not published.
 
@@ -50,7 +51,8 @@ Use an immutable candidate commit on `main`. Resolve every required check before
 tagging, and make sure the checkout is clean. Create an annotated or signed
 `v<version>` tag. Once a tag is published, never move or overwrite it.
 
-The tag starts the release workflow. That workflow verifies that the tagged
+After publication approval, dispatch the Release workflow from `main` with the
+existing annotated tag in its `tag` input. That workflow verifies that the tagged
 commit belongs to `main`, validates the release metadata, runs CI, builds and
 tests the container, pushes it to GHCR, and creates the GitHub prerelease.
 

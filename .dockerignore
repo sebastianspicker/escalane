@@ -56,3 +56,8 @@ conversation-exports
 Makefile
 .pre-commit-config.yaml
 .secrets.baseline
+
+# Private local investigations
+.private
+private
+local-tests

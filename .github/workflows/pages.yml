@@ -1,14 +1,6 @@
 name: Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/pages.yml"
-      - "pages/**"
-      - "scripts/build_pages.py"
-      - "scripts/validate_pages.py"
-      - "src/escalane/web/assets/**"
   workflow_dispatch:
 
 permissions:
@@ -22,6 +14,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -35,11 +28,12 @@ jobs:
         run: python scripts/build_pages.py
       - name: Validate static demo
         run: python scripts/validate_pages.py build/pages
-      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: build/pages
 
   deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

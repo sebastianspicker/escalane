@@ -165,3 +165,11 @@ service-account*.json
 /docs/DESIGN_BRIEF.md
 /RELEASE_STATUS.md
 /tests/
+
+# Private local audit and agent records
+/ALPHA_AUDIT_REPORT.md
+/*_LEDGER.md
+/*-LEDGER.md
+.private/
+/agent-notes*
+/local-tests/
