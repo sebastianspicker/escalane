@@ -11,26 +11,51 @@ emergency-response system.
 
 ## System context
 
+What runs where, and who talks to whom:
+
 ```mermaid
 flowchart LR
-    Device[Alarm device] -->|Token-authenticated trigger| API[FastAPI web process]
-    Operator[Operator browser] -->|Session and CSRF| API
-    Responder[Responder browser] -->|Acknowledgement capability| API
-    API <--> PostgreSQL[(PostgreSQL)]
-    API <--> Redis[(Redis and ARQ)]
-    Redis --> Worker[ARQ worker]
-    Worker <--> PostgreSQL
-    Worker --> Zammad[Zammad]
-    Worker --> SendXMS[SendXMS]
-    Worker --> Signal[Signal REST bridge]
-    Worker --> Webhook[Signed callback or webhook target]
-    StaticDemo[Generated static demo] -. No runtime connection .-> Operator
+    device[Alarm device]
+    operator((Operator))
+    responder((Responder))
+    subgraph deployment [Escalane deployment]
+        migration[Alembic migration]
+        api[FastAPI web process]
+        worker[ARQ worker]
+        pg[(PostgreSQL)]
+        redis[(Redis)]
+    end
+    providers[Notification providers]
+    device -->|"GET /v1/yealink/alarm"| api
+    operator -->|"/admin, /v1/alarms"| api
+    responder -->|"/a/{ack_token}"| api
+    migration -->|alembic upgrade head| pg
+    api -->|SQL| pg
+    api -.->|enqueue_job| redis
+    redis -.->|ARQ jobs| worker
+    worker -->|SQL| pg
+    worker -->|HTTPS| providers
+    providers -.->|SMS or Signal with ack link| responder
+    classDef focus fill:#fde68a,stroke:#b45309,color:#1f2937
+    class api,worker focus
 ```
 
 Only the API accepts HTTP requests. The worker creates its own database engine,
 HTTP client, provider clients, and Redis connection. In the reference Compose
 deployment, the migration process updates the schema before either the API or
-worker starts.
+worker starts. "Notification providers" are Zammad, SendXMS, a Signal REST
+bridge, and signed state-change webhooks; each is optional. The static demo in
+`pages/` is not part of this picture: it never connects to a running service.
+
+Where in the code:
+
+- [deploy/docker-compose.yml](../deploy/docker-compose.yml): the `migration`,
+  `api`, and `worker` services, all from one image
+- [src/escalane/web/main.py](../src/escalane/web/main.py): `create_app()` and
+  the lifespan that opens the database engine and ARQ Redis pool
+- [src/escalane/worker/settings.py](../src/escalane/worker/settings.py):
+  `WorkerSettings` (task list, retry limit, cron jobs) and worker `startup()`
+- [src/escalane/providers/](../src/escalane/providers/): one client per provider
 
 ## Components
 
@@ -52,6 +77,15 @@ worker starts.
 | `pages/` | Contains the source for the separate, disconnected GitHub Pages demo |
 
 Paths in the table are relative to `src/escalane/` unless shown otherwise.
+
+For a first read, follow one alarm: the trigger route
+[web/routes/yealink.py](../src/escalane/web/routes/yealink.py), then
+[alarms/triggers.py](../src/escalane/alarms/triggers.py) and
+[alarms/outbox.py](../src/escalane/alarms/outbox.py), then the worker in
+[worker/tasks.py](../src/escalane/worker/tasks.py) and
+[notifications/workflows.py](../src/escalane/notifications/workflows.py). The
+schema in [persistence/models.py](../src/escalane/persistence/models.py)
+explains the rest.
 
 ## Dependency rules
 
@@ -93,33 +127,132 @@ external systems in `providers`.
 
 ## Alarm and delivery flow
 
+### A device triggers an alarm
+
+What happens between a button press and the first page to a responder:
+
 ```mermaid
 sequenceDiagram
-    participant D as Device or operator
-    participant A as FastAPI web process
-    participant P as PostgreSQL
-    participant R as Redis and ARQ
-    participant W as ARQ worker
-    participant X as External provider
+    autonumber
+    participant dev as Alarm device
+    participant api as FastAPI web process
+    participant redis as Redis
+    participant pg as PostgreSQL
+    participant worker as ARQ worker
+    participant prov as Providers
 
-    D->>A: Trigger or lifecycle action
-    A->>R: Reserve idempotency or rate-limit state
-    A->>P: Commit alarm change, lifecycle event, and outbox row
-    A->>R: Enqueue ordered outbox event
-    R->>W: Deliver ARQ job
-    W->>P: Load current alarm and event state
-    W->>X: Send notification or callback
-    W->>P: Record delivery outcome
-    W->>R: Schedule escalation when required
-    W->>P: Scan unpublished events during recovery
-    W->>R: Re-enqueue recoverable event
+    dev->>api: GET /v1/yealink/alarm?token=…
+    api->>redis: Check idempotency, rate limit, reserve alarm ID
+    api->>pg: INSERT alarm + 2 outbox rows, COMMIT
+    api->>redis: enqueue_job process_alarm_event
+    api->>pg: Set outbox published_at
+    api-->>dev: 200 alarm_id, status
+    redis-)worker: alarm.created job
+    worker->>pg: Load alarm and escalation schedule
+    worker->>redis: Defer one escalate job per step
+    worker->>prov: Zammad ticket, step-0 SMS/Signal/webhook
+    worker->>pg: INSERT alarm_notifications
+    loop Each escalation step that comes due
+        redis-)worker: escalate(alarm_id, step_no)
+        worker->>prov: Notify step targets if still triggered
+    end
 ```
 
-When Escalane creates or changes an alarm, it writes the lifecycle event and
-outbox row in the same PostgreSQL transaction. It publishes each alarm's events
+The route (1) checks the source IP and token, then `TriggerService` does the
+rest. A repeated trigger from the same device token within 30 seconds returns
+the existing alarm instead of creating a second one (2). The alarm and its `alarm.created` and
+`alarm.state_changed` outbox rows commit in one transaction (3), so an alarm
+never exists without its events. If enqueueing (4) fails, the device gets a 503
+but the alarm is already stored, and the worker's recovery job publishes the
+pending rows later. Escalation jobs are queued (9) before any provider call, and
+each `escalate` job only pages if the alarm is still `triggered`.
+
+Where in the code:
+
+- [web/routes/yealink.py](../src/escalane/web/routes/yealink.py):
+  `yealink_alarm()`, source IP and token checks
+- [alarms/triggers.py](../src/escalane/alarms/triggers.py):
+  `TriggerService.process_trigger()` and `create_alarm()`
+- [alarms/outbox.py](../src/escalane/alarms/outbox.py):
+  `dispatch_pending_alarm_events()` and the stable ARQ job IDs
+- [worker/tasks.py](../src/escalane/worker/tasks.py): `process_alarm_event()`,
+  `alarm_created()`, `escalate()`
+- [notifications/workflows.py](../src/escalane/notifications/workflows.py):
+  `deliver_new_alarm()`, `deliver_escalation_step()`
+
+### A responder acknowledges
+
+The notification text carries an acknowledgement link (`/a/{ack_token}`). This
+is what happens when the responder opens it:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor resp as Responder
+    participant api as FastAPI web process
+    participant redis as Redis
+    participant pg as PostgreSQL
+    participant worker as ARQ worker
+    participant prov as Providers
+
+    resp->>api: GET /a/{ack_token}
+    api->>redis: Rate limit per link and per address
+    api->>pg: Find alarm by ack token
+    api-->>resp: Page + CSRF cookie
+    resp->>api: POST /a/{ack_token} (name, note)
+    api->>pg: triggered → acknowledged, 2 outbox rows, note, COMMIT
+    api->>redis: enqueue_job process_alarm_event
+    api-->>resp: Confirmation page
+    redis-)worker: alarm.acknowledged, alarm.state_changed
+    worker->>prov: Zammad ack note, state webhook
+```
+
+The state change in step 6 is a compare-and-set on the current status, so two
+responders acknowledging at once produce one acknowledgement. From then on,
+pending `escalate` jobs find the alarm no longer `triggered` and send nothing.
+Operators resolve or cancel alarms through `/admin` or `/v1/alarms`; those go
+through the same `apply_alarm_state_change()` path (or its bulk variant) and emit
+`alarm.state_changed`.
+
+Where in the code:
+
+- [web/routes/ack.py](../src/escalane/web/routes/ack.py): `ack_page()`,
+  `ack_submit()`
+- [alarms/lifecycle.py](../src/escalane/alarms/lifecycle.py):
+  `apply_alarm_state_change()`, `acknowledge_alarm()`, `transition_alarm()`
+- [worker/tasks.py](../src/escalane/worker/tasks.py): `alarm_acked()`,
+  `alarm_state_changed()`
+
+### Alarm states
+
+Which status changes the code allows:
+
+```mermaid
+stateDiagram-v2
+    [*] --> triggered: device trigger
+    triggered --> acknowledged: responder or operator
+    triggered --> resolved: operator
+    triggered --> cancelled: operator
+    acknowledged --> resolved: operator
+    acknowledged --> cancelled: operator
+    resolved --> [*]
+    cancelled --> [*]
+```
+
+`resolved` and `cancelled` are final. Soft deletion (`deleted_at`) is separate
+from status: it hides an alarm, and the worker skips deleted alarms. The table
+of allowed moves is `_ALLOWED_TRANSITIONS` in
+[alarms/lifecycle.py](../src/escalane/alarms/lifecycle.py); the states are
+`AlarmStatus` in [persistence/models.py](../src/escalane/persistence/models.py).
+
+### Delivery guarantees and recovery
+
+When Escalane creates or changes an alarm, it writes the status change and its
+outbox rows in the same PostgreSQL transaction. It publishes each alarm's events
 in order. Once ARQ accepts an event, Escalane marks the corresponding outbox row
 as published. If enqueueing fails, the row stays in PostgreSQL for the worker to
-recover at startup or during its once-per-minute recovery job.
+recover at startup or during its once-per-minute
+`recover_incomplete_alarm_events` cron job.
 
 The worker reloads the stored state before it acts. Initial notifications and
 escalations may be retried, which makes calls to providers at least once rather
@@ -131,7 +264,7 @@ can still receive the same request more than once.
 
 | Store | What it stores | What happens during recovery |
 |---|---|---|
-| PostgreSQL | Master data, escalation policy and targets, alarms, notes, lifecycle events, administrative audit, notification audit, and ordered outbox | This is the durable source of truth. Back up and restore it consistently. |
+| PostgreSQL | Master data, escalation policy and targets, alarms, notes, administrative audit, notification audit, and the ordered lifecycle-event outbox | This is the durable source of truth. Back up and restore it consistently. |
 | Redis | ARQ jobs, delayed work, browser sessions, CSRF/session data, trigger reservations, idempotency state, rate limits, and simulation notification records (newest 500) with the mock ticket counter | This data coordinates current work. A restart invalidates sessions and requires a tested queue recovery procedure. |
 
 If Redis restarts or ARQ retries a job, PostgreSQL remains the source of truth.
@@ -141,6 +274,36 @@ simulation records and the mock ticket counter through Redis, so
 `/v1/simulation/notifications` and the console's simulation page show
 simulated deliveries in the reference Compose deployment. Only the newest 500
 records are kept, and the clear action removes them.
+
+### PostgreSQL tables
+
+How the durable tables relate:
+
+```mermaid
+erDiagram
+    sites ||--o{ rooms : contains
+    rooms ||--o{ devices : "installed in"
+    persons ||--o{ devices : carries
+    devices ||--o{ alarms : raises
+    escalation_policy ||--o{ escalation_steps : "ordered by"
+    escalation_targets ||--o{ escalation_steps : "notified in"
+    alarms ||--o{ alarm_event_outbox : "events for worker"
+    alarms ||--o{ alarm_notifications : "delivery audit"
+    alarms ||--o{ alarm_notes : timeline
+    escalation_targets ||--o{ alarm_notifications : "sent to"
+```
+
+The first three rows are master data that operators maintain through `/admin`
+or the seed import. An alarm also copies its person, room, and site IDs at
+trigger time, so later master-data edits do not rewrite history. The three
+alarm child tables are deleted with their alarm. Two tables stand alone and are
+left out of the diagram: `admin_audit_events` (redacted record of admin
+changes) and `dashboard_revision` (a counter the worklist polls for changes).
+
+Where in the code:
+
+- [persistence/models.py](../src/escalane/persistence/models.py): all tables
+- [migrations/versions/](../migrations/versions/): their Alembic history
 
 ## HTTP and trust boundaries
 
@@ -177,6 +340,41 @@ CI builds a wheel to verify package integrity, while the tested container image
 is the supported release artifact. The `pages/` source builds separately into
 the ignored `build/pages/` directory and may be published to GitHub Pages. The
 static site never connects to a running Escalane service.
+
+### Build and release
+
+How a tagged commit becomes a published image (all steps start manually from
+the Release workflow on `main`):
+
+```mermaid
+flowchart LR
+    tag[Annotated tag on main] --> preflight[preflight]
+    preflight -->|tag commit| validate["validate_release.py"]
+    validate --> ci["ci.yml checks"]
+    ci --> build[Build image once]
+    build -->|escalane:release-candidate| smoke["smoke_container.sh"]
+    smoke -->|docker push| ghcr[(ghcr.io image)]
+    ghcr --> ghrel[GitHub Release]
+    classDef focus fill:#fde68a,stroke:#b45309,color:#1f2937
+    class smoke focus
+```
+
+`preflight` refuses a tag whose commit is not on `origin/main`. `validate`
+checks that tag, package version, and changelog agree. `ci` reruns lint, type,
+architecture, migration, security, and package checks on that exact commit.
+The image that passes the migrate-and-probe smoke test is the one pushed, and
+its digest is recorded in the GitHub Release. Pages has its own manual workflow
+that runs `build_pages.py` and `validate_pages.py`.
+
+Where in the code:
+
+- [.github/workflows/release.yml](../.github/workflows/release.yml) and
+  [.github/workflows/ci.yml](../.github/workflows/ci.yml)
+- [.github/workflows/pages.yml](../.github/workflows/pages.yml)
+- [scripts/validate_release.py](../scripts/validate_release.py),
+  [scripts/smoke_container.sh](../scripts/smoke_container.sh)
+- [Makefile](../Makefile): the same checks for local runs (`make check`)
+- [RELEASING.md](RELEASING.md): the human steps around this pipeline
 
 ## Extending the application
 

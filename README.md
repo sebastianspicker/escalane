@@ -7,6 +7,8 @@ acknowledgement links for responders. It records each alarm’s history in
 PostgreSQL and uses background workers to send notifications and escalate
 unanswered alarms. You can also configure the service and manage alarms through its API.
 
+> _Claude was used to polish and proof-read the code and documentation of this repository._
+
 <details>
 <summary>Status and limitations</summary>
 
@@ -36,13 +38,16 @@ connections to Escalane or its notification providers.
 
 ```mermaid
 flowchart LR
-  Device[Device alarm trigger] --> Intake[Authenticated intake]
-  Intake --> DB[PostgreSQL alarm history and outbox]
-  DB --> Worker[Background notification worker]
-  Worker --> Providers[Configured notification providers]
-  People[Operators and responders] --> API[Worklist and acknowledgement API]
-  API --> DB
+  device[Alarm device] -->|token-authenticated trigger| api[FastAPI web process]
+  people[Operators and responders] -->|worklist, ack links| api
+  api -->|alarm + outbox rows| db[(PostgreSQL)]
+  api -.->|queue job| redis[(Redis)]
+  redis -.-> worker[ARQ worker]
+  worker -->|notify, escalate| providers[Notification providers]
 ```
+
+[Architecture](docs/ARCHITECTURE.md) traces a trigger and an acknowledgement
+step by step and maps each step to the code.
 
 Security checks run automatically. General build checks run for Dependabot pull
 requests or on manual dispatch; Pages and release publication are manual-only.
