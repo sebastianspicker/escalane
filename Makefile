@@ -67,7 +67,7 @@ pages-check:
 	$(PYTHON) scripts/validate_pages.py build/pages
 
 package-check:
-	@package_dir="$$(mktemp -d)"; trap 'rm -rf "$$package_dir"' EXIT; \
+	@package_dir="$$(mktemp -d "$${TMPDIR:-/tmp}/escalane-package.XXXXXX")" || exit 1; trap 'rm -rf "$$package_dir"' EXIT; \
 		rm -rf "$(ROOT_DIR)/src/escalane.egg-info" "$(ROOT_DIR)/build/lib"; \
 		if test -d "$(ROOT_DIR)/build"; then find "$(ROOT_DIR)/build" -maxdepth 1 -type d -name 'bdist.*' -exec rm -rf {} +; fi; \
 		PIP_BUILD_CONSTRAINT="$(BUILD_CONSTRAINTS)" $(PYTHON) -m build --wheel --outdir "$$package_dir"; \

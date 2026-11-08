@@ -10,6 +10,7 @@ from typing import Any, cast
 import httpx
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from escalane.notifications.payloads import NotificationPayload
 from escalane.persistence.models import AlarmNotification
@@ -174,6 +175,22 @@ async def log_notification(
         raise NotificationAuditError("Notification audit persistence failed") from exc
 
 
+def _payload_equals(name: str, value: Any) -> ColumnElement[bool]:
+    """Compare one JSON payload field with a Python value of its JSON type."""
+    field = AlarmNotification.payload[name]
+    if value is None:
+        clause = field.as_string().is_(None)
+    elif isinstance(value, bool):
+        clause = field.as_boolean() == value
+    elif isinstance(value, int):
+        clause = field.as_integer() == value
+    elif isinstance(value, float):
+        clause = field.as_float() == value
+    else:
+        clause = field.as_string() == str(value)
+    return cast(ColumnElement[bool], clause)
+
+
 async def _matching_notification(
     session: AsyncSession,
     *,
@@ -190,19 +207,7 @@ async def _matching_notification(
         else AlarmNotification.target_id == target_id
     )
     key = logical_delivery_key(payload_matches)
-    legacy_matches = []
-    for payload_key, value in payload_matches.items():
-        payload_value = AlarmNotification.payload[payload_key]
-        if value is None:
-            legacy_matches.append(payload_value.as_string().is_(None))
-        elif isinstance(value, bool):
-            legacy_matches.append(payload_value.as_boolean() == value)
-        elif isinstance(value, int):
-            legacy_matches.append(payload_value.as_integer() == value)
-        elif isinstance(value, float):
-            legacy_matches.append(payload_value.as_float() == value)
-        else:
-            legacy_matches.append(payload_value.as_string() == str(value))
+    legacy_matches = [_payload_equals(name, value) for name, value in payload_matches.items()]
 
     identity_filter = and_(*legacy_matches)
     if key is not None:

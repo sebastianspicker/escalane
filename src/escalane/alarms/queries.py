@@ -221,14 +221,21 @@ def _worklist_statement(
     if severity_filter in CONSOLE_SEVERITY_FILTERS:
         stmt = stmt.where(Alarm.severity == severity_filter)
     if search:
-        pattern = f"%{search.strip()}%"
+        # Typed % and _ are literal text, not wildcards.
+        literal = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{literal}%"
         stmt = stmt.where(
             or_(
-                cast(Alarm.id, String).ilike(pattern),
-                Alarm.source.ilike(pattern),
-                Alarm.event.ilike(pattern),
-                Person.display_name.ilike(pattern),
-                Room.label.ilike(pattern),
+                *(
+                    column.ilike(pattern, escape="\\")
+                    for column in (
+                        cast(Alarm.id, String),
+                        Alarm.source,
+                        Alarm.event,
+                        Person.display_name,
+                        Room.label,
+                    )
+                )
             )
         )
     return stmt

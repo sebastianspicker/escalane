@@ -50,6 +50,10 @@ This file records notable changes to Escalane. It follows
 
 ### Fixed
 
+- The worklist search now treats `%` and `_` as plain characters. Searching
+  `door_` no longer also lists `dooropen`.
+- `make package-check` now stops when it cannot create its temporary
+  directory, instead of building into the repository root.
 - A short provider outage no longer drops a notification. The worker now
   retries a failed delivery up to 12 times over about six minutes instead of
   giving up after about 15 seconds. Initial notifications, like escalation
