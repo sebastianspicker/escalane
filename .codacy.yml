@@ -1,0 +1,10 @@
+---
+# Keep-a-Changelog repeats headings per release (markdownlint MD024);
+# benchmark and verification scripts are dev tooling, not shipped code.
+exclude_paths:
+  - "CHANGELOG.md"
+  - "**/CHANGELOG.md"
+  - "scripts/benchmark_*.py"
+  - "scripts/check_architecture.py"
+  - "scripts/verify_public_hygiene.py"
+  - "scripts/validate_wheel.py"
