@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, TypeGuard
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,15 @@ async def visible_counts(session: AsyncSession) -> dict[str, int]:
     return counts
 
 
+def _valid_counts(counts: Any) -> TypeGuard[dict[str, int]]:
+    """A cached value must hold a non-negative int for exactly every alarm status."""
+    return (
+        isinstance(counts, dict)
+        and set(counts) == {s.value for s in AlarmStatus}
+        and all(type(value) is int and value >= 0 for value in counts.values())
+    )
+
+
 async def dashboard_counts(session: AsyncSession, redis: Any) -> dict[str, int]:
     revision = await dashboard_revision(session)
     key = f"escalane:dashboard:counts:{revision}"
@@ -45,11 +54,7 @@ async def dashboard_counts(session: AsyncSession, redis: Any) -> dict[str, int]:
         cached = await redis.get(key)
         if cached is not None:
             counts = json.loads(cached)
-            if (
-                isinstance(counts, dict)
-                and set(counts) == {s.value for s in AlarmStatus}
-                and all(type(value) is int and value >= 0 for value in counts.values())
-            ):
+            if _valid_counts(counts):
                 return counts
     except Exception:
         logger.debug("dashboard_cache_unavailable")

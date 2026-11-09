@@ -86,7 +86,5 @@ async def read_worker_snapshot(redis: Any) -> tuple[dict[str, float], dict]:
         ):
             return {}, {}
         return {key: float(item) for key, item in gauges.items() if key in allowed}, histograms
-    except TypeError, ValueError, KeyError:
-        return {}, {}
     except Exception:
         return {}, {}

@@ -46,15 +46,12 @@ def parse_history_cursor(value: str | None) -> HistoryKey | None:
         parts = json.loads(
             base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_", validate=True)
         )
-        if (
-            not isinstance(parts, list)
-            or len(parts) != 3
-            or not all(isinstance(p, str) for p in parts)
-        ):
-            raise ValueError
-        at, kind, identifier = parts
-        timestamp = datetime.fromisoformat(at)
-        if timestamp.tzinfo is None or kind not in {"note", "notification"}:
+        match parts:
+            case [str() as at, "note" | "notification" as kind, str() as identifier]:
+                timestamp = datetime.fromisoformat(at)
+            case _:
+                raise ValueError
+        if timestamp.tzinfo is None:
             raise ValueError
         return HistoryKey(timestamp.astimezone(UTC), kind, uuid.UUID(identifier))
     except (ValueError, TypeError, OverflowError, binascii.Error) as exc:
@@ -87,28 +84,28 @@ async def _source_events(
             query.order_by(model.created_at.desc(), model.id.desc()).limit(HISTORY_LIMIT + 1)
         )
     ).all()
-    result = []
-    for identifier, at, actor, description, note_type in rows:
-        key = HistoryKey(_utc(at), kind, identifier)
-        if kind != "note":
-            text = f"{actor}: {description or 'pending'}"
-        elif note_type in _TRANSITION_LABELS:
-            label = f"{actor or 'System'} ({_TRANSITION_LABELS[note_type]})"
-            text = f"{label}: {description}" if description else label
-        else:
-            text = f"{actor or 'System'}: {description}"
-        result.append(
-            (
-                key,
-                {
-                    "at": at.isoformat(timespec="minutes"),
-                    "at_iso": at.isoformat(),
-                    "description": text,
-                    "key": f"{kind}:{identifier}",
-                },
-            )
+    return [
+        (
+            HistoryKey(_utc(at), kind, identifier),
+            {
+                "at": at.isoformat(timespec="minutes"),
+                "at_iso": at.isoformat(),
+                "description": _describe(kind, actor, description, note_type),
+                "key": f"{kind}:{identifier}",
+            },
         )
-    return result
+        for identifier, at, actor, description, note_type in rows
+    ]
+
+
+def _describe(kind: str, actor: str | None, description: str | None, note_type: str | None) -> str:
+    """Render one timeline row as ``actor (transition): text``."""
+    if kind != "note":
+        return f"{actor}: {description or 'pending'}"
+    if note_type in _TRANSITION_LABELS:
+        label = f"{actor or 'System'} ({_TRANSITION_LABELS[note_type]})"
+        return f"{label}: {description}" if description else label
+    return f"{actor or 'System'}: {description}"
 
 
 async def history_page(

@@ -14,7 +14,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "admin": "Administration",
         "sign_in": "Sign in",
         "operator_console": "Operator console",
-        "secure_access": "Secure operator access",
         "sign_in_help": (
             "Use the assigned admin key. Your operator name is recorded with each action."
         ),
@@ -39,7 +38,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "cancel": "Cancel",
         "save": "Save",
         "filter": "Filter",
-        "all_statuses": "All statuses",
         "no_alarms": "No alarms match this view.",
         "alarm_details": "Alarm details",
         "activity": "Activity",
@@ -52,7 +50,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
             "Escalation to the next contact stops."
         ),
         "back_to_worklist": "Back to worklist",
-        "try_again": "Try again",
         "error": "Something went wrong",
         "error_help": "The requested action could not be completed.",
         "close": "Close",
@@ -67,7 +64,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "operator_name": "Operator name",
         "search": "Search",
         "export": "Export",
-        "selected_action": "Action for selected alarms",
         "apply": "Apply",
         "reason": "Reason",
         "add_note": "Add note",
@@ -111,8 +107,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "search_hint": "ID, person, room, source, or event",
         "sort_by": "Sort by",
         "order": "Order",
-        "ascending": "Ascending",
-        "descending": "Descending",
         "newest_first": "Newest first",
         "oldest_first": "Oldest first",
         "updated": "Updated",
@@ -138,7 +132,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "action": "Action",
         "required_for_cancel": "required for cancellation",
         "reason_required_for_cancel": "Reason required for cancellation",
-        "apply_to_selected": "Apply to selected",
         "pagination": "Worklist pages",
         "back": "Back",
         "alarm_context": "Alarm context",
@@ -148,7 +141,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
             "Cancel only when the alarm should no longer be handled. A reason is required."
         ),
         "keep_alarm_open": "Keep alarm open",
-        "responder_action": "Responder action",
         "acknowledgement_complete": (
             "Someone already has this alarm, or it has been closed. "
             "There is nothing more to do here."
@@ -250,7 +242,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "admin": "Verwaltung",
         "sign_in": "Anmelden",
         "operator_console": "Bedienoberfläche",
-        "secure_access": "Geschützter Zugang",
         "sign_in_help": (
             "Verwenden Sie den zugewiesenen Admin-Schlüssel. "
             "Ihr Name wird mit jeder Aktion protokolliert."
@@ -276,7 +267,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "cancel": "Abbrechen",
         "save": "Speichern",
         "filter": "Filtern",
-        "all_statuses": "Alle Status",
         "no_alarms": "Keine Alarme in dieser Ansicht.",
         "alarm_details": "Alarmdetails",
         "activity": "Verlauf",
@@ -289,7 +279,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
             "Die Eskalation an den nächsten Kontakt endet."
         ),
         "back_to_worklist": "Zurück zur Übersicht",
-        "try_again": "Erneut versuchen",
         "error": "Etwas ist schiefgelaufen",
         "error_help": "Die gewünschte Aktion konnte nicht abgeschlossen werden.",
         "close": "Schließen",
@@ -304,7 +293,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "operator_name": "Name der Bedienperson",
         "search": "Suchen",
         "export": "Exportieren",
-        "selected_action": "Aktion für ausgewählte Alarme",
         "apply": "Ausführen",
         "reason": "Begründung",
         "add_note": "Notiz hinzufügen",
@@ -350,8 +338,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "search_hint": "ID, Person, Raum, Quelle oder Ereignis",
         "sort_by": "Sortieren nach",
         "order": "Reihenfolge",
-        "ascending": "Aufsteigend",
-        "descending": "Absteigend",
         "newest_first": "Neueste zuerst",
         "oldest_first": "Älteste zuerst",
         "updated": "Aktualisiert",
@@ -377,7 +363,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
         "action": "Aktion",
         "required_for_cancel": "bei Stornierung erforderlich",
         "reason_required_for_cancel": "Begründung bei Stornierung erforderlich",
-        "apply_to_selected": "Auf Auswahl anwenden",
         "pagination": "Seiten der Alarmübersicht",
         "back": "Zurück",
         "alarm_context": "Alarmkontext",
@@ -388,7 +373,6 @@ CATALOGUE: dict[str, dict[str, str]] = {
             "Eine Begründung ist erforderlich."
         ),
         "keep_alarm_open": "Alarm geöffnet lassen",
-        "responder_action": "Aktion für Einsatzkräfte",
         "acknowledgement_complete": (
             "Dieser Alarm ist bereits übernommen oder abgeschlossen. Hier ist nichts mehr zu tun."
         ),
